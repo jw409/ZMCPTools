@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}ClaudeMcpTools Dashboard{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
+    <script src="{{ url_for('static', path='websocket.js') }}" defer></script>
+    <script src="{{ url_for('static', path='app.js') }}" defer></script>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1 class="logo">🎛️ ClaudeMcpTools Dashboard</h1>
+                <div class="header-controls">
+                    <div class="connection-status" id="connection-status">
+                        <span class="status-dot" id="status-dot"></span>
+                        <span id="status-text">Connecting...</span>
+                    </div>
+                    <button class="theme-toggle" id="theme-toggle" title="Toggle theme">
+                        <span class="theme-icon">🌙</span>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Navigation -->
+        <nav class="sidebar">
+            <ul class="nav-links">
+                <li><a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}">
+                    <span class="nav-icon">📊</span>
+                    <span class="nav-text">Dashboard</span>
+                </a></li>
+                <li><a href="/agents" class="nav-link {% if request.url.path == '/agents' %}active{% endif %}">
+                    <span class="nav-icon">🤖</span>
+                    <span class="nav-text">Agents</span>
+                </a></li>
+                <li><a href="/documentation" class="nav-link {% if request.url.path == '/documentation' %}active{% endif %}">
+                    <span class="nav-icon">📚</span>
+                    <span class="nav-text">Documentation</span>
+                </a></li>
+                <li><a href="/cleanup" class="nav-link {% if request.url.path == '/cleanup' %}active{% endif %}">
+                    <span class="nav-icon">🧹</span>
+                    <span class="nav-text">Cleanup</span>
+                </a></li>
+                <li><a href="/settings" class="nav-link {% if request.url.path == '/settings' %}active{% endif %}">
+                    <span class="nav-icon">⚙️</span>
+                    <span class="nav-text">Settings</span>
+                </a></li>
+            </ul>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <div class="page-header">
+                <h2 class="page-title">{{ page_title or "Dashboard" }}</h2>
+                <div class="page-actions">
+                    {% block page_actions %}{% endblock %}
+                </div>
+            </div>
+            
+            <div class="content">
+                {% block content %}{% endblock %}
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <div class="footer-content">
+                <span>Last updated: <span id="last-updated">--</span></span>
+                <span>ClaudeMcpTools v0.2.0</span>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Notifications -->
+    <div class="notifications" id="notifications"></div>
+
+    <!-- Modals -->
+    <div class="modal-overlay" id="modal-overlay">
+        <div class="modal" id="modal">
+            <div class="modal-header">
+                <h3 class="modal-title" id="modal-title"></h3>
+                <button class="modal-close" id="modal-close">&times;</button>
+            </div>
+            <div class="modal-content" id="modal-content"></div>
+            <div class="modal-actions" id="modal-actions"></div>
+        </div>
+    </div>
+</body>
+</html>

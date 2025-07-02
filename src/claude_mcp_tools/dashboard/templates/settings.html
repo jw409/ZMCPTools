@@ -1,0 +1,502 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - ClaudeMcpTools{% endblock %}
+
+{% block content %}
+<div class="settings-container">
+    <div class="settings-grid">
+        <!-- Dashboard Settings -->
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">Dashboard Settings</h3>
+            </div>
+            <div class="card-content">
+                <div class="setting-group">
+                    <label class="setting-label">Theme</label>
+                    <div class="setting-control">
+                        <select id="theme-setting" onchange="changeTheme()">
+                            <option value="light">Light</option>
+                            <option value="dark">Dark</option>
+                            <option value="auto">Auto (System)</option>
+                        </select>
+                    </div>
+                    <div class="setting-description">
+                        Choose your preferred color theme for the dashboard.
+                    </div>
+                </div>
+                
+                <div class="setting-group">
+                    <label class="setting-label">Auto-refresh Interval</label>
+                    <div class="setting-control">
+                        <select id="refresh-interval" onchange="changeRefreshInterval()">
+                            <option value="10">10 seconds</option>
+                            <option value="30" selected>30 seconds</option>
+                            <option value="60">1 minute</option>
+                            <option value="300">5 minutes</option>
+                            <option value="0">Disabled</option>
+                        </select>
+                    </div>
+                    <div class="setting-description">
+                        How often to automatically refresh dashboard data.
+                    </div>
+                </div>
+                
+                <div class="setting-group">
+                    <label class="setting-label">Notifications</label>
+                    <div class="setting-control">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="notifications-enabled" checked onchange="toggleNotifications()">
+                            <span class="checkbox-custom"></span>
+                            Enable notifications
+                        </label>
+                    </div>
+                    <div class="setting-description">
+                        Show notifications for agent spawns, cleanup operations, etc.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- System Information -->
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">System Information</h3>
+            </div>
+            <div class="card-content">
+                <div class="info-grid">
+                    <div class="info-item">
+                        <span class="info-label">Version:</span>
+                        <span class="info-value">ClaudeMcpTools v0.2.0</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Dashboard URL:</span>
+                        <span class="info-value" id="current-url">-</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Data Directory:</span>
+                        <span class="info-value">~/.claude/zmcptools/</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Installation:</span>
+                        <span class="info-value">~/.claude/mcptools/</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Data Management -->
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">Data Management</h3>
+            </div>
+            <div class="card-content">
+                <div class="data-actions">
+                    <div class="action-item">
+                        <div class="action-info">
+                            <h4>Export Configuration</h4>
+                            <p>Download current dashboard settings and preferences.</p>
+                        </div>
+                        <button class="btn btn-secondary" onclick="exportSettings()">
+                            📥 Export
+                        </button>
+                    </div>
+                    
+                    <div class="action-item">
+                        <div class="action-info">
+                            <h4>Import Configuration</h4>
+                            <p>Upload and apply dashboard settings from a file.</p>
+                        </div>
+                        <button class="btn btn-secondary" onclick="importSettings()">
+                            📤 Import
+                        </button>
+                    </div>
+                    
+                    <div class="action-item">
+                        <div class="action-info">
+                            <h4>Reset Settings</h4>
+                            <p>Restore all dashboard settings to their defaults.</p>
+                        </div>
+                        <button class="btn btn-warning" onclick="resetSettings()">
+                            🔄 Reset
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- About -->
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">About</h3>
+            </div>
+            <div class="card-content">
+                <div class="about-content">
+                    <p><strong>ClaudeMcpTools Dashboard</strong></p>
+                    <p>A modern web interface for managing ClaudeMcpTools orchestration, agents, and documentation.</p>
+                    
+                    <div class="feature-list">
+                        <h4>Features:</h4>
+                        <ul>
+                            <li>🤖 Real-time agent management and monitoring</li>
+                            <li>📊 Interactive system status and metrics</li>
+                            <li>🧹 Visual cleanup and maintenance tools</li>
+                            <li>📚 Documentation browsing and search</li>
+                            <li>🎨 Light/dark mode with system preference detection</li>
+                            <li>📱 Responsive design for mobile and desktop</li>
+                            <li>⚡ WebSocket-powered real-time updates</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="links">
+                        <a href="https://github.com/ZachHandley/ClaudeMcpTools" target="_blank" class="btn btn-secondary">
+                            📖 Documentation
+                        </a>
+                        <a href="https://github.com/ZachHandley/ClaudeMcpTools/issues" target="_blank" class="btn btn-secondary">
+                            🐛 Report Issue
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.settings-container {
+    max-width: 1000px;
+    margin: 0 auto;
+}
+
+.settings-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
+    gap: 2rem;
+}
+
+.setting-group {
+    margin-bottom: 2rem;
+}
+
+.setting-group:last-child {
+    margin-bottom: 0;
+}
+
+.setting-label {
+    display: block;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.5rem;
+}
+
+.setting-control {
+    margin-bottom: 0.5rem;
+}
+
+.setting-control select {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: inherit;
+}
+
+.setting-description {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    cursor: pointer;
+    font-weight: 500;
+}
+
+.checkbox-label input[type="checkbox"] {
+    display: none;
+}
+
+.checkbox-custom {
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--border-color);
+    border-radius: 4px;
+    position: relative;
+    transition: all 0.3s ease;
+}
+
+.checkbox-label input[type="checkbox"]:checked + .checkbox-custom {
+    background-color: var(--accent-color);
+    border-color: var(--accent-color);
+}
+
+.checkbox-label input[type="checkbox"]:checked + .checkbox-custom::after {
+    content: '✓';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: white;
+    font-size: 14px;
+    font-weight: bold;
+}
+
+.info-grid {
+    display: grid;
+    gap: 1rem;
+}
+
+.info-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.info-item:last-child {
+    border-bottom: none;
+}
+
+.info-label {
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.info-value {
+    font-family: monospace;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.data-actions {
+    display: grid;
+    gap: 1.5rem;
+}
+
+.action-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem;
+    background-color: var(--bg-secondary);
+    border-radius: 8px;
+}
+
+.action-info h4 {
+    margin: 0 0 0.5rem 0;
+    color: var(--text-primary);
+    font-size: 1rem;
+}
+
+.action-info p {
+    margin: 0;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.about-content p {
+    margin-bottom: 1rem;
+    color: var(--text-primary);
+}
+
+.feature-list {
+    margin: 1.5rem 0;
+}
+
+.feature-list h4 {
+    margin-bottom: 0.75rem;
+    color: var(--text-primary);
+}
+
+.feature-list ul {
+    margin: 0;
+    padding-left: 1.5rem;
+}
+
+.feature-list li {
+    margin: 0.5rem 0;
+    color: var(--text-secondary);
+}
+
+.links {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1.5rem;
+}
+
+@media (max-width: 768px) {
+    .settings-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .action-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 1rem;
+    }
+    
+    .links {
+        flex-direction: column;
+    }
+}
+</style>
+
+<script>
+// Load current settings on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadCurrentSettings();
+});
+
+function loadCurrentSettings() {
+    // Load theme setting
+    const savedTheme = localStorage.getItem('dashboard-theme') || 'light';
+    document.getElementById('theme-setting').value = savedTheme;
+    
+    // Load other settings
+    const notificationsEnabled = localStorage.getItem('notifications-enabled') !== 'false';
+    document.getElementById('notifications-enabled').checked = notificationsEnabled;
+    
+    // Set current URL
+    document.getElementById('current-url').textContent = window.location.origin;
+}
+
+function changeTheme() {
+    const themeSelect = document.getElementById('theme-setting');
+    const newTheme = themeSelect.value;
+    
+    if (newTheme === 'auto') {
+        // Use system preference
+        const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', systemTheme);
+    } else {
+        document.documentElement.setAttribute('data-theme', newTheme);
+    }
+    
+    localStorage.setItem('dashboard-theme', newTheme);
+    
+    // Update theme toggle icon
+    const themeIcon = document.querySelector('.theme-icon');
+    if (themeIcon) {
+        const currentTheme = document.documentElement.getAttribute('data-theme');
+        themeIcon.textContent = currentTheme === 'light' ? '🌙' : '☀️';
+    }
+    
+    showNotification('Theme updated', 'success');
+}
+
+function changeRefreshInterval() {
+    const intervalSelect = document.getElementById('refresh-interval');
+    const newInterval = parseInt(intervalSelect.value);
+    
+    localStorage.setItem('refresh-interval', newInterval.toString());
+    
+    // Update auto-refresh if it's running
+    if (window.startAutoRefresh) {
+        window.stopAutoRefresh();
+        if (newInterval > 0) {
+            window.startAutoRefresh(newInterval * 1000);
+        }
+    }
+    
+    showNotification('Refresh interval updated', 'success');
+}
+
+function toggleNotifications() {
+    const checkbox = document.getElementById('notifications-enabled');
+    localStorage.setItem('notifications-enabled', checkbox.checked.toString());
+    
+    const message = checkbox.checked ? 'Notifications enabled' : 'Notifications disabled';
+    showNotification(message, 'success');
+}
+
+function exportSettings() {
+    const settings = {
+        theme: localStorage.getItem('dashboard-theme') || 'light',
+        refreshInterval: localStorage.getItem('refresh-interval') || '30',
+        notificationsEnabled: localStorage.getItem('notifications-enabled') !== 'false',
+        exportedAt: new Date().toISOString()
+    };
+    
+    const blob = new Blob([JSON.stringify(settings, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'claudemcptools-dashboard-settings.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    showNotification('Settings exported successfully', 'success');
+}
+
+function importSettings() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    
+    input.onchange = function(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const settings = JSON.parse(e.target.result);
+                
+                // Apply settings
+                if (settings.theme) {
+                    localStorage.setItem('dashboard-theme', settings.theme);
+                    document.getElementById('theme-setting').value = settings.theme;
+                    changeTheme();
+                }
+                
+                if (settings.refreshInterval) {
+                    localStorage.setItem('refresh-interval', settings.refreshInterval);
+                    document.getElementById('refresh-interval').value = settings.refreshInterval;
+                }
+                
+                if (settings.notificationsEnabled !== undefined) {
+                    localStorage.setItem('notifications-enabled', settings.notificationsEnabled.toString());
+                    document.getElementById('notifications-enabled').checked = settings.notificationsEnabled;
+                }
+                
+                showNotification('Settings imported successfully', 'success');
+                
+            } catch (error) {
+                showNotification('Invalid settings file', 'error');
+            }
+        };
+        reader.readAsText(file);
+    };
+    
+    input.click();
+}
+
+function resetSettings() {
+    if (!confirm('Are you sure you want to reset all settings to their defaults?')) {
+        return;
+    }
+    
+    // Clear all settings
+    localStorage.removeItem('dashboard-theme');
+    localStorage.removeItem('refresh-interval');
+    localStorage.removeItem('notifications-enabled');
+    
+    // Reset UI
+    document.getElementById('theme-setting').value = 'light';
+    document.getElementById('refresh-interval').value = '30';
+    document.getElementById('notifications-enabled').checked = true;
+    
+    // Apply defaults
+    changeTheme();
+    changeRefreshInterval();
+    
+    showNotification('Settings reset to defaults', 'success');
+}
+</script>
+{% endblock %}
