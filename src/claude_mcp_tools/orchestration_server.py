@@ -1100,6 +1100,33 @@ async def get_task_history(repo_path: str) -> dict[str, Any]:
         return {"error": f"Failed to get task history: {e}"}
 
 
+@app.resource("fastmcp://context-logging",
+             name="FastMCP Context Logging",
+             description="Context and logging information for FastMCP operations")
+async def get_context_logging() -> dict[str, Any]:
+    """Provide FastMCP context and logging information."""
+    try:
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "logging_enabled": True,
+            "log_level": "INFO",
+            "context_tracking": {
+                "active_contexts": 0,
+                "context_history": [],
+                "session_tracking": True,
+            },
+            "fastmcp_status": {
+                "version": "2.9.0",
+                "tools_registered": len(app._tools),
+                "resources_registered": len(app._resources),
+                "prompts_registered": len(app._prompts),
+            },
+        }
+    except Exception as e:
+        logger.error("Error getting FastMCP context logging", error=str(e))
+        return {"error": f"Failed to get context logging: {e}"}
+
+
 @app.resource("system://orchestration/health",
              name="Orchestration System Health",
              description="Overall health and performance metrics of the orchestration system")

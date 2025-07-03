@@ -437,13 +437,22 @@ class DocumentationScraper(SimpleBrowserManager, NavigationMixin, InteractionMix
                 # Skip if matches ignore patterns
                 if ignore_patterns and any(re.search(pattern, url) for pattern in ignore_patterns):
                     logger.debug("Skipping URL due to ignore pattern", url=url)
+                    if ctx:
+                        await ctx.info(f"⏭️ Skipping {url} (matches ignore pattern)")
                     continue
 
                 # Scrape this URL
+                if ctx:
+                    await ctx.info(f"📄 Scraping page {pages_processed + 1}/{total_discovered}: {url}")
+                
                 entry_data = await self._scrape_single_url(url, selectors)
                 if entry_data:
                     scraped_entries.append(entry_data)
                     self.scraped_urls.add(url)
+                    
+                    if ctx:
+                        title = entry_data.get("title", "Untitled")[:50]
+                        await ctx.info(f"✅ Successfully scraped: {title}")
 
                     # Add internal links for deeper crawling if within depth limit
                     if depth < crawl_depth:
@@ -456,8 +465,12 @@ class DocumentationScraper(SimpleBrowserManager, NavigationMixin, InteractionMix
                         
                         # Update total discovered pages (total grows as we find more links)
                         total_discovered += new_links_count
+                        if ctx and new_links_count > 0:
+                            await ctx.info(f"🔗 Discovered {new_links_count} new links (total: {total_discovered})")
                 else:
                     self.failed_urls.add(url)
+                    if ctx:
+                        await ctx.error(f"❌ Failed to scrape: {url}")
 
                 # Update progress - pages processed vs current total discovered
                 pages_processed += 1

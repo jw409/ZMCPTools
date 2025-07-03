@@ -93,7 +93,15 @@ class AgentService:
                 "created_at": agent.created_at.isoformat(),
             }
 
-        return await execute_query(_create_agent)
+        try:
+            result = await execute_query(_create_agent)
+            return {"success": True, **result}
+        except Exception as e:
+            logger.error("Failed to create agent in database", 
+                        agent_id=agent_id, 
+                        agent_type=agent_type, 
+                        error=str(e))
+            return {"success": False, "error": str(e)}
 
     @staticmethod
     async def get_agent_by_id(agent_id: str) -> dict[str, Any] | None:

@@ -46,7 +46,7 @@ dependencies = [
     "sentence-transformers>=3.0.0",
     "sqlalchemy[asyncio]>=2.0.41",
     "structlog>=25.4.0",
-    "torch>=2.7.1",
+    "torch>=2.7.0",
     "tree-sitter>=0.24.0",
     "typer>=0.16.0",
     "uvicorn>=0.24.0",
@@ -80,6 +80,11 @@ target-version = "py310"
 [tool.ruff.lint]
 select = ["E", "F", "W", "C90", "I", "N", "UP", "YTT", "S", "BLE", "FBT", "B", "A", "COM", "C4", "DTZ", "T10", "EM", "EXE", "FA", "ISC", "ICN", "G", "INP", "PIE", "T20", "PYI", "PT", "Q", "RSE", "RET", "SLF", "SIM", "TID", "TCH", "INT", "ARG", "PTH", "PGH", "TRY", "FLY", "NPY", "PERF", "RUF"]
 ignore = ["S101", "T201", "T203", "F821"]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [tool.ruff.lint.isort]
 known-first-party = ["claude_mcp_tools"]

@@ -83,28 +83,31 @@ async def scrape_documentation(
 ) -> dict[str, Any]:
     """Scrape and index documentation from websites."""
     try:
-        # Initialize progress
-        if ctx:
-            await ctx.report_progress(0, 100)
+        # Initialize progress and logging
+        await ctx.info(f"🚀 Starting documentation scraping for {source_name} at {url}")
+        await ctx.report_progress(0, 100)
 
         # Parse selectors if provided as JSON string
+        await ctx.info("📝 Parsing selectors and configuration...")
         parsed_selectors = parse_json_dict(selectors, "selectors")
         if check_parsing_error(parsed_selectors):
+            await ctx.error(f"❌ Failed to parse selectors: {parsed_selectors}")
             return parsed_selectors
         final_selectors: dict[str, str] | None = parsed_selectors
 
         # If it's a simple string without JSON brackets, treat it as a single selector
         if isinstance(selectors, str) and "{" not in selectors:
             final_selectors = {"content": selectors}
+            await ctx.info(f"🔧 Using simple selector: {selectors}")
 
-        if ctx:
-            await ctx.report_progress(10, 100)
+        await ctx.report_progress(10, 100)
 
+        await ctx.info("🏗️ Initializing documentation service...")
         doc_service = DocumentationService()
 
         # First, add/update the documentation source
-        if ctx:
-            await ctx.report_progress(20, 100)
+        await ctx.info("📦 Adding/updating documentation source...")
+        await ctx.report_progress(20, 100)
 
         source_result = await doc_service.add_documentation_source(
             name=source_name,
@@ -117,14 +120,16 @@ async def scrape_documentation(
         )
 
         if not source_result.get("success"):
+            await ctx.error(f"❌ Failed to create documentation source: {source_result.get('error', 'Unknown error')}")
             return {"error": {"code": "SOURCE_CREATION_FAILED", "message": source_result.get("error", "Unknown error")}}
 
         source_id = source_result["source_id"]
+        await ctx.info(f"✅ Documentation source created with ID: {source_id}")
 
         # Conditionally scrape the documentation
         if scrape_immediately:
-            if ctx:
-                await ctx.report_progress(30, 100)
+            await ctx.info(f"🕷️ Starting immediate scraping with depth {crawl_depth}...")
+            await ctx.report_progress(30, 100)
 
             result = await doc_service.scrape_documentation(
                 source_id=source_id,
@@ -132,13 +137,18 @@ async def scrape_documentation(
                 ctx=ctx,
             )
 
-            if ctx:
-                await ctx.report_progress(100, 100)
+            await ctx.report_progress(100, 100)
+            
+            if result.get("success"):
+                pages_scraped = result.get("entries_scraped", 0)
+                await ctx.info(f"🎉 Documentation scraping completed! Scraped {pages_scraped} pages from {source_name}")
+            else:
+                await ctx.error(f"❌ Documentation scraping failed: {result.get('error', 'Unknown error')}")
 
             return result
         else:
-            if ctx:
-                await ctx.report_progress(100, 100)
+            await ctx.info("📋 Documentation source created successfully, scraping skipped")
+            await ctx.report_progress(100, 100)
 
             return {
                 "success": True,
@@ -149,6 +159,7 @@ async def scrape_documentation(
             }
 
     except Exception as e:
+        await ctx.error(f"💥 Critical error in documentation scraping: {str(e)}")
         logger.error("Error scraping documentation", source=source_name, url=url, error=str(e))
         return {"error": {"code": "SCRAPE_DOCUMENTATION_FAILED", "message": str(e)}}
 

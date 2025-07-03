@@ -36,16 +36,20 @@ async def analyze_project_structure(
 ) -> dict[str, Any]:
     """Generate comprehensive project structure analysis."""
     try:
+        await ctx.info(f"🔍 Starting project structure analysis for {project_path}")
         await ctx.report_progress(0, 100)
         
         # Parse list parameters if provided as JSON strings
+        await ctx.info("📝 Parsing file type filters...")
         parsed_file_types = parse_json_list(file_types, "file_types")
         if check_parsing_error(parsed_file_types):
+            await ctx.error(f"❌ Failed to parse file types: {parsed_file_types}")
             return parsed_file_types
         final_file_types: list[str] | None = parsed_file_types
 
         await ctx.report_progress(20, 100)
 
+        await ctx.info(f"🏗️ Initializing TreeSummaryManager (depth: {max_depth}, hidden: {include_hidden})")
         tree_manager = TreeSummaryManager(
             project_path=project_path,
             include_hidden=include_hidden,
@@ -56,9 +60,11 @@ async def analyze_project_structure(
         await ctx.report_progress(40, 100)
         
         # Using available methods to provide similar functionality
+        await ctx.info("📊 Generating project overview...")
         overview = await tree_manager.get_project_overview()
         
         await ctx.report_progress(100, 100)
+        await ctx.info("✅ Project structure analysis completed successfully!")
         
         return {
             "success": True,
@@ -73,6 +79,7 @@ async def analyze_project_structure(
         }
 
     except Exception as e:
+        await ctx.error(f"💥 Critical error in project structure analysis: {str(e)}")
         logger.error("Error analyzing project structure", project=project_path, error=str(e))
         return {"error": {"code": "ANALYZE_PROJECT_FAILED", "message": str(e)}}
 
@@ -140,25 +147,31 @@ async def detect_dead_code(
 ) -> dict[str, Any]:
     """Detect unused code and functions for cleanup."""
     try:
+        await ctx.info(f"🔍 Starting dead code detection for {project_path}")
         await ctx.report_progress(0, 100)
         
         # Parse list parameters if provided as JSON strings
+        await ctx.info("📝 Parsing file extension filters...")
         parsed_file_extensions = parse_json_list(file_extensions, "file_extensions")
         if check_parsing_error(parsed_file_extensions):
+            await ctx.error(f"❌ Failed to parse file extensions: {parsed_file_extensions}")
             return parsed_file_extensions
         final_file_extensions: list[str] | None = parsed_file_extensions
 
         await ctx.report_progress(25, 100)
 
+        await ctx.info("🏗️ Initializing file analyzer...")
         analyzer = FileAnalyzer()  # No constructor parameters
         
         await ctx.report_progress(50, 100)
         
         # FileAnalyzer doesn't have detect_dead_code method
         # Providing placeholder functionality
+        await ctx.info("⚠️ Dead code detection functionality not yet implemented")
         await ctx.report_progress(75, 100)
         
         await ctx.report_progress(100, 100)
+        await ctx.info("✅ Dead code analysis placeholder completed")
         
         return {
             "success": True,
@@ -173,6 +186,7 @@ async def detect_dead_code(
         }
 
     except Exception as e:
+        await ctx.error(f"💥 Critical error in dead code detection: {str(e)}")
         logger.error("Error detecting dead code", project=project_path, error=str(e))
         return {"error": {"code": "DETECT_DEAD_CODE_FAILED", "message": str(e)}}
 
@@ -255,46 +269,57 @@ async def easy_replace_all(
 ) -> dict[str, Any]:
     """Perform bulk find-and-replace operations across files."""
     try:
+        await ctx.info(f"🔄 Starting bulk replace operation in {repository_path}")
         await ctx.report_progress(0, 100)
         
         # Parse list parameters if provided as JSON strings
+        await ctx.info("📝 Parsing file pattern filters...")
         parsed_file_patterns = parse_json_list(file_patterns, "file_patterns")
         if check_parsing_error(parsed_file_patterns):
+            await ctx.error(f"❌ Failed to parse file patterns: {parsed_file_patterns}")
             return parsed_file_patterns
         final_file_patterns: list[str] | None = parsed_file_patterns
 
         await ctx.report_progress(15, 100)
 
+        await ctx.info("📝 Parsing exclude patterns...")
         parsed_exclude_patterns = parse_json_list(exclude_patterns, "exclude_patterns")
         if check_parsing_error(parsed_exclude_patterns):
+            await ctx.error(f"❌ Failed to parse exclude patterns: {parsed_exclude_patterns}")
             return parsed_exclude_patterns
         final_exclude_patterns: list[str] | None = parsed_exclude_patterns
 
         await ctx.report_progress(30, 100)
 
         # Parse replacements if string
+        await ctx.info(f"🔧 Parsing {len(parsed_replacements) if isinstance(parsed_replacements, list) else 'unknown'} replacement operations...")
         parsed_replacements = replacements
         if isinstance(replacements, str):
             import json
             try:
                 parsed_replacements = json.loads(replacements)
             except json.JSONDecodeError:
+                await ctx.error("❌ Invalid JSON format in replacements string")
                 return {"error": {"code": "INVALID_REPLACEMENTS_FORMAT", "message": "Invalid JSON in replacements string"}}
 
         await ctx.report_progress(45, 100)
 
         # Validate replacement format
+        await ctx.info("✅ Validating replacement operations...")
         for i, replacement in enumerate(parsed_replacements):
             if not isinstance(replacement, dict) or not all(key in replacement for key in ["old", "new"]):
+                await ctx.error(f"❌ Invalid replacement format at index {i}")
                 return {"error": {"code": "INVALID_REPLACEMENT",
                                "message": f"Replacement {i} must be a dict with 'old' and 'new' keys"}}
 
         await ctx.report_progress(60, 100)
 
         # FileOperationsService doesn't exist, providing placeholder
+        await ctx.info("⚠️ Bulk replace functionality not yet implemented")
         await ctx.report_progress(80, 100)
         
         await ctx.report_progress(100, 100)
+        await ctx.info("✅ Bulk replace operation placeholder completed")
         
         return {
             "success": True,
@@ -314,6 +339,7 @@ async def easy_replace_all(
         }
 
     except Exception as e:
+        await ctx.error(f"💥 Critical error in bulk replace operation: {str(e)}")
         logger.error("Error in bulk replace operation", error=str(e))
         return {"error": {"code": "BULK_REPLACE_FAILED", "message": str(e)}}
 
