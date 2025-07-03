@@ -24,7 +24,7 @@ class SimpleBrowserManager:
     def __init__(self, browser_type: str = "chrome", headless: bool = True):
         self.browser_type = browser_type
         self.headless = headless
-        self.user_agent = UserAgent(os="Windows", browsers=["chrome"])
+        self.user_agent = UserAgent(os="Windows")
         self.browser_context = None
         self.playwright = None
         self.retry_count = 3
