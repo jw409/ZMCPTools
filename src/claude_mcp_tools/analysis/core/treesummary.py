@@ -18,14 +18,20 @@ logger = structlog.get_logger()
 class TreeSummaryManager:
     """Manages .treesummary directory with incremental updates and atomic operations."""
 
-    def __init__(self, project_path: str):
+    def __init__(self, project_path: str, include_hidden: bool = False, max_depth: int = 10, file_types: list[str] | None = None):
         """Initialize TreeSummaryManager for a project.
         
         Args:
             project_path: Absolute path to project root
+            include_hidden: Include hidden files and directories in analysis
+            max_depth: Maximum depth to analyze
+            file_types: Specific file types to focus on
         """
         self.project_path = Path(project_path)
         self.summary_path = self.project_path / ".treesummary"
+        self.include_hidden = include_hidden
+        self.max_depth = max_depth
+        self.file_types = file_types or []
         self.ensure_summary_structure()
 
     def ensure_summary_structure(self):

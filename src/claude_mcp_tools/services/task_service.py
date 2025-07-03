@@ -221,6 +221,9 @@ class TaskService:
     async def list_tasks(
         repository_path: str | None = None,
         status_filter: list[TaskStatus] | None = None,
+        task_type_filter: str | None = None,
+        assigned_agent_filter: str | None = None,
+        include_completed: bool = False,
         limit: int = 100,
     ) -> dict[str, Any]:
         """List tasks with optional filtering.
@@ -228,6 +231,9 @@ class TaskService:
         Args:
             repository_path: Filter by repository path
             status_filter: Filter by task status
+            task_type_filter: Filter by task type
+            assigned_agent_filter: Filter by assigned agent ID
+            include_completed: Include completed tasks in results
             limit: Maximum number of tasks to return
             
         Returns:
@@ -243,6 +249,16 @@ class TaskService:
 
             if status_filter:
                 stmt = stmt.where(Task.status.in_(status_filter))
+            
+            if task_type_filter:
+                stmt = stmt.where(Task.task_type == task_type_filter)
+            
+            if assigned_agent_filter:
+                stmt = stmt.where(Task.assigned_agent_id == assigned_agent_filter)
+            
+            # Handle include_completed flag
+            if not include_completed:
+                stmt = stmt.where(Task.status != TaskStatus.COMPLETED)
 
             # Order by priority (desc) and created_at (desc)
             stmt = stmt.order_by(Task.priority.desc(), Task.created_at.desc())
@@ -284,6 +300,9 @@ class TaskService:
                 "filters": {
                     "repository_path": repository_path,
                     "status_filter": [s.value for s in status_filter] if status_filter else None,
+                    "task_type_filter": task_type_filter,
+                    "assigned_agent_filter": assigned_agent_filter,
+                    "include_completed": include_completed,
                 },
             }
 
@@ -477,6 +496,90 @@ class TaskService:
             }
 
         return await execute_query(_create_workflow)
+
+    @staticmethod
+    async def start_workflow(workflow_id: str) -> dict[str, Any]:
+        """Start a workflow by activating its first available tasks.
+        
+        Args:
+            workflow_id: ID of the workflow to start
+            
+        Returns:
+            Dictionary with workflow start result
+        """
+        async def _start_workflow(session: AsyncSession):
+            # Get the workflow task
+            workflow_stmt = select(Task).where(Task.id == workflow_id)
+            workflow_result = await session.execute(workflow_stmt)
+            workflow_task = workflow_result.scalar_one_or_none()
+            
+            if not workflow_task:
+                return {"success": False, "error": "Workflow not found"}
+            
+            if workflow_task.status != TaskStatus.PENDING:
+                return {"success": False, "error": f"Workflow not in pending status: {workflow_task.status.value}"}
+            
+            # Get all workflow steps (child tasks)
+            steps_stmt = select(Task).options(
+                selectinload(Task.dependencies)
+            ).where(Task.parent_task_id == workflow_id)
+            
+            steps_result = await session.execute(steps_stmt)
+            workflow_steps = steps_result.scalars().all()
+            
+            if not workflow_steps:
+                return {"success": False, "error": "No workflow steps found"}
+            
+            # Find tasks with no dependencies (can start immediately)
+            startable_tasks = []
+            for step in workflow_steps:
+                if step.status == TaskStatus.PENDING:
+                    # Check if all dependencies are satisfied
+                    dependencies_satisfied = await TaskService.check_task_dependencies(step.id)
+                    if dependencies_satisfied or not step.dependencies:
+                        startable_tasks.append(step)
+            
+            # Update workflow status to IN_PROGRESS
+            workflow_task.status = TaskStatus.IN_PROGRESS
+            workflow_task.updated_at = datetime.now()
+            
+            # Mark startable tasks as ready for assignment
+            started_tasks = []
+            for task in startable_tasks:
+                if task.status == TaskStatus.PENDING:
+                    # Keep as PENDING but mark as ready in metadata
+                    task.updated_at = datetime.now()
+                    # Add workflow_started flag to requirements
+                    requirements = task.get_requirements() or {}
+                    requirements["workflow_started"] = True
+                    requirements["workflow_id"] = workflow_id
+                    task.set_requirements(requirements)
+                    
+                    started_tasks.append({
+                        "task_id": task.id,
+                        "task_type": task.task_type,
+                        "title": task.description.split(":")[0] if ":" in task.description else task.description[:50],
+                        "status": "ready_for_assignment"
+                    })
+            
+            await session.commit()
+            
+            logger.info("Workflow started",
+                       workflow_id=workflow_id,
+                       total_steps=len(workflow_steps),
+                       startable_tasks=len(started_tasks))
+            
+            return {
+                "success": True,
+                "workflow_id": workflow_id,
+                "workflow_status": "in_progress",
+                "total_steps": len(workflow_steps),
+                "started_tasks": len(started_tasks),
+                "ready_tasks": started_tasks,
+                "message": f"Workflow started with {len(started_tasks)} tasks ready for assignment"
+            }
+        
+        return await execute_query(_start_workflow)
 
     @staticmethod
     async def split_task(

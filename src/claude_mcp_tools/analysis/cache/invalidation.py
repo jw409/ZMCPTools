@@ -283,9 +283,9 @@ class CacheInvalidationStrategy:
         # Check file cache
         analysis_dir = self.file_cache.cache_path / "analysis"
         if analysis_dir.exists():
+            import json
             for cache_file in analysis_dir.rglob("*.json"):
                 try:
-                    import json
                     with cache_file.open() as f:
                         data = json.load(f)
 
@@ -297,7 +297,7 @@ class CacheInvalidationStrategy:
 
         return template_files
 
-    async def age_based_cleanup(self, max_age_days: int = None) -> dict[str, Any]:
+    async def age_based_cleanup(self, max_age_days: int | None = None) -> dict[str, Any]:
         """Clean up cache entries based on age.
         
         Args:
@@ -343,7 +343,7 @@ class CacheInvalidationStrategy:
                 "error": str(e),
             }
 
-    async def size_based_cleanup(self, max_size_mb: int = None) -> dict[str, Any]:
+    async def size_based_cleanup(self, max_size_mb: int | None = None) -> dict[str, Any]:
         """Clean up cache entries based on size limits.
         
         Args:
@@ -414,9 +414,9 @@ class CacheInvalidationStrategy:
         analysis_dir = self.file_cache.cache_path / "analysis"
 
         if analysis_dir.exists():
+            import json
             for cache_file in analysis_dir.rglob("*.json"):
                 try:
-                    import json
                     with cache_file.open() as f:
                         data = json.load(f)
 

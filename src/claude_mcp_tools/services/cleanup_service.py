@@ -191,20 +191,45 @@ class CleanupService:
             return {"error": str(e)}
 
     @staticmethod
-    async def cleanup_orphaned_projects(repository_paths: list[str], dry_run: bool = True) -> dict[str, Any]:
+    async def cleanup_orphaned_projects(
+        repository_paths: list[str], 
+        dry_run: bool = True,
+        force: bool = False,
+        backup_before_cleanup: bool = True,
+        cleanup_categories: list[str] | None = None,
+        older_than_days: int = 30
+    ) -> dict[str, Any]:
         """Clean up data for orphaned projects.
         
         Args:
             repository_paths: List of repository paths to clean up
             dry_run: If True, only analyze what would be deleted
+            force: Force cleanup even if projects appear active
+            backup_before_cleanup: Create backups before cleaning up
+            cleanup_categories: Categories of data to cleanup (tasks, agents, docs, etc.)
+            older_than_days: Only cleanup data older than specified days
             
         Returns:
             Cleanup results
         """
         try:
+            # Set default cleanup categories if none provided
+            if cleanup_categories is None:
+                cleanup_categories = ["tasks", "agents", "chat_messages", "documentation", "errors"]
+            
+            # Calculate cutoff date for older_than_days
+            cutoff_date = datetime.now(timezone.utc) - timedelta(days=older_than_days)
+            
             results = {
                 "dry_run": dry_run,
                 "repository_paths": repository_paths,
+                "settings": {
+                    "force": force,
+                    "backup_before_cleanup": backup_before_cleanup,
+                    "cleanup_categories": cleanup_categories,
+                    "older_than_days": older_than_days,
+                    "cutoff_date": cutoff_date.isoformat(),
+                },
                 "deleted_counts": {},
                 "errors": [],
             }

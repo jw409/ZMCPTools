@@ -13,13 +13,13 @@ import structlog
 
 # Optional import for file watching - graceful fallback if not available
 try:
-    from watchdog.events import FileSystemEventHandler as WatchdogHandler
+    from watchdog.events import FileSystemEventHandler
     from watchdog.observers import Observer
     WATCHDOG_AVAILABLE = True
 except ImportError:
     WATCHDOG_AVAILABLE = False
     Observer = None
-    WatchdogHandler = None
+    FileSystemEventHandler = object  # Stub base class
 
 from ..core.treesummary import TreeSummaryManager
 
@@ -37,7 +37,7 @@ class TreeSummaryHook:
         """
         self.project_path = Path(project_path)
         self.summary_manager = TreeSummaryManager(project_path)
-        self.observers: list[Observer] = []
+        self.observers: list[Any] = []
         self.callbacks: dict[str, list[Callable]] = {
             "file_created": [],
             "file_modified": [],
@@ -99,7 +99,7 @@ class TreeSummaryHook:
                            callback=callback.__name__,
                            error=str(e))
                 await self.trigger_callbacks("error",
-                                            event_type=event_type,
+                                            original_event_type=event_type,
                                             callback=callback.__name__,
                                             error=str(e))
 
@@ -163,13 +163,13 @@ class TreeSummaryHook:
                                                 analysis=analysis)
                     await self.trigger_callbacks("analysis_complete",
                                                 file_path=file_path,
-                                                event_type="created",
+                                                completed_event_type="created",
                                                 success=True)
 
         except Exception as e:
             logger.error("Failed to analyze created file", file_path=file_path, error=str(e))
             await self.trigger_callbacks("error",
-                                        event_type="file_created",
+                                        original_event_type="file_created",
                                         file_path=file_path,
                                         error=str(e))
 
@@ -199,13 +199,13 @@ class TreeSummaryHook:
                                                 analysis=analysis)
                     await self.trigger_callbacks("analysis_complete",
                                                 file_path=file_path,
-                                                event_type="modified",
+                                                completed_event_type="modified",
                                                 success=True)
 
         except Exception as e:
             logger.error("Failed to re-analyze modified file", file_path=file_path, error=str(e))
             await self.trigger_callbacks("error",
-                                        event_type="file_modified",
+                                        original_event_type="file_modified",
                                         file_path=file_path,
                                         error=str(e))
 
@@ -224,25 +224,55 @@ class TreeSummaryHook:
                 await self.trigger_callbacks("file_deleted", file_path=file_path)
                 await self.trigger_callbacks("analysis_complete",
                                             file_path=file_path,
-                                            event_type="deleted",
+                                            completed_event_type="deleted",
                                             success=True)
 
         except Exception as e:
             logger.error("Failed to remove analysis for deleted file",
                         file_path=file_path, error=str(e))
             await self.trigger_callbacks("error",
-                                        event_type="file_deleted",
+                                        original_event_type="file_deleted",
                                         file_path=file_path,
                                         error=str(e))
 
-    def start_watching(self) -> bool:
+    async def start_watching(self, watch_patterns: list[str] | None = None) -> dict[str, Any]:
+        """Start file system monitoring with async support and structured response.
+        
+        Args:
+            watch_patterns: Optional patterns for filtering watched files
+            
+        Returns:
+            Dictionary with success status and details
+        """
+        success = self.start_watching_sync()
+        
+        if success:
+            return {
+                "success": True,
+                "watching": True,
+                "project_path": str(self.project_path),
+                "watchdog_available": WATCHDOG_AVAILABLE,
+                "active_observers": len(self.observers),
+                "watch_patterns": watch_patterns,
+                "status": self.get_status(),
+            }
+        else:
+            return {
+                "success": False,
+                "watching": False,
+                "project_path": str(self.project_path),
+                "watchdog_available": WATCHDOG_AVAILABLE,
+                "error": "Failed to start file watching" + ("" if WATCHDOG_AVAILABLE else " - watchdog not available"),
+            }
+
+    def start_watching_sync(self) -> bool:
         """Start file system monitoring.
         
         Returns:
             True if watching started successfully, False otherwise
         """
         if not WATCHDOG_AVAILABLE:
-            logger.warning("Watchdog not available, file watching disabled")
+            logger.info("Watchdog not available, file watching disabled")
             return False
 
         if self.watching:
@@ -250,7 +280,7 @@ class TreeSummaryHook:
             return True
 
         try:
-            event_handler = FileSystemEventHandler(self)
+            event_handler = TreeSummaryEventHandler(self)
             observer = Observer()
             observer.schedule(event_handler, str(self.project_path), recursive=True)
             observer.start()
@@ -324,15 +354,17 @@ class TreeSummaryHook:
         }
 
 
-class FileSystemEventHandler:
+class TreeSummaryEventHandler(FileSystemEventHandler):
     """File system event handler for .treesummary updates."""
-
+    
     def __init__(self, hook: TreeSummaryHook):
         """Initialize event handler.
         
         Args:
             hook: TreeSummaryHook instance to handle events
         """
+        if WATCHDOG_AVAILABLE:
+            super().__init__()
         self.hook = hook
         self._pending_events = {}  # For debouncing rapid file changes
         self._debounce_delay = 0.5  # seconds
@@ -366,6 +398,9 @@ class FileSystemEventHandler:
             event_type: Type of event
             file_path: Path to the file
         """
+        if not WATCHDOG_AVAILABLE:
+            return
+            
         # Cancel any pending event for this file
         event_key = (event_type, file_path)
         if event_key in self._pending_events:
@@ -388,6 +423,9 @@ class FileSystemEventHandler:
             event_type: Type of event
             file_path: Path to the file
         """
+        if not WATCHDOG_AVAILABLE:
+            return
+            
         # Remove from pending events
         event_key = (event_type, file_path)
         self._pending_events.pop(event_key, None)
@@ -401,16 +439,4 @@ class FileSystemEventHandler:
             asyncio.create_task(self.hook.on_file_deleted(file_path))
 
 
-# If watchdog is not available, create stub classes
-if not WATCHDOG_AVAILABLE:
-    class FileSystemEventHandler:
-        """Stub implementation when watchdog is not available."""
-
-        def __init__(self, hook):
-            self.hook = hook
-            logger.warning("FileSystemEventHandler stub - watchdog not available")
-
-        def on_created(self, event): pass
-        def on_modified(self, event): pass
-        def on_deleted(self, event): pass
-        def on_moved(self, event): pass
+# Note: TreeSummaryEventHandler is conditionally defined based on watchdog availability

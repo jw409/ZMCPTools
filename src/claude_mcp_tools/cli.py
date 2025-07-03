@@ -46,7 +46,7 @@ def check_prerequisites() -> bool:
 
 def _create_or_update_claude_md(project_dir: Path) -> bool:
     """Create or update CLAUDE.md with ClaudeMcpTools integration."""
-    claude_section = '''<!-- zzClaudeMcpToolszz START -->
+    claude_section = """<!-- zzClaudeMcpToolszz START -->
 # ClaudeMcpTools Integration
 
 This project uses ClaudeMcpTools with enhanced MCP tools and architect-led multi-agent orchestration.
@@ -197,23 +197,22 @@ orchestrate_objective(
 🎯 **Recommended**: Always start with `orchestrate_objective()` for multi-step tasks. The architect will intelligently break down work and coordinate specialized agents with proper dependencies and shared context.
 
 Data stored locally at `~/.claude/zmcptools/` with intelligent caching and cross-agent memory sharing.
-<!-- zzClaudeMcpToolszz END -->'''
+<!-- zzClaudeMcpToolszz END -->"""
 
     try:
         claude_md_path = project_dir / "CLAUDE.md"
-        
+
         if not claude_md_path.exists():
             # Create new CLAUDE.md file
             claude_md_path.write_text(claude_section + "\n")
             console.print("✅ [green]Created CLAUDE.md with ClaudeMcpTools integration[/green]")
             return True
-        
+
         # Check if our section already exists
         content = claude_md_path.read_text()
         if "<!-- zzClaudeMcpToolszz START -->" in content:
             # Replace existing section
-            import tempfile
-            
+
             # Split content on our delimiters
             parts = content.split("<!-- zzClaudeMcpToolszz START -->")
             if len(parts) >= 2:
@@ -226,12 +225,12 @@ Data stored locally at `~/.claude/zmcptools/` with intelligent caching and cross
                     claude_md_path.write_text(new_content)
                     console.print("✅ [green]Updated ClaudeMcpTools section in CLAUDE.md[/green]")
                     return True
-            
+
         # Append new section to existing file
         claude_md_path.write_text(content + "\n\n" + claude_section + "\n")
         console.print("✅ [green]Added ClaudeMcpTools section to CLAUDE.md[/green]")
         return True
-        
+
     except Exception as e:
         console.print(f"⚠️ [yellow]Could not update CLAUDE.md: {e}[/yellow]")
         return False
@@ -298,24 +297,24 @@ def install(
             if (current_dir / "pyproject.toml").exists():
                 # We're in source - install globally
                 progress.update(task2, description="📦 Installing from source globally...")
-                
+
                 # Create dedicated virtual environment
                 venv_dir = INSTALL_DIR / ".venv"
                 if not venv_dir.exists():
                     subprocess.run(["uv", "venv", str(venv_dir)], check=True, capture_output=True)
-                
+
                 # Install package in the global venv
                 subprocess.run([
-                    "uv", "pip", "install", "-e", str(current_dir)
+                    "uv", "pip", "install", "-e", str(current_dir),
                 ], env={**os.environ, "VIRTUAL_ENV": str(venv_dir)}, check=True, capture_output=True)
                 progress.update(task2, advance=1)
-                
+
                 # Copy project files (exclude launcher scripts to prevent overwriting)
                 subprocess.run([
                     "rsync", "-av",
                     "--exclude=.git", "--exclude=__pycache__", "--exclude=*.pyc", "--exclude=.pytest_cache",
                     "--exclude=start-orchestration.sh", "--exclude=start-server.sh",
-                    f"{current_dir}/", str(INSTALL_DIR)
+                    f"{current_dir}/", str(INSTALL_DIR),
                 ], check=True, capture_output=True)
                 progress.update(task2, advance=1, description="📦 Global installation complete ✓")
             else:
@@ -332,7 +331,7 @@ def install(
 
         # Always create correct launcher scripts regardless of installation state
         # This ensures we overwrite any old format scripts
-        
+
         # Create orchestration launcher
         orch_launcher = INSTALL_DIR / "start-orchestration.sh"
         orch_launcher.write_text("""#!/bin/bash
@@ -404,11 +403,11 @@ exec claude-mcp-tools-server "$@"
   }
 }"""
                 settings_file.write_text(settings_content)
-                
+
                 # Create or update CLAUDE.md with ClaudeMcpTools integration
                 progress.update(task4, description="📝 Setting up CLAUDE.md integration...")
                 _create_or_update_claude_md(Path.cwd())
-                
+
                 progress.update(task4, advance=1)
             else:
                 progress.update(task4, advance=1)

@@ -74,41 +74,41 @@ def parse_ai_json(value: str | dict[str, Any] | None) -> dict[str, Any] | None:
 
 class BaseToolSchema(BaseModel):
     """Base schema for MCP tools with AI JSON validation."""
-    
+
     model_config = ConfigDict(
         extra="forbid",  # Prevent extra fields
         str_strip_whitespace=True,  # Strip whitespace from strings
         validate_default=True,  # Validate default values
     )
-    
-    @field_validator('*', mode='before')
-    @classmethod
-    def validate_json_fields(cls, v: Any, info) -> Any:
-        """Pre-validator for fields that might be AI-formatted JSON."""
-        # Only process string values that might be JSON
-        if not isinstance(v, str):
-            return v
-            
-        # Get field info
-        field_name = info.field_name
-        field_info = cls.model_fields.get(field_name)
-        
-        if not field_info:
-            return v
-            
-        # Convert annotation to string for easier checking
-        annotation_str = str(field_info.annotation)
-        
-        # Check if this field accepts dict types (includes Union types like dict | None)
-        if 'dict' in annotation_str:
-            try:
-                return parse_ai_json(v)
-            except ValueError:
-                # If JSON parsing fails, return original value
-                # Let Pydantic handle the validation error
-                return v
-        
-        return v
+
+    # @field_validator('*', mode='before')
+    # @classmethod
+    # def validate_json_fields(cls, v: Any, info) -> Any:
+    #     """Pre-validator for fields that might be AI-formatted JSON."""
+    #     # Only process string values that might be JSON
+    #     if not isinstance(v, str):
+    #         return v
+    #
+    #     # Get field info
+    #     field_name = info.field_name
+    #     field_info = cls.model_fields.get(field_name)
+    #
+    #     if not field_info:
+    #         return v
+    #
+    #     # Convert annotation to string for easier checking
+    #     annotation_str = str(field_info.annotation)
+    #
+    #     # Check if this field accepts dict types (includes Union types like dict | None)
+    #     if 'dict' in annotation_str:
+    #         try:
+    #             return parse_ai_json(v)
+    #         except ValueError:
+    #             # If JSON parsing fails, return original value
+    #             # Let Pydantic handle the validation error
+    #             return v
+    #
+    #     return v
 
 
 __all__ = [

@@ -9,6 +9,7 @@ from typing import Any
 import structlog
 from sqlalchemy import and_, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from fastmcp import Context
 
 from ..database import execute_query
 from ..models import ErrorLog, ErrorPattern, LearningEntry
@@ -28,7 +29,7 @@ class ErrorLoggingService:
         agent_id: str | None = None,
         task_id: str | None = None,
         error_details: str | None = None,
-        context: dict[str, Any] | None = None,
+        error_context: Any | None = None,
         environment: dict[str, Any] | None = None,
         attempted_solution: str | None = None,
         severity: str = "medium",
@@ -43,7 +44,7 @@ class ErrorLoggingService:
             agent_id: Optional agent ID
             task_id: Optional task ID
             error_details: Full stack trace or detailed info
-            context: Context when error occurred
+            error_context: Context when error occurred
             environment: Environment information
             attempted_solution: What was tried to fix it
             severity: Error severity (low, medium, high, critical)
@@ -67,8 +68,8 @@ class ErrorLoggingService:
                 severity=severity,
             )
 
-            if context:
-                error_log.set_context(context)
+            if error_context:
+                error_log.set_context(error_context.__dict__ if hasattr(error_context, '__dict__') else error_context)
             if environment:
                 error_log.set_environment(environment)
 
@@ -281,7 +282,7 @@ class ErrorLoggingService:
 
             return {
                 "error_id": error_id,
-                "resolved_at": error_log.resolved_at.isoformat(),
+                "resolved_at": error_log.resolved_at.isoformat() if error_log.resolved_at else None,
                 "learning_id": learning_id,
                 "resolution_details": resolution_details,
             }

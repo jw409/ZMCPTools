@@ -124,7 +124,7 @@ def _list_files_impl(directory: str = ".", show_hidden: bool = True, max_depth: 
 @app.tool(
     name="list_files",
     description="List files and directories in a structured tree format, respecting .claudeignore patterns. Useful for exploring project structure and understanding file organization.",
-    tags={"filesystem", "exploration", "tree"}
+    tags={"filesystem", "exploration", "tree"},
 )
 def list_files(directory: str = ".", show_hidden: bool = True, max_depth: int = 3) -> str:
     """List files and directories, respecting .claudeignore and optionally showing hidden files."""
@@ -181,7 +181,7 @@ def _create_claudeignore_impl(directory: str = ".", patterns: list[str] | None =
 @app.tool(
     name="create_claudeignore",
     description="Create a .claudeignore file with predefined patterns to exclude files from Claude operations. Essential for managing large codebases efficiently.",
-    tags={"filesystem", "configuration", "ignore"}
+    tags={"filesystem", "configuration", "ignore"},
 )
 def create_claudeignore(directory: str = ".", patterns: list[str] | None = None) -> str:
     """Create a .claudeignore file with common ignore patterns."""
@@ -237,7 +237,7 @@ def _find_files_impl(pattern: str, directory: str = ".", include_hidden: bool = 
 @app.tool(
     name="find_files",
     description="Search for files matching glob patterns (e.g., '*.py', '**/*.js'). Perfect for locating specific file types or names across the project.",
-    tags={"filesystem", "search", "pattern-matching"}
+    tags={"filesystem", "search", "pattern-matching"},
 )
 def find_files(pattern: str, directory: str = ".", include_hidden: bool = True) -> str:
     """Find files matching a pattern, respecting ignore files and optionally including hidden files."""
@@ -344,7 +344,7 @@ def _easy_replace_impl(file_path: str, search_text: str, replace_text: str, simi
 @app.tool(
     name="easy_replace",
     description="Intelligent text replacement with fuzzy matching to handle formatting differences. Use when exact string matching fails due to whitespace or indentation variations.",
-    tags={"editing", "replace", "fuzzy-matching", "text-manipulation"}
+    tags={"editing", "replace", "fuzzy-matching", "text-manipulation"},
 )
 def easy_replace(file_path: str, search_text: str, replace_text: str, similarity_threshold: float = 0.8, preview: bool = False) -> str:
     """Smart string replacement with fuzzy matching to handle whitespace differences."""
@@ -457,7 +457,7 @@ def _easy_replace_all_impl(replacements: list[dict[str, str]], file_patterns: li
 @app.tool(
     name="easy_replace_all",
     description="Perform multiple text replacements across multiple files with automatic rollback on errors. Ideal for refactoring operations across codebases.",
-    tags={"editing", "batch-operations", "refactoring", "rollback"}
+    tags={"editing", "batch-operations", "refactoring", "rollback"},
 )
 def easy_replace_all(replacements: list[dict[str, str]], file_patterns: list[str] | None = None, dry_run: bool = False) -> str:
     """Perform multiple replacements across files with rollback capability."""
@@ -558,7 +558,7 @@ def _take_screenshot_impl(output_path: str = "screenshot.png", region: list[int]
 @app.tool(
     name="take_screenshot",
     description="Capture screenshots of the entire screen or specific regions. Cross-platform support for debugging visual issues or documenting UI states.",
-    tags={"screenshot", "debugging", "visual", "documentation"}
+    tags={"screenshot", "debugging", "visual", "documentation"},
 )
 def take_screenshot(output_path: str = "screenshot.png", region: list[int] | None = None, monitor: int = 0, format: str = "png") -> str:
     """Take a screenshot of the screen or a specific region."""
