@@ -1,4 +1,4 @@
-"""Vector embedding service for semantic search using ChromaDB and sentence-transformers."""
+"""Vector embedding service for semantic search using ChromaDB and transformers."""
 
 import uuid
 from pathlib import Path
@@ -15,11 +15,12 @@ logger = structlog.get_logger()
 
 try:
     import chromadb
-    from sentence_transformers import SentenceTransformer
+    from transformers import AutoModel, AutoTokenizer
+    import numpy as np
     VECTOR_DEPS_AVAILABLE = True
 except ImportError:
     VECTOR_DEPS_AVAILABLE = False
-    logger.warning("ChromaDB and/or sentence-transformers not available - vector search disabled")
+    logger.warning("ChromaDB and/or transformers not available - vector search disabled")
 
 
 class VectorService:
@@ -37,6 +38,7 @@ class VectorService:
         self._chroma_client = None
         self._collection = None
         self._embedding_model = None
+        self._tokenizer = None
         self._model_name = "sentence-transformers/all-MiniLM-L6-v2"
 
     async def initialize(self) -> None:
@@ -58,7 +60,8 @@ class VectorService:
             )
 
             # Initialize embedding model
-            self._embedding_model = SentenceTransformer(self._model_name)
+            self._tokenizer = AutoTokenizer.from_pretrained(self._model_name)
+            self._embedding_model = AutoModel.from_pretrained(self._model_name)
 
             logger.info("Vector service initialized",
                        db_path=str(self.vector_db_path),
@@ -97,7 +100,7 @@ class VectorService:
             for i, chunk in enumerate(chunks):
                 try:
                     # Generate embedding
-                    embedding = self._embedding_model.encode(chunk).tolist()
+                    embedding = self._encode_text(chunk).tolist()
 
                     # Store in database
                     embedding_id = str(uuid.uuid4())
@@ -165,7 +168,7 @@ class VectorService:
 
         try:
             # Generate query embedding
-            query_embedding = self._embedding_model.encode(query).tolist()
+            query_embedding = self._encode_text(query).tolist()
 
             # Build where clause for filtering
             where_clause = {}
@@ -311,7 +314,8 @@ class VectorService:
         return (VECTOR_DEPS_AVAILABLE and
                 self._chroma_client is not None and
                 self._collection is not None and
-                self._embedding_model is not None)
+                self._embedding_model is not None and
+                self._tokenizer is not None)
 
     def _split_text_into_chunks(self, text: str, chunk_size: int = 512, overlap: int = 50) -> list[str]:
         """Split text into overlapping chunks for embedding.
@@ -359,6 +363,26 @@ class VectorService:
                 break
 
         return chunks
+
+    def _encode_text(self, text: str) -> np.ndarray:
+        """Encode text using the transformer model.
+        
+        Args:
+            text: Text to encode
+            
+        Returns:
+            Embedding vector as numpy array
+        """
+        # Tokenize the text
+        inputs = self._tokenizer(text, return_tensors="np", truncation=True, padding=True, max_length=512)
+        
+        # Get model output (CPU-only)
+        outputs = self._embedding_model(**inputs)
+        
+        # Use mean pooling to get sentence embedding
+        embeddings = outputs.last_hidden_state.mean(axis=1)
+        
+        return embeddings.squeeze()
 
 
 # Global vector service instance
