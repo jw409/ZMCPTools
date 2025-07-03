@@ -412,22 +412,72 @@ exec claude-mcp-tools-server "$@"
                     if source_file.exists():
                         dest_file.write_text(source_file.read_text())
 
-                # Create basic permissions file
+                # Create or update permissions file (merge with existing)
                 settings_file = project_claude_dir / "settings.local.json"
-                settings_content = """{
-  "mcpServers": {
-    "claude-mcp-orchestration": {
-      "allowed": true,
-      "allowedTools": ["*"]
-    }
-  },
-  "tools": {
-    "computer_20241022": { "allowed": false },
-    "str_replace_editor": { "allowed": true },
-    "bash": { "allowed": true }
-  }
-}"""
-                settings_file.write_text(settings_content)
+                
+                # Load existing settings if they exist
+                existing_settings = {}
+                if settings_file.exists():
+                    try:
+                        import json
+                        existing_settings = json.loads(settings_file.read_text())
+                    except (json.JSONDecodeError, FileNotFoundError):
+                        existing_settings = {}
+                
+                # Default settings to merge
+                default_settings = {
+                    "mcpServers": {
+                        "claude-mcp-orchestration": {
+                            "allowed": True,
+                            "allowedTools": ["*"]
+                        }
+                    },
+                    "tools": {
+                        "computer_20241022": {"allowed": False},
+                        "str_replace_editor": {"allowed": True},
+                        "bash": {"allowed": True},
+                        # Auto-allow all ClaudeMcpTools MCP tools
+                        "mcp__claude-mcp-orchestration__spawn_agent": {"allowed": True},
+                        "mcp__claude-mcp-orchestration__spawn_agents_batch": {"allowed": True},
+                        "mcp__claude-mcp-orchestration__orchestrate_objective": {"allowed": True},
+                        "mcp__claude-mcp-orchestration__list_agents": {"allowed": True},
+                        "mcp__claude-mcp-orchestration__get_agent_status": {"allowed": True},
+                        "mcp__claude-mcp-orchestration__terminate_agent": {"allowed": True},
+                        "mcp__claude-mcp-orchestration__analyze_project_structure": {"allowed": True},
+                        "mcp__claude-mcp-orchestration__generate_project_summary": {"allowed": True},
+                        "mcp__claude-mcp-orchestration__detect_dead_code": {"allowed": True},
+                        "mcp__claude-mcp-orchestration__scrape_documentation": {"allowed": True},
+                        "mcp__claude-mcp-orchestration__search_documentation": {"allowed": True},
+                        "mcp__claude-mcp-orchestration__create_task": {"allowed": True},
+                        "mcp__claude-mcp-orchestration__assign_task": {"allowed": True},
+                        "mcp__claude-mcp-orchestration__list_tasks": {"allowed": True},
+                        "mcp__claude-mcp-orchestration__join_room": {"allowed": True},
+                        "mcp__claude-mcp-orchestration__send_message": {"allowed": True},
+                        "mcp__claude-mcp-orchestration__get_messages": {"allowed": True},
+                        "mcp__claude-mcp-orchestration__store_memory_entry": {"allowed": True},
+                        "mcp__claude-mcp-orchestration__query_shared_memory": {"allowed": True},
+                        "mcp__claude-mcp-orchestration__list_files": {"allowed": True},
+                        "mcp__claude-mcp-orchestration__find_files": {"allowed": True},
+                        "mcp__claude-mcp-orchestration__easy_replace": {"allowed": True},
+                        "mcp__claude-mcp-orchestration__take_screenshot": {"allowed": True}
+                    }
+                }
+                
+                # Merge settings (existing takes precedence)
+                def merge_dicts(default, existing):
+                    result = default.copy()
+                    for key, value in existing.items():
+                        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                            result[key] = merge_dicts(result[key], value)
+                        else:
+                            result[key] = value
+                    return result
+                
+                merged_settings = merge_dicts(default_settings, existing_settings)
+                
+                # Write merged settings
+                import json
+                settings_file.write_text(json.dumps(merged_settings, indent=2))
 
                 # Create or update CLAUDE.md with ClaudeMcpTools integration
                 progress.update(task5, description="📝 Setting up CLAUDE.md integration...")

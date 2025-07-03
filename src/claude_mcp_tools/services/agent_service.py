@@ -131,6 +131,7 @@ class AgentService:
                 "agent_name": agent.agent_name,
                 "repository_path": agent.repository_path,
                 "status": agent.status.value,
+                "claude_pid": agent.claude_pid,
                 "capabilities": agent.get_capabilities(),
                 "metadata": agent.get_metadata(),
                 "created_at": agent.created_at.isoformat(),
@@ -304,3 +305,66 @@ class AgentService:
             return True
 
         return await execute_query(_terminate_agent)
+
+    @staticmethod
+    async def complete_agent(agent_id: str) -> bool:
+        """Mark an agent as completed when its Claude CLI process finishes.
+        
+        Args:
+            agent_id: Agent ID to mark as completed
+            
+        Returns:
+            True if completion successful, False otherwise
+        """
+        async def _complete_agent(session: AsyncSession):
+            # Get the agent
+            stmt = select(AgentSession).where(AgentSession.id == agent_id)
+            result = await session.execute(stmt)
+            agent = result.scalar_one_or_none()
+
+            if not agent:
+                logger.error("Agent not found for completion", agent_id=agent_id)
+                return False
+
+            # Update status to completed
+            agent.status = AgentStatus.COMPLETED
+            agent.last_heartbeat = datetime.now()
+
+            await session.commit()
+
+            logger.info("Agent marked as completed", agent_id=agent_id)
+            return True
+
+        return await execute_query(_complete_agent)
+
+    @staticmethod
+    async def update_agent_pid(agent_id: str, claude_pid: int) -> bool:
+        """Update the Claude CLI process ID for an agent.
+        
+        Args:
+            agent_id: Agent ID to update
+            claude_pid: Claude CLI process ID
+            
+        Returns:
+            True if update successful, False otherwise
+        """
+        async def _update_pid(session: AsyncSession):
+            # Get the agent
+            stmt = select(AgentSession).where(AgentSession.id == agent_id)
+            result = await session.execute(stmt)
+            agent = result.scalar_one_or_none()
+
+            if not agent:
+                logger.error("Agent not found for PID update", agent_id=agent_id)
+                return False
+
+            # Update Claude PID
+            agent.claude_pid = claude_pid
+            agent.last_heartbeat = datetime.now()
+
+            await session.commit()
+
+            logger.info("Agent PID updated", agent_id=agent_id, claude_pid=claude_pid)
+            return True
+
+        return await execute_query(_update_pid)

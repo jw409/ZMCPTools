@@ -19,6 +19,7 @@ class AgentSession(Base):
     agent_name: Mapped[str] = mapped_column(String, nullable=False)
     repository_path: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[AgentStatus] = mapped_column(default=AgentStatus.ACTIVE)
+    claude_pid: Mapped[int | None] = mapped_column(Integer)  # Claude CLI process ID
     capabilities: Mapped[str | None] = mapped_column(Text)  # JSON array
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
     last_heartbeat: Mapped[datetime] = mapped_column(DateTime, default=func.now())

@@ -16,6 +16,7 @@ class Base(AsyncAttrs, DeclarativeBase):
 class AgentStatus(enum.StrEnum):
     ACTIVE = "active"
     IDLE = "idle"
+    COMPLETED = "completed"
     TERMINATED = "terminated"
 
 class TaskStatus(enum.StrEnum):

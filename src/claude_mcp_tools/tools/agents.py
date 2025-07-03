@@ -1,6 +1,7 @@
 """Agent orchestration tools as standalone functions."""
 
 import asyncio
+import os
 from datetime import datetime, timezone
 from typing import Annotated, Any
 import json
@@ -22,14 +23,18 @@ try:
         ProcessPoolManager,
         parse_ai_json,
         setup_dependency_monitoring,
-        spawn_claude_async,
     )
 except ImportError:
     # Fallback implementations if imports fail
     parse_ai_json = lambda x: x
     ProcessPoolManager = None
-    spawn_claude_async = None
     setup_dependency_monitoring = lambda _x, _y: {"success": True}
+
+# Import spawn function from separate module to avoid circular imports
+try:
+    from ..claude_spawner import spawn_claude_sync
+except ImportError:
+    spawn_claude_sync = None
 
 
 @app.tool(tags={"spawning", "agent-creation", "coordination", "task-execution"})
@@ -339,6 +344,30 @@ async def get_agent_status(agent_id: str) -> dict[str, Any]:
         if not result:
             return {"error": {"code": "AGENT_NOT_FOUND", "message": "Agent not found"}}
 
+        # Check if Claude CLI process is still running
+        import psutil
+        
+        claude_pid = result.get("claude_pid")
+        
+        if claude_pid:
+            try:
+                # Check if process is still running
+                process = psutil.Process(claude_pid)
+                if process.is_running():
+                    # Process is still active
+                    result["status"] = "active"
+                    result["process_status"] = "running"
+                else:
+                    # Process completed - update status
+                    result["status"] = "completed" 
+                    result["process_status"] = "completed"
+                    await AgentService.complete_agent(agent_id=agent_id)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                # Process no longer exists - mark as completed
+                result["status"] = "completed"
+                result["process_status"] = "completed"
+                await AgentService.complete_agent(agent_id=agent_id)
+
         return {"success": True, "agent": result}
 
     except Exception as e:
@@ -407,7 +436,11 @@ async def _spawn_single_agent(
         claude_pid = None
         execution_info = {}
 
-        if auto_execute and spawn_claude_async:
+        if auto_execute:
+            # Check if spawn function is available
+            if spawn_claude_sync is None:
+                logger.error("spawn_claude_sync is None - import failed")
+                return {"error": {"code": "SPAWN_FUNCTION_UNAVAILABLE", "message": "spawn_claude_sync function not available due to import failure"}}
             # Use provided coordination room or create agent-specific one
             room_name = coordination_room or f"{agent_type}-{agent_id[:8]}"
 
@@ -440,8 +473,14 @@ async def _spawn_single_agent(
 - Repository: {repository_path}
 - Coordination Room: {room_name}
 
+🛠️ TOOLS AVAILABLE:
+You have access to ALL Claude tools including: Task, Bash, Edit, Write, Read, Glob, Grep, LS, MultiEdit, WebFetch, WebSearch, and more.
+Use these tools to complete your task! Start by using LS to see the current directory.
+
 🎯 YOUR TASK:
 {task_description}
+
+IMPORTANT: You MUST use tools to complete this task. Don't just think about it - actually use Write, Edit, Bash, or other tools to get things done!
 
 📋 CONTEXT:
 {initial_context}
@@ -471,20 +510,39 @@ async def _spawn_single_agent(
 Begin coordination and task execution now!"""
 
             try:
-                # Spawn actual Claude instance
-                claude_result = await spawn_claude_async(
+                claude_result = spawn_claude_sync(
                     workFolder=repository_path,
                     prompt=claude_prompt,
                     session_id=foundation_session_id if foundation_session_id else None,
                     model="sonnet",
                 )
 
+                # Validate spawn result
+                if not claude_result.get("success", False):
+                    error_msg = claude_result.get("error", "Unknown spawn error")
+                    logger.error("Claude CLI spawn failed", 
+                               agent_id=agent_id,
+                               error=error_msg)
+                    raise RuntimeError(f"Claude CLI spawn failed: {error_msg}")
+
                 claude_pid = claude_result.get("pid")
+                if not claude_pid:
+                    logger.error("Claude CLI spawn succeeded but no PID returned", 
+                               agent_id=agent_id,
+                               claude_result=claude_result)
+                    raise RuntimeError("Claude CLI spawn succeeded but no PID returned")
+
+                logger.info("Claude CLI spawned successfully for agent",
+                          agent_id=agent_id,
+                          claude_pid=claude_pid,
+                          agent_type=agent_type)
+
                 execution_info = {
                     "claude_pid": claude_pid,
                     "foundation_session_id": foundation_session_id,
                     "coordination_room": room_name,
                     "started_at": datetime.now(timezone.utc).isoformat(),
+                    "spawn_success": True,
                 }
 
                 # Update agent metadata with execution info
@@ -495,6 +553,7 @@ Begin coordination and task execution now!"""
                     "foundation_session_id": foundation_session_id,
                     "dependencies": depends_on,
                     "task_description": task_description,
+                    "spawn_success": True,
                 })
 
                 await AgentService.update_agent_status(
@@ -502,6 +561,18 @@ Begin coordination and task execution now!"""
                     status=AgentStatus.ACTIVE if not depends_on else AgentStatus.IDLE,
                     agent_data=updated_config,
                 )
+                
+                # Store the Claude CLI PID for monitoring with validation
+                try:
+                    await AgentService.update_agent_pid(agent_id=agent_id, claude_pid=claude_pid)
+                    logger.debug("PID stored successfully for agent", agent_id=agent_id, claude_pid=claude_pid)
+                except Exception as pid_error:
+                    logger.error("Failed to store PID for agent", 
+                               agent_id=agent_id, 
+                               claude_pid=claude_pid,
+                               error=str(pid_error))
+                    # Don't fail the entire spawn for PID storage issues
+                    pass
 
                 logger.info("Spawned specialized agent",
                            agent_id=agent_id,
@@ -513,8 +584,41 @@ Begin coordination and task execution now!"""
             except Exception as e:
                 logger.error("Failed to spawn Claude instance",
                            agent_id=agent_id,
-                           error=str(e))
-                execution_info = {"error": f"Claude spawn failed: {e!s}"}
+                           agent_type=agent_type,
+                           error=str(e),
+                           error_type=type(e).__name__,
+                           repository_path=repository_path)
+                
+                # Update agent status to indicate spawn failure
+                execution_info = {
+                    "error": f"Claude spawn failed: {e!s}",
+                    "spawn_success": False,
+                    "error_type": type(e).__name__,
+                    "failed_at": datetime.now(timezone.utc).isoformat(),
+                }
+                
+                # Mark agent as failed due to spawn error
+                try:
+                    failed_config = parsed_configuration or {}
+                    failed_config.update({
+                        "spawn_error": str(e),
+                        "coordination_room": room_name,
+                        "foundation_session_id": foundation_session_id,
+                        "dependencies": depends_on,
+                        "task_description": task_description,
+                        "spawn_success": False,
+                    })
+                    
+                    await AgentService.update_agent_status(
+                        agent_id=agent_id,
+                        status=AgentStatus.TERMINATED,  # Mark as terminated due to spawn failure
+                        agent_data=failed_config,
+                    )
+                except Exception as status_error:
+                    logger.error("Failed to update agent status after spawn failure",
+                               agent_id=agent_id,
+                               original_error=str(e),
+                               status_error=str(status_error))
 
         return {
             "success": True,
