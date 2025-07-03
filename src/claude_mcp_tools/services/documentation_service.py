@@ -1,8 +1,9 @@
 """Documentation intelligence service using SQLAlchemy ORM."""
 
 import asyncio
+import hashlib
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,7 @@ from ..models import (
     UpdateFrequency,
 )
 from .vector_service import get_vector_service
+from .web_scraper import DocumentationScraper
 
 logger = structlog.get_logger()
 
@@ -52,12 +54,18 @@ class DocumentationService:
 
         self._vector_service = None
         self._running_scrapers: dict[str, asyncio.Task] = {}
+        self._web_scraper: DocumentationScraper | None = None
 
     async def initialize(self) -> None:
         """Initialize documentation service components."""
         try:
             # Initialize vector service (ChromaDB)
             self._vector_service = await get_vector_service(self.vector_db_path)
+
+            # Initialize web scraper
+            self._web_scraper = DocumentationScraper(headless=True)
+            scraper_user_data = self.docs_path / "browser_data"
+            await self._web_scraper.initialize(user_data_dir=scraper_user_data)
 
             logger.info("Documentation service initialized",
                        docs_path=str(self.docs_path))
@@ -77,6 +85,11 @@ class DocumentationService:
                         await task
                     except asyncio.CancelledError:
                         pass
+
+            # Close web scraper
+            if self._web_scraper:
+                await self._web_scraper.close()
+                self._web_scraper = None
 
             # Close vector service
             if self._vector_service:
@@ -271,7 +284,7 @@ class DocumentationService:
 
         # Check if scraping is needed
         if not force_refresh and source_data.last_scraped:
-            time_since_scrape = datetime.utcnow() - source_data.last_scraped
+            time_since_scrape = datetime.now(timezone.utc) - source_data.last_scraped
             if self._should_skip_scraping(source_data, time_since_scrape):
                 return {
                     "success": True,
@@ -833,22 +846,160 @@ class DocumentationService:
         return time_since_scrape < threshold
 
     async def _scrape_source_content(self, source: DocumentationSource) -> dict[str, Any]:
-        """Scrape content from a documentation source using Playwright."""
-        # This would integrate with existing Playwright MCP tools
-        # Placeholder implementation
-        return {
-            "success": True,
-            "entries_scraped": 0,
-            "entries_updated": 0,
-            "errors": [],
-        }
+        """Scrape content from a documentation source using Patchright."""
+        if not self._web_scraper:
+            return {
+                "success": False,
+                "error": "Web scraper not initialized",
+                "entries_scraped": 0,
+                "entries_updated": 0,
+                "errors": [],
+            }
+
+        try:
+            logger.info("🚀 Starting source scraping", 
+                       source_id=source.id, 
+                       source_name=source.name, 
+                       url=source.url)
+
+            # Get scraping configuration
+            selectors = source.get_selectors()
+            ignore_patterns = source.get_ignore_patterns()
+
+            # Scrape the documentation
+            scrape_result = await self._web_scraper.scrape_documentation_source(
+                base_url=source.url,
+                crawl_depth=source.crawl_depth,
+                selectors=selectors if selectors else None,
+                ignore_patterns=ignore_patterns if ignore_patterns else None,
+            )
+
+            if not scrape_result.get("success"):
+                return {
+                    "success": False,
+                    "error": scrape_result.get("error", "Unknown scraping error"),
+                    "entries_scraped": 0,
+                    "entries_updated": 0,
+                    "errors": [scrape_result.get("error", "Unknown error")],
+                }
+
+            # Process and store the scraped entries
+            entries_data = scrape_result.get("entries", [])
+            storage_result = await self._store_scraped_entries(source.id, entries_data)
+
+            logger.info("✅ Source scraping completed", 
+                       source_id=source.id,
+                       entries_scraped=len(entries_data),
+                       entries_stored=storage_result.get("entries_stored", 0))
+
+            return {
+                "success": True,
+                "entries_scraped": len(entries_data),
+                "entries_updated": storage_result.get("entries_updated", 0),
+                "entries_stored": storage_result.get("entries_stored", 0),
+                "errors": storage_result.get("errors", []),
+            }
+
+        except Exception as e:
+            logger.error("❌ Source scraping failed", 
+                        source_id=source.id, 
+                        error=str(e))
+            return {
+                "success": False,
+                "error": str(e),
+                "entries_scraped": 0,
+                "entries_updated": 0,
+                "errors": [str(e)],
+            }
+
+    async def _store_scraped_entries(self, source_id: str, entries_data: list[dict[str, Any]]) -> dict[str, Any]:
+        """Store scraped entries in the database with deduplication."""
+        async def _store_entries(session: AsyncSession):
+            stats = {
+                "entries_stored": 0,
+                "entries_updated": 0,
+                "entries_skipped": 0,
+                "errors": [],
+            }
+
+            for entry_data in entries_data:
+                try:
+                    content_hash = entry_data.get("content_hash")
+                    if not content_hash:
+                        # Generate hash if not provided
+                        content = entry_data.get("content", "")
+                        content_hash = hashlib.sha256(content.encode()).hexdigest()
+
+                    # Check if entry already exists by content hash
+                    existing_stmt = select(DocumentationEntry).where(
+                        DocumentationEntry.content_hash == content_hash
+                    )
+                    existing_result = await session.execute(existing_stmt)
+                    existing_entry = existing_result.scalar_one_or_none()
+
+                    if existing_entry:
+                        # Update existing entry if content or URL changed
+                        updated = False
+                        if existing_entry.url != entry_data.get("url"):
+                            existing_entry.url = entry_data.get("url", existing_entry.url)
+                            updated = True
+                        if existing_entry.title != entry_data.get("title"):
+                            existing_entry.title = entry_data.get("title", existing_entry.title)
+                            updated = True
+                        
+                        if updated:
+                            existing_entry.last_updated = datetime.now(timezone.utc)
+                            stats["entries_updated"] += 1
+                        else:
+                            stats["entries_skipped"] += 1
+                    else:
+                        # Create new entry
+                        new_entry = DocumentationEntry(
+                            id=entry_data.get("id", str(uuid.uuid4())),
+                            source_id=source_id,
+                            url=entry_data.get("url", ""),
+                            title=entry_data.get("title", ""),
+                            content=entry_data.get("content", ""),
+                            content_hash=content_hash,
+                            extracted_at=entry_data.get("extracted_at", datetime.now(timezone.utc)),
+                            section_type=SectionType.CONTENT,  # Default type
+                        )
+
+                        # Set metadata if provided
+                        metadata = {
+                            "links": entry_data.get("links", []),
+                            "code_examples": entry_data.get("code_examples", []),
+                        }
+                        new_entry.set_metadata(metadata)
+
+                        session.add(new_entry)
+                        stats["entries_stored"] += 1
+
+                        # Create embeddings if vector service is available
+                        if self._vector_service:
+                            try:
+                                await self._vector_service.create_embeddings_for_entry(new_entry.id)
+                            except Exception as e:
+                                logger.warning("Failed to create embeddings", 
+                                             entry_id=new_entry.id, 
+                                             error=str(e))
+
+                except Exception as e:
+                    error_msg = f"Failed to store entry {entry_data.get('url', 'unknown')}: {e}"
+                    logger.error("Entry storage failed", error=error_msg)
+                    stats["errors"].append(error_msg)
+
+            await session.commit()
+            return stats
+
+        return await execute_query(_store_entries)
 
     async def _update_source_last_scraped(self, source_id: str) -> None:
         """Update the last scraped timestamp for a source."""
         async def _update_timestamp(session: AsyncSession):
             stmt = update(DocumentationSource).where(
                 DocumentationSource.id == source_id,
-            ).values(last_scraped=datetime.utcnow())
+            ).values(last_scraped=datetime.now(timezone.utc))
             await session.execute(stmt)
             await session.commit()
 

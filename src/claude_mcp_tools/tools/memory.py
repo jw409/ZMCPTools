@@ -7,6 +7,7 @@ from pydantic import Field
 
 from ..services.error_logging_service import ErrorLoggingService
 from ..services.shared_memory_service import SharedMemoryService
+from .json_utils import parse_json_list, parse_json_dict, check_parsing_error
 from .app import app
 
 logger = structlog.get_logger("tools.memory")
@@ -34,25 +35,36 @@ async def store_memory_entry(
         min_length=1,
         max_length=5000,
     )],
-    tags: Annotated[list[str] | None, Field(
-        description="Tags for categorizing the memory entry",
+    tags: Annotated[str | list[str] | None, Field(
+        description="Tags for categorizing the memory entry. Can be JSON array: ['database', 'bug-fix', 'performance']",
         default=None,
     )] = None,
-    metadata: Annotated[dict[str, Any] | None, Field(
-        description='Additional metadata for the memory entry. Provide as object: {"category": "database", "priority": "high"}',
+    metadata: Annotated[str | dict[str, Any] | None, Field(
+        description='Additional metadata for the memory entry. Can be JSON object: {"category": "database", "priority": "high"}',
         default=None,
     )] = None,
 ) -> dict[str, Any]:
     """Store insights or learning entries in shared memory."""
     try:
+        # Parse list and dict parameters if provided as JSON strings
+        parsed_tags = parse_json_list(tags, "tags")
+        if check_parsing_error(parsed_tags):
+            return parsed_tags
+        final_tags: list[str] | None = parsed_tags
+
+        parsed_metadata = parse_json_dict(metadata, "metadata")
+        if check_parsing_error(parsed_metadata):
+            return parsed_metadata
+        final_metadata: dict[str, Any] | None = parsed_metadata
+
         result = await SharedMemoryService.store_memory_entry(
             repository_path=repository_path,
             agent_id=agent_id,
             entry_type=entry_type,
             title=title,
             content=content,
-            tags=tags,
-            metadata=metadata,
+            tags=final_tags,
+            metadata=final_metadata,
             relevance_score=1.0,  # Default relevance score
         )
         return result
@@ -72,12 +84,12 @@ async def query_shared_memory(
         min_length=1,
         max_length=500,
     )],
-    entry_types: Annotated[list[str] | None, Field(
-        description="Filter by entry types",
+    entry_types: Annotated[str | list[str] | None, Field(
+        description="Filter by entry types. Can be JSON array: ['tool_call', 'insight', 'discovery']",
         default=None,
     )] = None,
-    tags: Annotated[list[str] | None, Field(
-        description="Filter by tags",
+    tags: Annotated[str | list[str] | None, Field(
+        description="Filter by tags. Can be JSON array: ['database', 'bug-fix', 'performance']",
         default=None,
     )] = None,
     agent_filter: Annotated[str | None, Field(
@@ -97,11 +109,22 @@ async def query_shared_memory(
 ) -> dict[str, Any]:
     """Search shared memory for relevant insights and solutions."""
     try:
+        # Parse list parameters if provided as JSON strings
+        parsed_entry_types = parse_json_list(entry_types, "entry_types")
+        if check_parsing_error(parsed_entry_types):
+            return parsed_entry_types
+        final_entry_types: list[str] | None = parsed_entry_types
+
+        parsed_tags = parse_json_list(tags, "tags")
+        if check_parsing_error(parsed_tags):
+            return parsed_tags
+        final_tags: list[str] | None = parsed_tags
+
         result = await SharedMemoryService.query_memory(
             repository_path=repository_path,
             query_text=query_text,
-            entry_types=entry_types,
-            tags=tags,
+            entry_types=final_entry_types,
+            tags=final_tags,
             agent_id=agent_filter,
             limit=limit,
             min_relevance=min_score,
@@ -189,12 +212,12 @@ async def get_agent_insights(
         description="Filter by specific agent ID",
         default=None,
     )] = None,
-    categories: Annotated[list[str] | None, Field(
-        description="Filter by insight categories",
+    categories: Annotated[str | list[str] | None, Field(
+        description="Filter by insight categories. Can be JSON array: ['architecture', 'performance', 'testing']",
         default=None,
     )] = None,
-    insight_types: Annotated[list[str] | None, Field(
-        description="Filter by insight types",
+    insight_types: Annotated[str | list[str] | None, Field(
+        description="Filter by insight types. Can be JSON array: ['pattern', 'approach', 'solution']",
         default=None,
     )] = None,
     limit: Annotated[int, Field(
@@ -210,10 +233,21 @@ async def get_agent_insights(
 ) -> dict[str, Any]:
     """Retrieve insights from agents with filtering."""
     try:
+        # Parse list parameters if provided as JSON strings
+        parsed_categories = parse_json_list(categories, "categories")
+        if check_parsing_error(parsed_categories):
+            return parsed_categories
+        final_categories: list[str] | None = parsed_categories
+
+        parsed_insight_types = parse_json_list(insight_types, "insight_types")
+        if check_parsing_error(parsed_insight_types):
+            return parsed_insight_types
+        final_insight_types: list[str] | None = parsed_insight_types
+
         result = await SharedMemoryService.get_insights(
             repository_path=repository_path,
-            categories=categories,
-            insight_types=insight_types,
+            categories=final_categories,
+            insight_types=final_insight_types,
             limit=limit,
             min_confidence=min_confidence,
         )
@@ -315,12 +349,12 @@ async def get_tool_call_history(
         description="Filter by agent ID",
         default=None,
     )] = None,
-    tool_names: Annotated[list[str] | None, Field(
-        description="Filter by tool names",
+    tool_names: Annotated[str | list[str] | None, Field(
+        description="Filter by tool names. Can be JSON array: ['Read', 'Edit', 'Bash']",
         default=None,
     )] = None,
-    status_filter: Annotated[list[str] | None, Field(
-        description="Filter by call status",
+    status_filter: Annotated[str | list[str] | None, Field(
+        description="Filter by call status. Can be JSON array: ['success', 'error', 'timeout']",
         default=None,
     )] = None,
     limit: Annotated[int, Field(
@@ -331,6 +365,17 @@ async def get_tool_call_history(
 ) -> dict[str, Any]:
     """Retrieve tool call history with filtering."""
     try:
+        # Parse list parameters if provided as JSON strings
+        parsed_tool_names = parse_json_list(tool_names, "tool_names")
+        if check_parsing_error(parsed_tool_names):
+            return parsed_tool_names
+        final_tool_names: list[str] | None = parsed_tool_names
+
+        parsed_status_filter = parse_json_list(status_filter, "status_filter")
+        if check_parsing_error(parsed_status_filter):
+            return parsed_status_filter
+        final_status_filter: list[str] | None = parsed_status_filter
+
         # Tool call history would come from dedicated service - placeholder implementation
         result = {
             "success": True,
@@ -339,8 +384,8 @@ async def get_tool_call_history(
             "repository_path": repository_path,
             "filters": {
                 "agent_id": agent_id,
-                "tool_names": tool_names,
-                "status_filter": status_filter,
+                "tool_names": final_tool_names,
+                "status_filter": final_status_filter,
                 "limit": limit
             },
             "note": "Tool call history retrieval (placeholder implementation)"
@@ -432,12 +477,12 @@ async def get_recent_errors(
         ge=1,
         le=168,  # One week
     )] = 24,
-    error_types: Annotated[list[str] | None, Field(
-        description="Filter by error types",
+    error_types: Annotated[str | list[str] | None, Field(
+        description="Filter by error types. Can be JSON array: ['system', 'validation', 'runtime']",
         default=None,
     )] = None,
-    severity_filter: Annotated[list[str] | None, Field(
-        description="Filter by error severity",
+    severity_filter: Annotated[str | list[str] | None, Field(
+        description="Filter by error severity. Can be JSON array: ['low', 'medium', 'high', 'critical']",
         default=None,
     )] = None,
     agent_filter: Annotated[str | None, Field(
@@ -452,11 +497,22 @@ async def get_recent_errors(
 ) -> dict[str, Any]:
     """Retrieve recent errors with filtering."""
     try:
+        # Parse list parameters if provided as JSON strings
+        parsed_error_types = parse_json_list(error_types, "error_types")
+        if check_parsing_error(parsed_error_types):
+            return parsed_error_types
+        final_error_types: list[str] | None = parsed_error_types
+
+        parsed_severity_filter = parse_json_list(severity_filter, "severity_filter")
+        if check_parsing_error(parsed_severity_filter):
+            return parsed_severity_filter
+        final_severity_filter: list[str] | None = parsed_severity_filter
+
         result = await ErrorLoggingService.get_recent_errors(
             repository_path=repository_path,
             hours_back=hours_back,
-            error_types=error_types,
-            severity_filter=severity_filter,
+            error_types=final_error_types,
+            severity_filter=final_severity_filter,
             status_filter="unresolved",
             limit=limit,
         )
@@ -519,8 +575,8 @@ async def get_learning_entries(
     repository_path: Annotated[str, Field(
         description="Path to the repository for context",
     )],
-    categories: Annotated[list[str] | None, Field(
-        description="Filter by learning categories",
+    categories: Annotated[str | list[str] | None, Field(
+        description="Filter by learning categories. Can be JSON array: ['architecture', 'performance', 'testing']",
         default=None,
     )] = None,
     agent_filter: Annotated[str | None, Field(
@@ -540,9 +596,15 @@ async def get_learning_entries(
 ) -> dict[str, Any]:
     """Retrieve learning entries from shared memory."""
     try:
+        # Parse list parameters if provided as JSON strings
+        parsed_categories = parse_json_list(categories, "categories")
+        if check_parsing_error(parsed_categories):
+            return parsed_categories
+        final_categories: list[str] | None = parsed_categories
+
         result = await ErrorLoggingService.get_learning_entries(
             repository_path=repository_path,
-            categories=categories,
+            categories=final_categories,
             limit=limit,
             min_success_rate=min_confidence,
         )

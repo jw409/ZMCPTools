@@ -1,12 +1,14 @@
 """Analysis and file operation tools for project understanding and maintenance."""
 
 from typing import Annotated, Any
+import json
 
 import structlog
 from pydantic import Field
 
 from ..analysis.core.treesummary import TreeSummaryManager
 from ..analysis.parsers.file_analyzer import FileAnalyzer
+from .json_utils import parse_json_list, check_parsing_error
 from .app import app
 
 logger = structlog.get_logger("tools.analysis")
@@ -25,18 +27,24 @@ async def analyze_project_structure(
         ge=1,
         le=20,
     )] = 10,
-    file_types: Annotated[list[str] | None, Field(
-        description="Specific file types to focus on",
+    file_types: Annotated[str | list[str] | None, Field(
+        description="Specific file types to focus on. Can be JSON array: ['.py', '.js', '.ts']",
         default=None,
     )] = None,
 ) -> dict[str, Any]:
     """Generate comprehensive project structure analysis."""
     try:
+        # Parse list parameters if provided as JSON strings
+        parsed_file_types = parse_json_list(file_types, "file_types")
+        if check_parsing_error(parsed_file_types):
+            return parsed_file_types
+        final_file_types: list[str] | None = parsed_file_types
+
         tree_manager = TreeSummaryManager(
             project_path=project_path,
             include_hidden=include_hidden,
             max_depth=max_depth,
-            file_types=file_types
+            file_types=final_file_types
         )
         # Using available methods to provide similar functionality
         overview = await tree_manager.get_project_overview()
@@ -104,8 +112,8 @@ async def detect_dead_code(
     project_path: Annotated[str, Field(
         description="Path to the project to analyze for dead code",
     )],
-    file_extensions: Annotated[list[str] | None, Field(
-        description="File extensions to analyze",
+    file_extensions: Annotated[str | list[str] | None, Field(
+        description="File extensions to analyze. Can be JSON array: ['.py', '.js', '.ts']",
         default=None,
     )] = None,
     exclude_test_files: Annotated[bool, Field(
@@ -119,6 +127,12 @@ async def detect_dead_code(
 ) -> dict[str, Any]:
     """Detect unused code and functions for cleanup."""
     try:
+        # Parse list parameters if provided as JSON strings
+        parsed_file_extensions = parse_json_list(file_extensions, "file_extensions")
+        if check_parsing_error(parsed_file_extensions):
+            return parsed_file_extensions
+        final_file_extensions: list[str] | None = parsed_file_extensions
+
         analyzer = FileAnalyzer()  # No constructor parameters
         # FileAnalyzer doesn't have detect_dead_code method
         # Providing placeholder functionality
@@ -127,7 +141,7 @@ async def detect_dead_code(
             "project_path": project_path,
             "dead_code_analysis": {
                 "message": "Dead code detection not yet implemented",
-                "file_extensions": file_extensions,
+                "file_extensions": final_file_extensions,
                 "exclude_test_files": exclude_test_files,
                 "confidence_threshold": confidence_threshold,
             },
@@ -144,8 +158,8 @@ async def analyze_file_symbols(
     file_path: Annotated[str, Field(
         description="Path to the file to analyze for symbols",
     )],
-    symbol_types: Annotated[list[str] | None, Field(
-        description="Types of symbols to analyze",
+    symbol_types: Annotated[str | list[str] | None, Field(
+        description="Types of symbols to analyze. Can be JSON array: ['function', 'class', 'variable']",
         default=None,
     )] = None,
     include_imports: Annotated[bool, Field(
@@ -157,6 +171,12 @@ async def analyze_file_symbols(
 ) -> dict[str, Any]:
     """Analyze file symbols and dependencies."""
     try:
+        # Parse list parameters if provided as JSON strings
+        parsed_symbol_types = parse_json_list(symbol_types, "symbol_types")
+        if check_parsing_error(parsed_symbol_types):
+            return parsed_symbol_types
+        final_symbol_types: list[str] | None = parsed_symbol_types
+
         analyzer = FileAnalyzer()
         # Use the available analyze_file method instead
         language = analyzer.detect_language(file_path)
@@ -167,7 +187,7 @@ async def analyze_file_symbols(
             "file_path": file_path,
             "language": language,
             "analysis": result,
-            "symbol_types": symbol_types,
+            "symbol_types": final_symbol_types,
             "include_imports": include_imports,
             "include_dependencies": include_dependencies,
         }
@@ -186,11 +206,11 @@ async def easy_replace_all(
         description="List of replacement operations (JSON array or string)",
     )],
     file_patterns: Annotated[str | list[str] | None, Field(
-        description="File patterns to include in replacements (glob patterns)",
+        description="File patterns to include in replacements. Can be JSON array: ['*.py', '*.js']",
         default=None,
     )] = None,
-    exclude_patterns: Annotated[list[str] | None, Field(
-        description="File patterns to exclude from replacements",
+    exclude_patterns: Annotated[str | list[str] | None, Field(
+        description="File patterns to exclude from replacements. Can be JSON array: ['*.test.js', '*.spec.py']",
         default=None,
     )] = None,
     dry_run: Annotated[bool, Field(
@@ -210,6 +230,17 @@ async def easy_replace_all(
 ) -> dict[str, Any]:
     """Perform bulk find-and-replace operations across files."""
     try:
+        # Parse list parameters if provided as JSON strings
+        parsed_file_patterns = parse_json_list(file_patterns, "file_patterns")
+        if check_parsing_error(parsed_file_patterns):
+            return parsed_file_patterns
+        final_file_patterns: list[str] | None = parsed_file_patterns
+
+        parsed_exclude_patterns = parse_json_list(exclude_patterns, "exclude_patterns")
+        if check_parsing_error(parsed_exclude_patterns):
+            return parsed_exclude_patterns
+        final_exclude_patterns: list[str] | None = parsed_exclude_patterns
+
         # Parse replacements if string
         parsed_replacements = replacements
         if isinstance(replacements, str):
@@ -232,8 +263,8 @@ async def easy_replace_all(
             "operation": "bulk_replace",
             "replacements": parsed_replacements,
             "settings": {
-                "file_patterns": file_patterns,
-                "exclude_patterns": exclude_patterns,
+                "file_patterns": final_file_patterns,
+                "exclude_patterns": final_exclude_patterns,
                 "dry_run": dry_run,
                 "case_sensitive": case_sensitive,
                 "backup": backup,
@@ -250,8 +281,8 @@ async def easy_replace_all(
 
 @app.tool(tags={"maintenance", "cleanup", "orphaned-data", "system-health"})
 async def cleanup_orphaned_projects(
-    repository_paths: Annotated[list[str], Field(
-        description="List of repository paths to cleanup",
+    repository_paths: Annotated[str | list[str], Field(
+        description="List of repository paths to cleanup. Can be JSON array: ['/path1', '/path2']",
         min_length=1,
         max_length=100,
     )],
@@ -264,8 +295,8 @@ async def cleanup_orphaned_projects(
     backup_before_cleanup: Annotated[bool, Field(
         description="Create backups before cleaning up",
     )] = True,
-    cleanup_categories: Annotated[list[str] | None, Field(
-        description="Categories of data to cleanup",
+    cleanup_categories: Annotated[str | list[str] | None, Field(
+        description="Categories of data to cleanup. Can be JSON array: ['cache', 'logs', 'temp']",
         default=None,
     )] = None,
     older_than_days: Annotated[int, Field(
@@ -276,16 +307,26 @@ async def cleanup_orphaned_projects(
 ) -> dict[str, Any]:
     """Clean up orphaned project data and resources."""
     try:
+        # Parse list parameters if provided as JSON strings
+        parsed_repository_paths = parse_json_list(repository_paths, "repository_paths")
+        if check_parsing_error(parsed_repository_paths):
+            return parsed_repository_paths
+        final_repository_paths: list[str] = parsed_repository_paths
+
+        parsed_cleanup_categories = parse_json_list(cleanup_categories, "cleanup_categories")
+        if check_parsing_error(parsed_cleanup_categories):
+            return parsed_cleanup_categories
+        final_cleanup_categories: list[str] | None = parsed_cleanup_categories
         # Import cleanup utility
         from ..services.cleanup_service import CleanupService
 
         cleanup_service = CleanupService()
         result = await cleanup_service.cleanup_orphaned_projects(
-            repository_paths=repository_paths,
+            repository_paths=final_repository_paths,
             dry_run=dry_run,
             force=force,
             backup_before_cleanup=backup_before_cleanup,
-            cleanup_categories=cleanup_categories,
+            cleanup_categories=final_cleanup_categories,
             older_than_days=older_than_days,
         )
         return result

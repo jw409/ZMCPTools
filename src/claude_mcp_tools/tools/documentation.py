@@ -7,6 +7,7 @@ import structlog
 from pydantic import Field
 
 from ..services.documentation_service import DocumentationService
+from .json_utils import parse_json_list, parse_json_dict, check_parsing_error
 from .app import app
 
 logger = structlog.get_logger("tools.documentation")
@@ -47,22 +48,21 @@ async def scrape_documentation(
     force_refresh: Annotated[bool, Field(
         description="Force refresh even if recently scraped",
     )] = False,
+    scrape_immediately: Annotated[bool, Field(
+        description="Immediately scrape after creating/updating the source",
+    )] = True,
 ) -> dict[str, Any]:
     """Scrape and index documentation from websites."""
     try:
         # Parse selectors if provided as JSON string
-        parsed_selectors: dict[str, str] | None = selectors if isinstance(selectors, dict) or selectors is None else None
-        if isinstance(selectors, str) and "{" in selectors:
-            try:
-                json_parsed = json.loads(selectors)
-                if not isinstance(json_parsed, dict):
-                    return {"error": {"code": "INVALID_SELECTORS", "message": "Selectors must be a JSON object/dictionary"}}
-                parsed_selectors = json_parsed
-            except json.JSONDecodeError as e:
-                return {"error": {"code": "INVALID_JSON", "message": f"Invalid JSON in selectors parameter: {e}"}}
-        elif isinstance(selectors, str):
-            # If it's a simple string, treat it as a single selector
-            parsed_selectors = {"content": selectors}
+        parsed_selectors = parse_json_dict(selectors, "selectors")
+        if check_parsing_error(parsed_selectors):
+            return parsed_selectors
+        final_selectors: dict[str, str] | None = parsed_selectors
+        
+        # If it's a simple string without JSON brackets, treat it as a single selector
+        if isinstance(selectors, str) and "{" not in selectors:
+            final_selectors = {"content": selectors}
         
         doc_service = DocumentationService()
 
@@ -73,7 +73,7 @@ async def scrape_documentation(
             source_type=source_type,
             crawl_depth=crawl_depth,
             update_frequency=update_frequency,
-            selectors=parsed_selectors,
+            selectors=final_selectors,
             ignore_patterns=ignore_patterns,
         )
 
@@ -82,12 +82,21 @@ async def scrape_documentation(
 
         source_id = source_result["source_id"]
 
-        # Then scrape the documentation
-        result = await doc_service.scrape_documentation(
-            source_id=source_id,
-            force_refresh=force_refresh,
-        )
-        return result
+        # Conditionally scrape the documentation
+        if scrape_immediately:
+            result = await doc_service.scrape_documentation(
+                source_id=source_id,
+                force_refresh=force_refresh,
+            )
+            return result
+        else:
+            return {
+                "success": True,
+                "message": "Documentation source created successfully. Use scrape_by_source_id to scrape when ready.",
+                "source_id": source_id,
+                "source_name": source_name,
+                "url": url,
+            }
 
     except Exception as e:
         logger.error("Error scraping documentation", source=source_name, url=url, error=str(e))
@@ -126,12 +135,12 @@ async def search_documentation(
         min_length=1,
         max_length=500,
     )],
-    source_names: Annotated[list[str] | None, Field(
-        description="Specific documentation sources to search (optional)",
+    source_names: Annotated[str | list[str] | None, Field(
+        description="Specific documentation sources to search. Can be JSON array or list: [\"source1\", \"source2\"]",
         default=None,
     )] = None,
-    content_types: Annotated[list[str] | None, Field(
-        description="Types of content to include in search",
+    content_types: Annotated[str | list[str] | None, Field(
+        description="Types of content to include in search. Can be JSON array or list: [\"content\", \"code\", \"example\"]",
         default=None,
     )] = None,
     limit: Annotated[int, Field(
@@ -147,11 +156,22 @@ async def search_documentation(
 ) -> dict[str, Any]:
     """Search indexed documentation with AI-powered semantic search."""
     try:
+        # Parse list parameters if provided as JSON strings
+        parsed_source_names = parse_json_list(source_names, "source_names")
+        if check_parsing_error(parsed_source_names):
+            return parsed_source_names
+        final_source_names: list[str] | None = parsed_source_names
+
+        parsed_content_types = parse_json_list(content_types, "content_types")
+        if check_parsing_error(parsed_content_types):
+            return parsed_content_types
+        final_content_types: list[str] | None = parsed_content_types
+
         doc_service = DocumentationService()
         result = await doc_service.search_documentation(
             query=query,
-            source_names=source_names,
-            content_types=content_types,
+            source_names=final_source_names,
+            content_types=final_content_types,
             limit=limit,
             min_relevance=min_score,
         )
@@ -167,12 +187,12 @@ async def analyze_documentation_changes(
     repository_path: Annotated[str, Field(
         description="Path to the repository for context",
     )],
-    source_names: Annotated[list[str] | None, Field(
-        description="Documentation sources to analyze for changes",
+    source_names: Annotated[str | list[str] | None, Field(
+        description="Documentation sources to analyze for changes. Can be JSON array or list: ['source1', 'source2']",
         default=None,
     )] = None,
-    change_types: Annotated[list[str] | None, Field(
-        description="Types of changes to analyze",
+    change_types: Annotated[str | list[str] | None, Field(
+        description="Types of changes to analyze. Can be JSON array or list: ['created', 'updated', 'deleted']",
         default=None,
     )] = None,
     since_timestamp: Annotated[str | None, Field(
@@ -188,6 +208,17 @@ async def analyze_documentation_changes(
 ) -> dict[str, Any]:
     """Analyze changes in documentation sources."""
     try:
+        # Parse list parameters if provided as JSON strings
+        parsed_source_names = parse_json_list(source_names, "source_names")
+        if check_parsing_error(parsed_source_names):
+            return parsed_source_names
+        final_source_names: list[str] | None = parsed_source_names
+
+        parsed_change_types = parse_json_list(change_types, "change_types")
+        if check_parsing_error(parsed_change_types):
+            return parsed_change_types
+        final_change_types: list[str] | None = parsed_change_types
+
         doc_service = DocumentationService()
         
         # Calculate days_back from since_timestamp if provided
@@ -202,15 +233,15 @@ async def analyze_documentation_changes(
                 logger.warning(f"Invalid since_timestamp format: {since_timestamp}")
         
         # Handle source_names by iterating through each source
-        if source_names:
+        if final_source_names:
             # Analyze each source individually then combine results
             all_results = []
-            for source_name in source_names:
+            for source_name in final_source_names:
                 try:
                     source_result = await doc_service.analyze_documentation_changes(
                         source_id=source_name,
                         days_back=days_back,
-                        change_types=change_types,
+                        change_types=final_change_types,
                         impact_threshold="minor" if impact_analysis else "major",
                     )
                     if source_result:
@@ -221,9 +252,9 @@ async def analyze_documentation_changes(
             result = {
                 "success": True,
                 "repository_path": repository_path,
-                "sources_analyzed": source_names,
+                "sources_analyzed": final_source_names,
                 "results": all_results,
-                "total_sources": len(source_names),
+                "total_sources": len(final_source_names),
                 "successful_sources": len(all_results),
             }
         else:
@@ -231,7 +262,7 @@ async def analyze_documentation_changes(
             result = await doc_service.analyze_documentation_changes(
                 source_id=None,
                 days_back=days_back,
-                change_types=change_types,
+                change_types=final_change_types,
                 impact_threshold="minor" if impact_analysis else "major",
             )
         
@@ -241,7 +272,7 @@ async def analyze_documentation_changes(
                 # Use the link_docs_to_code functionality for suggestions
                 link_result = await DocumentationService.link_docs_to_code(
                     project_path=repository_path,
-                    documentation_sources=source_names,
+                    documentation_sources=final_source_names,
                     force_reanalysis=True,
                 )
                 result["code_update_suggestions"] = link_result
@@ -255,10 +286,10 @@ async def analyze_documentation_changes(
         if result.get("success"):
             result["analysis_parameters"] = {
                 "repository_path": repository_path,
-                "source_names": source_names,
+                "source_names": parsed_source_names,
                 "since_timestamp": since_timestamp,
                 "days_back": days_back,
-                "change_types": change_types,
+                "change_types": parsed_change_types,
                 "impact_analysis": impact_analysis,
                 "suggest_code_updates": suggest_code_updates,
             }
@@ -275,12 +306,12 @@ async def link_docs_to_code(
     repository_path: Annotated[str, Field(
         description="Path to the repository to analyze",
     )],
-    documentation_sources: Annotated[list[str] | None, Field(
-        description="Specific documentation sources to link against",
+    documentation_sources: Annotated[str | list[str] | None, Field(
+        description="Specific documentation sources to link against. Can be JSON array or list: ['source1', 'source2']",
         default=None,
     )] = None,
-    file_patterns: Annotated[list[str] | None, Field(
-        description="File patterns to include in analysis",
+    file_patterns: Annotated[str | list[str] | None, Field(
+        description="File patterns to include in analysis. Can be JSON array or list: ['*.py', '*.js']",
         default=None,
     )] = None,
     force_relink: Annotated[bool, Field(
@@ -289,11 +320,22 @@ async def link_docs_to_code(
 ) -> dict[str, Any]:
     """Link documentation to code files and functions."""
     try:
+        # Parse list parameters if provided as JSON strings
+        parsed_documentation_sources = parse_json_list(documentation_sources, "documentation_sources")
+        if check_parsing_error(parsed_documentation_sources):
+            return parsed_documentation_sources
+        final_documentation_sources: list[str] | None = parsed_documentation_sources
+
+        parsed_file_patterns = parse_json_list(file_patterns, "file_patterns")
+        if check_parsing_error(parsed_file_patterns):
+            return parsed_file_patterns
+        final_file_patterns: list[str] | None = parsed_file_patterns
+
         doc_service = DocumentationService()
         result = await doc_service.link_docs_to_code(
             project_path=repository_path,
-            documentation_sources=documentation_sources,
-            file_patterns=file_patterns,
+            documentation_sources=final_documentation_sources,
+            file_patterns=final_file_patterns,
             force_reanalysis=force_relink,
         )
         return result

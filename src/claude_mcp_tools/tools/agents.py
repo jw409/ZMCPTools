@@ -3,6 +3,7 @@
 import asyncio
 from datetime import datetime, timezone
 from typing import Annotated, Any
+import json
 
 import structlog
 from pydantic import Field
@@ -10,6 +11,7 @@ from pydantic import Field
 from ..models import AgentStatus
 from ..services.agent_service import AgentService
 from ..services.communication_service import CommunicationService
+from .json_utils import parse_json_list, check_parsing_error
 from .app import app
 
 logger = structlog.get_logger("tools.agents")
@@ -44,15 +46,15 @@ async def spawn_agent(
         min_length=1,
         max_length=2000,
     )],
-    capabilities: Annotated[list[str], Field(
-        description="List of specific capabilities the agent should have",
+    capabilities: Annotated[str | list[str], Field(
+        description="List of specific capabilities the agent should have. Can be JSON array: ['backend', 'frontend']",
     )] = [],
     configuration: Annotated[str | dict[str, Any] | None, Field(
         description="Agent-specific configuration (JSON object or string)",
         default=None,
     )] = None,
-    depends_on: Annotated[list[str], Field(
-        description="List of agent IDs this agent depends on",
+    depends_on: Annotated[str | list[str], Field(
+        description="List of agent IDs this agent depends on. Can be JSON array: ['agent1', 'agent2']",
     )] = [],
     foundation_session_id: Annotated[str | None, Field(
         description="Foundation session ID for shared context (cost optimization)",
@@ -60,14 +62,23 @@ async def spawn_agent(
     )] = None,
 ) -> dict[str, Any]:
         """Create and spawn a specialized agent with specific capabilities for executing development tasks with coordination room integration."""
+        # Parse list parameters if provided as JSON strings
+        parsed_capabilities = parse_json_list(capabilities, "capabilities")
+        if check_parsing_error(parsed_capabilities):
+            return parsed_capabilities
+        
+        parsed_depends_on = parse_json_list(depends_on, "depends_on")
+        if check_parsing_error(parsed_depends_on):
+            return parsed_depends_on
+            
         return await _spawn_single_agent(
             agent_type=agent_type,
             repository_path=repository_path,
             task_description=task_description,
-            capabilities=capabilities,
+            capabilities=parsed_capabilities,
             initial_context="",  # Not in schema, using default
             configuration=configuration,
-            depends_on=depends_on,
+            depends_on=parsed_depends_on,
             foundation_session_id=foundation_session_id or "",
             auto_execute=True,  # Not in schema, using default
             coordination_room="",  # Not in schema, using default

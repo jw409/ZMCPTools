@@ -6,6 +6,7 @@ import structlog
 from pydantic import Field
 
 from ..services.communication_service import CommunicationService
+from .json_utils import parse_json_list, check_parsing_error
 from .app import app
 
 logger = structlog.get_logger("tools.communication")
@@ -94,19 +95,24 @@ async def send_message(
         description="Type of message",
         pattern=r"^(info|question|update|alert|command)$",
     )] = "info",
-    mentions: Annotated[list[str] | None, Field(
-        description="List of agent IDs to mention in the message",
+    mentions: Annotated[str | list[str] | None, Field(
+        description="List of agent IDs to mention in the message. Can be JSON array: ['agent1', 'agent2']",
         default=None,
     )] = None,
 ) -> dict[str, Any]:
     """Send a message to a room or specific agents."""
     try:
+        # Parse list parameters if provided as JSON strings
+        parsed_mentions = parse_json_list(mentions, "mentions")
+        if check_parsing_error(parsed_mentions):
+            return parsed_mentions
+            
         result = await CommunicationService.send_message(
             room_name=room_name,
             agent_name=agent_name,
             message=message,
             message_type=message_type,
-            mentions=mentions,
+            mentions=parsed_mentions,
         )
         return result
 
@@ -127,8 +133,8 @@ async def broadcast_message(
         min_length=1,
         max_length=2000,
     )],
-    rooms: Annotated[list[str], Field(
-        description="List of room names to broadcast to",
+    rooms: Annotated[str | list[str], Field(
+        description="List of room names to broadcast to. Can be JSON array: ['room1', 'room2']",
         min_length=1,
         max_length=50,
     )],
@@ -139,9 +145,14 @@ async def broadcast_message(
 ) -> dict[str, Any]:
     """Broadcast a message to multiple rooms simultaneously."""
     try:
+        # Parse list parameters if provided as JSON strings
+        parsed_rooms = parse_json_list(rooms, "rooms")
+        if check_parsing_error(parsed_rooms):
+            return parsed_rooms
+            
         results = []
 
-        for room_name in rooms:
+        for room_name in parsed_rooms:
             try:
                 result = await CommunicationService.send_message(
                     room_name=room_name,
@@ -197,8 +208,8 @@ async def get_messages(
         description="ISO timestamp to get messages since",
         default=None,
     )] = None,
-    message_type_filter: Annotated[list[str] | None, Field(
-        description="Filter messages by type",
+    message_type_filter: Annotated[str | list[str] | None, Field(
+        description="Filter messages by type. Can be JSON array: ['info', 'alert', 'update']",
         default=None,
     )] = None,
     before_message_id: Annotated[str | None, Field(
@@ -208,12 +219,17 @@ async def get_messages(
 ) -> dict[str, Any]:
     """Retrieve messages from a room with filtering."""
     try:
+        # Parse list parameters if provided as JSON strings
+        parsed_message_type_filter = parse_json_list(message_type_filter, "message_type_filter")
+        if check_parsing_error(parsed_message_type_filter):
+            return parsed_message_type_filter
+            
         result = await CommunicationService.get_messages(
             room_name=room_name,
             limit=limit,
             before_message_id=before_message_id,
             since_timestamp=since_timestamp,
-            message_type_filter=message_type_filter,
+            message_type_filter=parsed_message_type_filter,
         )
         return result
 

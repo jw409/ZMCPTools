@@ -7,6 +7,7 @@ from pydantic import Field
 
 from ..models import TaskStatus
 from ..services.task_service import TaskService
+from .json_utils import parse_json_list, check_parsing_error
 from .app import app
 
 logger = structlog.get_logger("tools.tasks")
@@ -37,8 +38,8 @@ async def create_task(
         description="Task requirements and specifications (JSON object or string)",
         default=None,
     )] = None,
-    dependencies: Annotated[list[str] | None, Field(
-        description="List of task IDs this task depends on",
+    dependencies: Annotated[str | list[str] | None, Field(
+        description="List of task IDs this task depends on. Can be JSON array: ['task1', 'task2']",
         default=None,
     )] = None,
     priority: Annotated[str, Field(
@@ -58,6 +59,12 @@ async def create_task(
 ) -> dict[str, Any]:
     """Create a new orchestrated development task."""
     try:
+        # Parse list parameters if provided as JSON strings
+        parsed_dependencies = parse_json_list(dependencies, "dependencies")
+        if check_parsing_error(parsed_dependencies):
+            return parsed_dependencies
+        final_dependencies: list[str] | None = parsed_dependencies
+
         # Parse requirements if string
         parsed_requirements: dict[str, Any] | None = requirements if isinstance(requirements, dict) else None
         if isinstance(requirements, str):
@@ -85,7 +92,7 @@ async def create_task(
             requirements=parsed_requirements,
             priority=priority_int,
             parent_task_id=None,
-            dependencies=dependencies,
+            dependencies=final_dependencies,
         )
         
         # Auto-assign if agent ID provided
@@ -141,8 +148,8 @@ async def list_tasks(
     repository_path: Annotated[str, Field(
         description="Path to the repository to filter tasks by",
     )],
-    status_filter: Annotated[list[str] | None, Field(
-        description="Filter tasks by status (pending, in_progress, completed, failed, blocked)",
+    status_filter: Annotated[str | list[str] | None, Field(
+        description="Filter tasks by status. Can be JSON array: ['pending', 'in_progress', 'completed']",
         default=None,
     )] = None,
     task_type_filter: Annotated[str | None, Field(
@@ -164,10 +171,16 @@ async def list_tasks(
 ) -> dict[str, Any]:
     """List tasks with filtering and pagination."""
     try:
+        # Parse list parameters if provided as JSON strings
+        parsed_status_filter = parse_json_list(status_filter, "status_filter")
+        if check_parsing_error(parsed_status_filter):
+            return parsed_status_filter
+        final_status_filter: list[str] | None = parsed_status_filter
+
         # Convert string status values to TaskStatus enums if provided
         status_enum_filter = None
-        if status_filter:
-            status_enum_filter = [TaskStatus(status) for status in status_filter]
+        if final_status_filter:
+            status_enum_filter = [TaskStatus(status) for status in final_status_filter]
 
         result = await TaskService.list_tasks(
             repository_path=repository_path,

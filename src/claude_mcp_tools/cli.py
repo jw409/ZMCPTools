@@ -350,24 +350,49 @@ exec claude-mcp-tools-server "$@"
         server_launcher.chmod(0o755)
         progress.update(task3, advance=1, description="🔧 MCP launchers created ✓")
 
-        # Step 4: Auto-configuration (if requested)
+        # Step 4: Install browser dependencies for web scraping
+        task4 = progress.add_task("🌐 Installing browser dependencies...", total=2)
+        
+        try:
+            progress.update(task4, description="🌐 Installing Chromium browser for documentation scraping...")
+            
+            # Install patchright browser (Chromium) for web scraping
+            venv_python = venv_dir / "bin" / "python"
+            subprocess.run([
+                str(venv_python), "-m", "patchright", "install", "chromium"
+            ], check=True, capture_output=True, timeout=300)  # 5 minute timeout
+            
+            progress.update(task4, advance=1, description="✅ Chromium browser installed")
+        except subprocess.TimeoutExpired:
+            progress.update(task4, description="⚠️ Browser install timeout (will retry on first use)")
+            progress.update(task4, advance=1)
+        except subprocess.CalledProcessError as e:
+            progress.update(task4, description="⚠️ Browser install failed (will retry on first use)")
+            progress.update(task4, advance=1)
+        except Exception as e:
+            progress.update(task4, description="⚠️ Browser install skipped")
+            progress.update(task4, advance=1)
+        
+        progress.update(task4, advance=1, description="🌐 Browser dependencies ready ✓")
+
+        # Step 5: Auto-configuration (if requested)
         if auto:
-            task4 = progress.add_task("⚙️ Auto-configuring...", total=3)
+            task5 = progress.add_task("⚙️ Auto-configuring...", total=3)
 
             # Configure MCP servers
             try:
-                progress.update(task4, description="⚙️ Adding MCP servers...")
+                progress.update(task5, description="⚙️ Adding MCP servers...")
                 subprocess.run([
                     "claude", "mcp", "add", "claude-mcp-orchestration", str(orch_launcher),
                 ], check=True, capture_output=True)
-                progress.update(task4, advance=1)
+                progress.update(task5, advance=1)
             except subprocess.CalledProcessError:
-                progress.update(task4, description="⚠️ MCP server config failed (manual setup needed)")
-                progress.update(task4, advance=1)
+                progress.update(task5, description="⚠️ MCP server config failed (manual setup needed)")
+                progress.update(task5, advance=1)
 
             # Set up project permissions and Claude Commands
             if project_setup:
-                progress.update(task4, description="🔒 Setting up permissions and commands...")
+                progress.update(task5, description="🔒 Setting up permissions and commands...")
                 project_claude_dir = Path.cwd() / ".claude"
                 project_claude_dir.mkdir(exist_ok=True)
 
@@ -405,14 +430,14 @@ exec claude-mcp-tools-server "$@"
                 settings_file.write_text(settings_content)
 
                 # Create or update CLAUDE.md with ClaudeMcpTools integration
-                progress.update(task4, description="📝 Setting up CLAUDE.md integration...")
+                progress.update(task5, description="📝 Setting up CLAUDE.md integration...")
                 _create_or_update_claude_md(Path.cwd())
 
-                progress.update(task4, advance=1)
+                progress.update(task5, advance=1)
             else:
-                progress.update(task4, advance=1)
+                progress.update(task5, advance=1)
 
-            progress.update(task4, advance=1, description="⚙️ Auto-configuration complete ✓")
+            progress.update(task5, advance=1, description="⚙️ Auto-configuration complete ✓")
 
     # Success message
     success_panel = Panel.fit(
@@ -421,6 +446,7 @@ exec claude-mcp-tools-server "$@"
 📋 [bold]What was installed:[/bold]
 • Global installation: [blue]~/.claude/mcptools/[/blue]
 • Data storage: [blue]~/.claude/zmcptools/[/blue]
+• Chromium browser for documentation scraping
 • MCP servers configured in Claude Code
 • Project permissions: [blue]./.claude/settings.local.json[/blue]
 • Claude Commands: [blue]./.claude/commands/[/blue]
@@ -429,8 +455,9 @@ exec claude-mcp-tools-server "$@"
 🚀 [bold]Next steps:[/bold]
 1. Restart Claude Code
 2. Use /mcp to see available tools
-3. Try: [blue]orchestrate_objective()[/blue] for multi-agent workflows
-4. Check: [blue]./CLAUDE.md[/blue] for architect-led examples""",
+3. Try: [blue]scrape_documentation()[/blue] for web scraping
+4. Try: [blue]orchestrate_objective()[/blue] for multi-agent workflows
+5. Check: [blue]./CLAUDE.md[/blue] for architect-led examples""",
         title="🎉 Success",
     )
     console.print(success_panel)
