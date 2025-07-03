@@ -24,7 +24,7 @@ class SimpleBrowserManager:
     def __init__(self, browser_type: str = "chrome", headless: bool = True):
         self.browser_type = browser_type
         self.headless = headless
-        self.user_agent = UserAgent(os="Windows")
+        self.user_agent = UserAgent(os="Windows", browsers=["chrome"])
         self.browser_context = None
         self.playwright = None
         self.retry_count = 3
@@ -131,6 +131,8 @@ class SimpleBrowserManager:
         """Create a new page."""
         if not self.browser_context:
             await self.initialize()
+        if not self.browser_context:
+            raise RuntimeError("Browser context is not initialized")
         return await self.browser_context.new_page()
 
     async def close(self):
@@ -148,7 +150,7 @@ class NavigationMixin:
         """Navigate to URL with retry logic."""
         options = options or {}
 
-        for attempt in range(self.retry_count):
+        for attempt in range(getattr(self, 'retry_count', 3)):
             try:
                 logger.info("🌐 Navigating to URL", url=url, attempt=attempt + 1)
 
@@ -169,8 +171,8 @@ class NavigationMixin:
 
             except Exception as e:
                 logger.warning("Navigation attempt failed", url=url, attempt=attempt + 1, error=str(e))
-                if attempt < self.retry_count - 1:
-                    await asyncio.sleep(self.retry_delay * (attempt + 1))
+                if attempt < getattr(self, 'retry_count', 3) - 1:
+                    await asyncio.sleep(getattr(self, 'retry_delay', 2.0) * (attempt + 1))
                 else:
                     logger.error("❌ All navigation attempts failed", url=url)
                     return False
@@ -348,7 +350,7 @@ class ExtractionMixin:
                 link_elements = soup.find_all("a", href=True)
                 for link in link_elements:
                     href = link.get("href")
-                    if href:
+                    if href and isinstance(href, str):
                         # Convert relative URLs to absolute
                         absolute_url = urljoin(page.url, href)
                         links.append(absolute_url)
@@ -549,7 +551,7 @@ class DocumentationScraper(SimpleBrowserManager, NavigationMixin, InteractionMix
                 link_elements = soup.select(selectors["links"])
                 for elem in link_elements:
                     href = elem.get("href")
-                    if href:
+                    if href and isinstance(href, str):
                         absolute_url = urljoin(page.url, href)
                         extracted_data["links"].append(absolute_url)
 

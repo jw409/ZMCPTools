@@ -848,13 +848,24 @@ class DocumentationService:
     async def _scrape_source_content(self, source: DocumentationSource) -> dict[str, Any]:
         """Scrape content from a documentation source using Patchright."""
         if not self._web_scraper:
-            return {
-                "success": False,
-                "error": "Web scraper not initialized",
-                "entries_scraped": 0,
-                "entries_updated": 0,
-                "errors": [],
-            }
+            # Initialize web scraper if it doesn't exist
+            try:
+                self._web_scraper = DocumentationScraper(headless=True)
+                # Use domain-based directory to avoid singleton lock issues
+                from urllib.parse import urlparse
+                domain = urlparse(source.url).netloc.replace(".", "_").replace(":", "_")
+                scraper_user_data = self.docs_path / f"browser_data_{domain}"
+                await self._web_scraper.initialize(user_data_dir=scraper_user_data)
+                logger.info("Web scraper initialized in _scrape_source_content")
+            except Exception as e:
+                logger.error("Failed to initialize web scraper", error=str(e))
+                return {
+                    "success": False,
+                    "error": f"Failed to initialize web scraper: {str(e)}",
+                    "entries_scraped": 0,
+                    "entries_updated": 0,
+                    "errors": [],
+                }
 
         try:
             logger.info("🚀 Starting source scraping", 
