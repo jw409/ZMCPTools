@@ -4,6 +4,7 @@ from typing import Annotated, Any
 import json
 
 import structlog
+from fastmcp import Context
 from pydantic import Field
 
 from ..analysis.core.treesummary import TreeSummaryManager
@@ -16,6 +17,7 @@ logger = structlog.get_logger("tools.analysis")
 
 @app.tool(tags={"analysis", "project-structure", "ai-context", "treesummary"})
 async def analyze_project_structure(
+    ctx: Context,
     project_path: Annotated[str, Field(
         description="Path to the project to analyze",
     )],
@@ -34,11 +36,15 @@ async def analyze_project_structure(
 ) -> dict[str, Any]:
     """Generate comprehensive project structure analysis."""
     try:
+        await ctx.report_progress(0, 100)
+        
         # Parse list parameters if provided as JSON strings
         parsed_file_types = parse_json_list(file_types, "file_types")
         if check_parsing_error(parsed_file_types):
             return parsed_file_types
         final_file_types: list[str] | None = parsed_file_types
+
+        await ctx.report_progress(20, 100)
 
         tree_manager = TreeSummaryManager(
             project_path=project_path,
@@ -46,8 +52,14 @@ async def analyze_project_structure(
             max_depth=max_depth,
             file_types=final_file_types
         )
+        
+        await ctx.report_progress(40, 100)
+        
         # Using available methods to provide similar functionality
         overview = await tree_manager.get_project_overview()
+        
+        await ctx.report_progress(100, 100)
+        
         return {
             "success": True,
             "project_path": project_path,
@@ -109,6 +121,7 @@ async def generate_project_summary(
 
 @app.tool(tags={"analysis", "dead-code", "cleanup", "optimization"})
 async def detect_dead_code(
+    ctx: Context,
     project_path: Annotated[str, Field(
         description="Path to the project to analyze for dead code",
     )],
@@ -127,15 +140,26 @@ async def detect_dead_code(
 ) -> dict[str, Any]:
     """Detect unused code and functions for cleanup."""
     try:
+        await ctx.report_progress(0, 100)
+        
         # Parse list parameters if provided as JSON strings
         parsed_file_extensions = parse_json_list(file_extensions, "file_extensions")
         if check_parsing_error(parsed_file_extensions):
             return parsed_file_extensions
         final_file_extensions: list[str] | None = parsed_file_extensions
 
+        await ctx.report_progress(25, 100)
+
         analyzer = FileAnalyzer()  # No constructor parameters
+        
+        await ctx.report_progress(50, 100)
+        
         # FileAnalyzer doesn't have detect_dead_code method
         # Providing placeholder functionality
+        await ctx.report_progress(75, 100)
+        
+        await ctx.report_progress(100, 100)
+        
         return {
             "success": True,
             "project_path": project_path,
@@ -199,6 +223,7 @@ async def analyze_file_symbols(
 
 @app.tool(tags={"file-operations", "bulk-replace", "refactoring", "maintenance"})
 async def easy_replace_all(
+    ctx: Context,
     repository_path: Annotated[str, Field(
         description="Path to the repository to perform replacements in",
     )],
@@ -230,16 +255,22 @@ async def easy_replace_all(
 ) -> dict[str, Any]:
     """Perform bulk find-and-replace operations across files."""
     try:
+        await ctx.report_progress(0, 100)
+        
         # Parse list parameters if provided as JSON strings
         parsed_file_patterns = parse_json_list(file_patterns, "file_patterns")
         if check_parsing_error(parsed_file_patterns):
             return parsed_file_patterns
         final_file_patterns: list[str] | None = parsed_file_patterns
 
+        await ctx.report_progress(15, 100)
+
         parsed_exclude_patterns = parse_json_list(exclude_patterns, "exclude_patterns")
         if check_parsing_error(parsed_exclude_patterns):
             return parsed_exclude_patterns
         final_exclude_patterns: list[str] | None = parsed_exclude_patterns
+
+        await ctx.report_progress(30, 100)
 
         # Parse replacements if string
         parsed_replacements = replacements
@@ -250,13 +281,21 @@ async def easy_replace_all(
             except json.JSONDecodeError:
                 return {"error": {"code": "INVALID_REPLACEMENTS_FORMAT", "message": "Invalid JSON in replacements string"}}
 
+        await ctx.report_progress(45, 100)
+
         # Validate replacement format
         for i, replacement in enumerate(parsed_replacements):
             if not isinstance(replacement, dict) or not all(key in replacement for key in ["old", "new"]):
                 return {"error": {"code": "INVALID_REPLACEMENT",
                                "message": f"Replacement {i} must be a dict with 'old' and 'new' keys"}}
 
+        await ctx.report_progress(60, 100)
+
         # FileOperationsService doesn't exist, providing placeholder
+        await ctx.report_progress(80, 100)
+        
+        await ctx.report_progress(100, 100)
+        
         return {
             "success": True,
             "repository_path": repository_path,

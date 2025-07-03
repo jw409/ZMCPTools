@@ -400,6 +400,7 @@ class DocumentationScraper(SimpleBrowserManager, NavigationMixin, InteractionMix
         crawl_depth: int = 3,
         selectors: dict[str, str] | None = None,
         ignore_patterns: list[str] | None = None,
+        ctx = None,
     ) -> dict[str, Any]:
         """Scrape documentation from a source with crawling."""
         logger.info("🚀 Starting documentation scraping", url=base_url, depth=crawl_depth)
@@ -416,6 +417,11 @@ class DocumentationScraper(SimpleBrowserManager, NavigationMixin, InteractionMix
             # Start scraping from base URL
             scraped_entries = []
             urls_to_scrape = [(base_url, 0)]  # (url, depth)
+            pages_processed = 0
+            total_discovered = 1  # Start with the base URL
+
+            if ctx:
+                await ctx.report_progress(pages_processed, total_discovered)
 
             while urls_to_scrape:
                 url, depth = urls_to_scrape.pop(0)
@@ -442,11 +448,26 @@ class DocumentationScraper(SimpleBrowserManager, NavigationMixin, InteractionMix
                     # Add internal links for deeper crawling if within depth limit
                     if depth < crawl_depth:
                         internal_links = self._filter_internal_links(entry_data.get("links", []), base_url)
+                        new_links_count = 0
                         for link in internal_links:
                             if link not in self.scraped_urls and link not in self.failed_urls:
                                 urls_to_scrape.append((link, depth + 1))
+                                new_links_count += 1
+                        
+                        # Update total discovered pages (total grows as we find more links)
+                        total_discovered += new_links_count
                 else:
                     self.failed_urls.add(url)
+
+                # Update progress - pages processed vs current total discovered
+                pages_processed += 1
+                if ctx:
+                    # Use current progress vs total discovered, capped to not exceed the range 50-80
+                    # (leaving room for post-processing in the parent function)
+                    progress_range = 30  # 50 to 80 (80-50)
+                    progress_ratio = min(pages_processed / max(total_discovered, 1), 1.0)
+                    current_progress = 50 + int(progress_ratio * progress_range)
+                    await ctx.report_progress(current_progress, 100)
 
                 # Add delay between requests
                 await asyncio.sleep(random.uniform(1, 3))

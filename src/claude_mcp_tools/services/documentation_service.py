@@ -259,6 +259,7 @@ class DocumentationService:
         self,
         source_id: str,
         force_refresh: bool = False,
+        ctx = None,
     ) -> dict[str, Any]:
         """Scrape documentation from a configured source.
         
@@ -295,7 +296,7 @@ class DocumentationService:
 
         # Start scraping task
         scraper_task = asyncio.create_task(
-            self._scrape_source_content(source_data),
+            self._scrape_source_content(source_data, ctx),
         )
 
         self._running_scrapers[source_id] = scraper_task
@@ -845,7 +846,7 @@ class DocumentationService:
         threshold = frequency_map.get(source.update_frequency, timedelta(days=1))
         return time_since_scrape < threshold
 
-    async def _scrape_source_content(self, source: DocumentationSource) -> dict[str, Any]:
+    async def _scrape_source_content(self, source: DocumentationSource, ctx=None) -> dict[str, Any]:
         """Scrape content from a documentation source using Patchright."""
         if not self._web_scraper:
             # Initialize web scraper if it doesn't exist
@@ -873,9 +874,15 @@ class DocumentationService:
                        source_name=source.name, 
                        url=source.url)
 
+            if ctx:
+                await ctx.report_progress(40, 100)
+
             # Get scraping configuration
             selectors = source.get_selectors()
             ignore_patterns = source.get_ignore_patterns()
+
+            if ctx:
+                await ctx.report_progress(45, 100)
 
             # Scrape the documentation
             scrape_result = await self._web_scraper.scrape_documentation_source(
@@ -883,6 +890,7 @@ class DocumentationService:
                 crawl_depth=source.crawl_depth,
                 selectors=selectors if selectors else None,
                 ignore_patterns=ignore_patterns if ignore_patterns else None,
+                ctx=ctx,
             )
 
             if not scrape_result.get("success"):
@@ -896,7 +904,14 @@ class DocumentationService:
 
             # Process and store the scraped entries
             entries_data = scrape_result.get("entries", [])
+            
+            if ctx:
+                await ctx.report_progress(85, 100)
+                
             storage_result = await self._store_scraped_entries(source.id, entries_data)
+
+            if ctx:
+                await ctx.report_progress(95, 100)
 
             logger.info("✅ Source scraping completed", 
                        source_id=source.id,

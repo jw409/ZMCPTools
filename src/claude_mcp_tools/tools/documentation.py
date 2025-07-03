@@ -4,6 +4,7 @@ import json
 from typing import Annotated, Any
 
 import structlog
+from fastmcp import Context
 from pydantic import Field
 
 from ..services.documentation_service import DocumentationService
@@ -15,58 +16,96 @@ logger = structlog.get_logger("tools.documentation")
 
 @app.tool(tags={"documentation", "scraping", "indexing", "knowledge-base"})
 async def scrape_documentation(
-    source_name: Annotated[str, Field(
-        description="Human-readable name for the documentation source",
-        min_length=1,
-        max_length=100,
-    )],
-    url: Annotated[str, Field(
-        description="Base URL for documentation scraping",
-        pattern=r"^https?://.*",
-    )],
-    source_type: Annotated[str, Field(
-        description="Type of documentation",
-        pattern=r"^(api|guide|reference|tutorial)$",
-    )] = "guide",
-    crawl_depth: Annotated[int, Field(
-        description="Maximum depth for crawling linked pages",
-        ge=1,
-        le=10,
-    )] = 3,
-    update_frequency: Annotated[str, Field(
-        description="How often to automatically update",
-        pattern=r"^(hourly|daily|weekly)$",
-    )] = "daily",
-    selectors: Annotated[str | dict[str, str] | None, Field(
-        description='CSS selectors for targeted content extraction. Can be JSON string or object: {"content": "article", "title": "h1"}',
-        default=None,
-    )] = None,
-    ignore_patterns: Annotated[list[str] | None, Field(
-        description="URL patterns to skip during crawling",
-        default=None,
-    )] = None,
-    force_refresh: Annotated[bool, Field(
-        description="Force refresh even if recently scraped",
-    )] = False,
-    scrape_immediately: Annotated[bool, Field(
-        description="Immediately scrape after creating/updating the source",
-    )] = True,
+    ctx: Context,
+    source_name: Annotated[
+        str,
+        Field(
+            description="Human-readable name for the documentation source",
+            min_length=1,
+            max_length=100,
+        ),
+    ],
+    url: Annotated[
+        str,
+        Field(
+            description="Base URL for documentation scraping",
+            pattern=r"^https?://.*",
+        ),
+    ],
+    source_type: Annotated[
+        str,
+        Field(
+            description="Type of documentation",
+            pattern=r"^(api|guide|reference|tutorial)$",
+        ),
+    ] = "guide",
+    crawl_depth: Annotated[
+        int,
+        Field(
+            description="Maximum depth for crawling linked pages",
+            ge=1,
+            le=10,
+        ),
+    ] = 3,
+    update_frequency: Annotated[
+        str,
+        Field(
+            description="How often to automatically update",
+            pattern=r"^(hourly|daily|weekly)$",
+        ),
+    ] = "daily",
+    selectors: Annotated[
+        str | dict[str, str] | None,
+        Field(
+            description='CSS selectors for targeted content extraction. Can be JSON string or object: {"content": "article", "title": "h1"}',
+            default=None,
+        ),
+    ] = None,
+    ignore_patterns: Annotated[
+        list[str] | None,
+        Field(
+            description="URL patterns to skip during crawling",
+            default=None,
+        ),
+    ] = None,
+    force_refresh: Annotated[
+        bool,
+        Field(
+            description="Force refresh even if recently scraped",
+        ),
+    ] = False,
+    scrape_immediately: Annotated[
+        bool,
+        Field(
+            description="Immediately scrape after creating/updating the source",
+        ),
+    ] = True,
 ) -> dict[str, Any]:
     """Scrape and index documentation from websites."""
     try:
+        # Initialize progress
+        if ctx:
+            await ctx.report_progress(0, 100)
+
         # Parse selectors if provided as JSON string
         parsed_selectors = parse_json_dict(selectors, "selectors")
         if check_parsing_error(parsed_selectors):
             return parsed_selectors
         final_selectors: dict[str, str] | None = parsed_selectors
-        
+
         # If it's a simple string without JSON brackets, treat it as a single selector
         if isinstance(selectors, str) and "{" not in selectors:
             final_selectors = {"content": selectors}
-        
+
+        if ctx:
+            await ctx.report_progress(10, 100)
+
         doc_service = DocumentationService()
 
         # First, add/update the documentation source
+        if ctx:
+            await ctx.report_progress(20, 100)
+
         source_result = await doc_service.add_documentation_source(
             name=source_name,
             url=url,
@@ -84,12 +123,23 @@ async def scrape_documentation(
 
         # Conditionally scrape the documentation
         if scrape_immediately:
+            if ctx:
+                await ctx.report_progress(30, 100)
+
             result = await doc_service.scrape_documentation(
                 source_id=source_id,
                 force_refresh=force_refresh,
+                ctx=ctx,
             )
+
+            if ctx:
+                await ctx.report_progress(100, 100)
+
             return result
         else:
+            if ctx:
+                await ctx.report_progress(100, 100)
+
             return {
                 "success": True,
                 "message": "Documentation source created successfully. Use scrape_by_source_id to scrape when ready.",
