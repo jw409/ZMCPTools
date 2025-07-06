@@ -167,7 +167,7 @@ class ScraperWorker:
             await self._ensure_browser_running()
             
             # Import scraper here to avoid circular imports
-            from ..services.web_scraper import DocumentationScraper
+            from ..services.documentation_scraper import ThreadPoolDocumentationScraper
             
             # Create scraper instance
             scraper = DocumentationScraper()
@@ -242,7 +242,7 @@ class ScraperWorker:
         """Ensure browser manager is initialized and running."""
         if self.browser_manager is None:
             # Import here to avoid circular imports during module initialization
-            from ..services.web_scraper import DocumentationScraper
+            from ..services.documentation_scraper import ThreadPoolDocumentationScraper
             
             logger.info("Initializing browser for scraping jobs")
             self.browser_manager = DocumentationScraper()

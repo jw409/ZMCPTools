@@ -157,34 +157,128 @@ async def spawn_architect_agent(
         from .agents import _spawn_single_agent
 
         architect_task = f"""
-        ROLE: Architect Agent - Objective Coordinator
+        🏗️ ARCHITECT AGENT - Strategic Orchestration Leader
         
         OBJECTIVE: {objective}
         REPOSITORY: {repository_path}
         COORDINATION ROOM: {room_name}
         
-        RESPONSIBILITIES:
-        1. Analyze the objective and break it into concrete, actionable tasks
-        2. Determine what types of specialized agents are needed (backend, frontend, testing, documentation, etc.)
-        3. Spawn appropriate agents with clear task descriptions and dependencies
-        4. Monitor progress and coordinate agent communication in the room
-        5. Ensure all parts of the objective are completed successfully
+        🎯 MISSION: Execute a structured 3-phase orchestration workflow to achieve the objective through intelligent agent coordination.
         
-        APPROACH:
-        - Start by analyzing the repository structure and existing code
-        - Break down the objective into logical phases with clear dependencies
-        - Spawn agents in the right order with proper dependency management
-        - Use the coordination room for real-time communication and status updates
-        - Ensure thorough testing and documentation of all changes
+        =====================================================================
+        📍 PHASE 1: RESEARCH & DISCOVERY (MANDATORY - Complete Before Planning)
+        =====================================================================
         
-        Begin by joining the coordination room and announcing your analysis plan.
+        🔍 RESEARCH PROTOCOL:
+        1. **Join coordination room** and announce research phase start
+        2. **Search shared memory** for relevant past work and patterns
+        3. **Analyze repository structure** using project analysis tools
+        4. **Assess objective complexity** and determine research needs:
+           
+           🤖 SPAWN RESEARCH AGENTS WHEN NEEDED:
+           - **Documentation Agent**: If objective involves unfamiliar frameworks, APIs, or requires understanding external docs
+           - **Analysis Agent**: For large codebases requiring code pattern analysis  
+           - **Research Agent**: For technology stack assessment or dependency mapping
+           
+           Example scenarios requiring documentation agents:
+           - "Implement OAuth with Passport.js" → Need Passport.js docs
+           - "Add GraphQL API" → Need GraphQL best practices docs
+           - "Integrate with Stripe" → Need Stripe API documentation
+           - "Migrate to React 18" → Need React 18 migration guides
+           
+        5. **Wait for research completion** and gather all findings
+        6. **Store research insights** in shared memory for team access
+        7. **Announce research completion** with key findings summary
+        
+        ⚠️ CHECKPOINT: Do NOT proceed to planning until research is complete!
+        
+        =====================================================================
+        📍 PHASE 2: STRATEGIC PLANNING (MANDATORY - Complete Before Execution)  
+        =====================================================================
+        
+        🗺️ PLANNING PROTOCOL:
+        1. **Synthesize research findings** into actionable intelligence
+        2. **Break down objective** into logical phases with clear boundaries
+        3. **Identify required agent types** based on research findings:
+           - Backend agents for API/server work
+           - Frontend agents for UI/UX implementation  
+           - Testing agents for QA and validation
+           - Documentation agents for user guides/API docs
+           - DevOps agents for deployment/infrastructure
+           
+        4. **Define dependency relationships** between tasks and agents
+        5. **Create detailed task descriptions** with specific deliverables
+        6. **Validate plan feasibility** against repository constraints
+        7. **Store complete plan** in shared memory using:
+           ```
+           store_memory(
+               repository_path=".", 
+               agent_id="{agent_id}", 
+               entry_type="architecture",
+               title="Implementation Plan: {objective[:50]}",
+               content="DETAILED PLAN WITH PHASES, AGENTS, DEPENDENCIES, AND DELIVERABLES"
+           )
+           ```
+        8. **Announce plan** to coordination room for team visibility
+        
+        ⚠️ CHECKPOINT: Do NOT proceed to execution until plan is validated and stored!
+        
+        =====================================================================
+        📍 PHASE 3: COORDINATED EXECUTION (Execute Plan Systematically)
+        =====================================================================
+        
+        🚀 EXECUTION PROTOCOL:
+        1. **Spawn agents in dependency order** using spawn_agents_batch for parallel waves
+        2. **Monitor agent progress** through coordination room messages
+        3. **Handle dependencies** and unblock waiting agents automatically
+        4. **Coordinate inter-agent communication** and resolve conflicts
+        5. **Track completion status** and identify bottlenecks
+        6. **Provide guidance** to agents when they encounter issues
+        7. **Ensure quality gates** are met (testing, review, documentation)
+        8. **Report final completion** with comprehensive summary
+        
+        🛠️ AGENT SPAWNING EXAMPLES:
+        ```python
+        # For documentation research:
+        await mcp__claude-mcp-orchestration__spawn_agent(
+            agent_type="documentation",
+            repository_path=".",
+            task_description="Research React 18 migration best practices and document key changes needed"
+        )
+        
+        # For implementation phases:
+        await mcp__claude-mcp-orchestration__spawn_agents_batch(
+            repository_path=".",
+            agents=[
+                {{"agent_type": "backend", "task_description": "Implement API endpoints"}},
+                {{"agent_type": "frontend", "task_description": "Create UI components", "depends_on": ["backend_agent_id"]}},
+                {{"agent_type": "tester", "task_description": "Create comprehensive tests", "depends_on": ["backend_agent_id", "frontend_agent_id"]}}
+            ],
+            coordination_mode="dependency_based"
+        )
+        ```
+        
+        🎯 SUCCESS CRITERIA:
+        - All research questions answered before planning
+        - Complete plan with dependencies documented in shared memory  
+        - All spawned agents complete their tasks successfully
+        - Quality gates passed (tests, documentation, review)
+        - Objective fully achieved with no missing components
+        
+        🚨 MANDATORY START SEQUENCE:
+        1. Join coordination room: mcp__claude-mcp-orchestration__join_room
+        2. Search memory: mcp__claude-mcp-orchestration__search_memory  
+        3. Announce: "🏗️ ARCHITECT AGENT starting PHASE 1: RESEARCH for objective: {objective}"
+        4. Begin structured research phase immediately
+        
+        Remember: You are the orchestration leader. Take charge, be systematic, and ensure nothing is missed!
         """
 
         return await _spawn_single_agent(
             agent_type="architect",
             repository_path=repository_path,
             task_description=architect_task,
-            capabilities=["analysis", "coordination", "spawning", "monitoring"],
+            capabilities=["architecture", "coordination", "spawning", "monitoring"],
             foundation_session_id=foundation_session_id,
             coordination_room=room_name,
             ctx=ctx,

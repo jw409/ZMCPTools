@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 
 import structlog
 
-from .web_scraper import DocumentationScraper
+from .documentation_scraper import ThreadPoolDocumentationScraper
 
 logger = structlog.get_logger("domain_browser_manager")
 
@@ -31,7 +31,7 @@ class DomainBrowserManager:
             return
         
         self._initialized = True
-        self._domain_scrapers: dict[str, DocumentationScraper] = {}
+        self._domain_scrapers: dict[str, ThreadPoolDocumentationScraper] = {}
         self._domain_locks: dict[str, asyncio.Lock] = {}
         self._domain_queues: dict[str, list[dict[str, Any]]] = {}
         self._active_scraping: dict[str, set[str]] = {}  # domain -> set of source_ids
@@ -74,7 +74,7 @@ class DomainBrowserManager:
             logger.warning("Failed to extract domain from URL", url=url, error=str(e))
             return "unknown_domain"
     
-    async def get_scraper_for_domain(self, url: str, source_id: str) -> tuple[DocumentationScraper, bool]:
+    async def get_scraper_for_domain(self, url: str, source_id: str) -> tuple[ThreadPoolDocumentationScraper, bool]:
         """Get or create a scraper for the given domain.
         
         Args:
@@ -105,23 +105,17 @@ class DomainBrowserManager:
             logger.info("Creating new scraper for domain", domain=domain, source_id=source_id)
             
             try:
-                scraper = DocumentationScraper(headless=False)
+                scraper = ThreadPoolDocumentationScraper(max_concurrent_browsers=1)
                 
-                # Set up domain-specific user data directory in ~/.mcptools
-                if self._base_data_dir:
-                    user_data_dir = self._base_data_dir / f"browser_data_{domain}"
-                else:
-                    user_data_dir = Path.home() / ".mcptools" / "browser_data" / f"browser_data_{domain}"
-                
-                await scraper.initialize(user_data_dir=user_data_dir)
+                # Note: ThreadPoolDocumentationScraper manages its own browser contexts
+                # No initialization needed - it handles browser setup in worker threads
                 
                 # Store scraper for this domain
                 self._domain_scrapers[domain] = scraper
                 
-                logger.info("Successfully created and initialized scraper", 
+                logger.info("Successfully created ThreadPool scraper", 
                            domain=domain, 
-                           source_id=source_id,
-                           user_data_dir=str(user_data_dir))
+                           source_id=source_id)
                 
                 return scraper, True
                 
@@ -186,7 +180,7 @@ class DomainBrowserManager:
             if domain in self._domain_scrapers:
                 try:
                     scraper = self._domain_scrapers[domain]
-                    await scraper.close()
+                    await scraper.shutdown()
                     del self._domain_scrapers[domain]
                     logger.info("Successfully cleaned up scraper for domain", domain=domain)
                 except Exception as e:

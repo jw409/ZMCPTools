@@ -95,6 +95,7 @@ class DocumentationEntry(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     source_id: Mapped[str] = mapped_column(String, ForeignKey("documentation_sources.id"), nullable=False)
+    website_page_id: Mapped[str | None] = mapped_column(String, ForeignKey("website_pages.id"))
     url: Mapped[str] = mapped_column(String, nullable=False)
     title: Mapped[str] = mapped_column(String, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
@@ -108,6 +109,7 @@ class DocumentationEntry(Base):
 
     # Relationships
     source: Mapped["DocumentationSource"] = relationship("DocumentationSource", back_populates="entries")
+    website_page: Mapped["WebsitePage"] = relationship("WebsitePage", back_populates="documentation_entries")
     embeddings: Mapped[list["DocumentationEmbedding"]] = relationship("DocumentationEmbedding", back_populates="entry")
     code_links: Mapped[list["CodeDocumentationLink"]] = relationship("CodeDocumentationLink", back_populates="documentation_entry")
     changes: Mapped[list["DocumentationChange"]] = relationship("DocumentationChange", back_populates="entry")
@@ -227,6 +229,7 @@ class ScrapedUrl(Base):
     normalized_url: Mapped[str] = mapped_column(String, nullable=False, index=True)
     original_url: Mapped[str] = mapped_column(String, nullable=False)
     source_id: Mapped[str] = mapped_column(String, ForeignKey("documentation_sources.id"), nullable=False)
+    website_page_id: Mapped[str | None] = mapped_column(String, ForeignKey("website_pages.id"))
     content_hash: Mapped[str | None] = mapped_column(String)  # Hash of scraped content for change detection
     last_scraped: Mapped[datetime] = mapped_column(DateTime, default=func.now())
     scrape_count: Mapped[int] = mapped_column(Integer, default=1)
@@ -238,6 +241,7 @@ class ScrapedUrl(Base):
 
     # Relationships
     source: Mapped["DocumentationSource"] = relationship("DocumentationSource")
+    website_page: Mapped["WebsitePage"] = relationship("WebsitePage", back_populates="scraped_urls")
 
     # Unique constraint to prevent duplicate normalized URLs per source
     __table_args__ = (UniqueConstraint('normalized_url', 'source_id', name='_normalized_url_source_uc'),)
@@ -367,3 +371,95 @@ class ScrapeJob(Base):
         """Release the lock on this job."""
         self.locked_by = None
         self.locked_at = None
+
+
+class WebsitePage(Base):
+    """Represents a unique webpage with multiple content formats to eliminate hash fragment duplication."""
+
+    __tablename__ = "website_pages"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    normalized_url: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    source_id: Mapped[str] = mapped_column(String, ForeignKey("documentation_sources.id"), nullable=False)
+    
+    # Content in multiple formats
+    raw_html: Mapped[str | None] = mapped_column(Text)  # Original HTML from browser
+    markdown_content: Mapped[str | None] = mapped_column(Text)  # Converted markdown
+    text_content: Mapped[str | None] = mapped_column(Text)  # Plain text content
+    
+    # Content hashes for change detection
+    html_hash: Mapped[str | None] = mapped_column(String)  # Hash of raw HTML
+    markdown_hash: Mapped[str | None] = mapped_column(String)  # Hash of markdown content
+    
+    # Metadata
+    title: Mapped[str] = mapped_column(String, nullable=False, default="")
+    extracted_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    last_updated: Mapped[datetime | None] = mapped_column(DateTime)
+    
+    # Page metadata
+    page_metadata: Mapped[str | None] = mapped_column(Text)  # JSON metadata about the page
+    links: Mapped[str | None] = mapped_column(Text)  # JSON array of discovered links
+    code_examples: Mapped[str | None] = mapped_column(Text)  # JSON array of code examples
+    
+    # Relationships
+    source: Mapped["DocumentationSource"] = relationship("DocumentationSource")
+    scraped_urls: Mapped[list["ScrapedUrl"]] = relationship("ScrapedUrl", back_populates="website_page")
+    documentation_entries: Mapped[list["DocumentationEntry"]] = relationship("DocumentationEntry", back_populates="website_page")
+    
+    # Unique constraint to prevent duplicate normalized URLs per source
+    __table_args__ = (UniqueConstraint('normalized_url', 'source_id', name='_website_page_url_source_uc'),)
+
+    def get_metadata(self) -> dict:
+        """Get page metadata as a dictionary."""
+        if not self.page_metadata:
+            return {}
+        try:
+            return json.loads(self.page_metadata)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+
+    def set_metadata(self, data: dict) -> None:
+        """Set page metadata from a dictionary."""
+        self.page_metadata = json.dumps(data) if data else None
+
+    def get_links(self) -> list[str]:
+        """Get links as a list."""
+        if not self.links:
+            return []
+        try:
+            return json.loads(self.links)
+        except (json.JSONDecodeError, TypeError):
+            return []
+
+    def set_links(self, links: list[str]) -> None:
+        """Set links from a list."""
+        self.links = json.dumps(links) if links else None
+
+    def get_code_examples(self) -> list[str]:
+        """Get code examples as a list."""
+        if not self.code_examples:
+            return []
+        try:
+            return json.loads(self.code_examples)
+        except (json.JSONDecodeError, TypeError):
+            return []
+
+    def set_code_examples(self, examples: list[str]) -> None:
+        """Set code examples from a list."""
+        self.code_examples = json.dumps(examples) if examples else None
+
+    def has_content_changed(self, new_html: str | None = None, new_markdown: str | None = None) -> bool:
+        """Check if page content has changed by comparing hashes."""
+        import hashlib
+        
+        if new_html and self.html_hash:
+            new_html_hash = hashlib.sha256(new_html.encode()).hexdigest()
+            if new_html_hash != self.html_hash:
+                return True
+                
+        if new_markdown and self.markdown_hash:
+            new_markdown_hash = hashlib.sha256(new_markdown.encode()).hexdigest()
+            if new_markdown_hash != self.markdown_hash:
+                return True
+                
+        return False

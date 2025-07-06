@@ -165,6 +165,36 @@ AGENT_TOOL_PROFILES = {
         ],
         "description": "Documentation creation, maintenance, and progress monitoring"
     },
+    "architect": {
+        "allowed_tools": UNIVERSAL_CORE_TOOLS + [
+            # Agent orchestration tools
+            "mcp__claude-mcp-orchestration__spawn_agent",
+            "mcp__claude-mcp-orchestration__spawn_agents_batch", 
+            "mcp__claude-mcp-orchestration__list_agents",
+            "mcp__claude-mcp-orchestration__get_agent_status",
+            "mcp__claude-mcp-orchestration__terminate_agent",
+            "mcp__claude-mcp-orchestration__broadcast_message",
+            
+            # Task management tools
+            "mcp__claude-mcp-orchestration__create_task",
+            "mcp__claude-mcp-orchestration__create_task_batch",
+            "mcp__claude-mcp-orchestration__assign_task",
+            "mcp__claude-mcp-orchestration__get_task_status",
+            "mcp__claude-mcp-orchestration__list_tasks",
+            
+            # Advanced analysis tools
+            "mcp__claude-mcp-orchestration__analyze_file_symbols",
+            "mcp__claude-mcp-orchestration__update_treesummary_incremental",
+            "mcp__claude-mcp-orchestration__get_tool_call_history",
+            
+            # Documentation tools for research
+            "mcp__claude-mcp-orchestration__scrape_documentation",
+            "mcp__claude-mcp-orchestration__update_documentation",
+            "mcp__claude-mcp-orchestration__analyze_documentation_changes",
+            "mcp__claude-mcp-orchestration__link_docs_to_code",
+        ],
+        "description": "Architecture and orchestration agent with full coordination capabilities"
+    },
     "master": {
         "allowed_tools": None,  # Full access
         "description": "Full tool access for orchestration"

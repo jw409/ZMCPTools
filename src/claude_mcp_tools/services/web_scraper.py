@@ -1,15 +1,8 @@
-"""Web scraping service using synchronous Patchright for documentation intelligence."""
+"""Base web scraping classes using synchronous Patchright."""
 
-import asyncio
-import hashlib
-import queue
 import random
 import re
-import threading
 import time
-import uuid
-from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -17,19 +10,12 @@ from urllib.parse import urljoin, urlparse
 import structlog
 from fake_useragent import UserAgent
 from patchright.sync_api import sync_playwright
-from patchright.async_api import async_playwright
-from ..database import get_session
-from ..models.documentation import ScrapedUrl
-from ..models import ScrapeJobStatus
-from ..utils.scraper_logger import create_scraper_logger
 
 logger = structlog.get_logger("web_scraper")
 
-# Synchronous browser operations with background threading for queue processing
 
-
-class SimpleBrowserManager:
-    """Browser manager with anti-detection features using Patchright."""
+class BrowserManager:
+    """Browser manager with anti-detection features using sync Patchright."""
 
     def __init__(self, browser_type: str = "chrome", headless: bool = True):
         self.browser_type = browser_type
@@ -40,28 +26,28 @@ class SimpleBrowserManager:
         self.retry_count = 3
         self.retry_delay = 2.0
 
-    async def initialize(self, user_data_dir: Path | None = None):
+    def initialize(self, user_data_dir: Path | None = None):
         """Initialize browser with anti-detection features."""
         logger.info("🔧 Initializing patchright browser...", browser_type=self.browser_type)
 
         try:
             # Start patchright playwright with browser path validation
-            self.playwright = await async_playwright().start()
-            
+            self.playwright = sync_playwright().start()
+
             # Validate browser installation
-            await self._validate_browser_installation()
-            
+            self._validate_browser_installation()
+
         except Exception as e:
             logger.error("Failed to initialize patchright playwright", error=str(e))
-            await self._handle_browser_installation_error(e)
+            self._handle_browser_installation_error(e)
             raise
 
         # Base launch options with anti-detection
         base_options = {
             "headless": self.headless,
             "viewport": {
-                "width": random.randint(1080, 1680),
-                "height": random.randint(500, 800),
+                "width": random.randint(1280, 1920),
+                "height": random.randint(720, 1080),
             },
             "locale": "en-US",
             "timezone_id": "America/New_York",
@@ -78,7 +64,7 @@ class SimpleBrowserManager:
         else:
             persistent_dir = user_data_dir
             persistent_dir.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
-        
+
         # Clean up any stale lock files from previous Chrome instances
         lock_files = ["SingletonLock", "lockfile", "chrome.lock"]
         for lock_file in lock_files:
@@ -90,20 +76,28 @@ class SimpleBrowserManager:
                 except Exception as e:
                     logger.warning(f"Failed to clean lock file {lock_path}: {e}")
 
-        # Chrome configuration (only using Chrome as requested)
+        # Chrome configuration with WSL-compatible flags
         options = {
             **base_options,
             "channel": "chrome",
             "user_agent": self.user_agent.chrome,
             "bypass_csp": True,
             "args": [
+                "--no-sandbox",
                 "--disable-blink-features=AutomationControlled",
-                "--disable-notifications",
                 "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--disable-features=VizDisplayCompositor",
+                "--disable-background-timer-throttling",
+                "--disable-extensions",
+                "--disable-plugins",
+                "--disable-sync",
+                "--disable-translate",
+                "--disable-background-networking",
+                "--disable-default-apps",
+                "--disable-notifications",
                 "--no-first-run",
                 "--no-default-browser-check",
-                "--no-sandbox",  # WSL compatibility
-                "--disable-gpu",  # WSL compatibility  
                 "--disable-software-rasterizer",
                 "--remote-debugging-port=9222",
             ],
@@ -115,42 +109,45 @@ class SimpleBrowserManager:
             ],
         }
 
-        self.browser_context = await self.playwright.chromium.launch_persistent_context(
-            user_data_dir=str(persistent_dir), **options
+        self.browser_context = self.playwright.chromium.launch_persistent_context(
+            user_data_dir=str(persistent_dir), **options,
         )
 
         # Set up common headers and handlers
-        await self._setup_context()
+        self._setup_context()
         logger.info("✅ Browser initialized successfully")
 
-    async def _validate_browser_installation(self):
+    def _validate_browser_installation(self):
         """Validate that browsers are properly installed and accessible."""
         try:
-            # Check if chromium executable exists and is accessible
+            # Check if playwright is initialized and chromium executable exists
+            if not self.playwright:
+                raise RuntimeError("Playwright not initialized")
+            
             chromium_path = self.playwright.chromium.executable_path
             logger.info("Browser executable found", path=chromium_path)
-            
+
             # Verify the executable exists
             if not Path(chromium_path).exists():
                 raise FileNotFoundError(f"Chromium executable not found at: {chromium_path}")
-                
+
             # Verify it's executable
             if not Path(chromium_path).is_file():
                 raise PermissionError(f"Chromium executable is not a valid file: {chromium_path}")
-                
+
             logger.info("✅ Browser installation validated", executable_path=chromium_path)
-            
+
         except Exception as e:
             logger.error("Browser validation failed", error=str(e))
             raise
 
-    async def _handle_browser_installation_error(self, error: Exception):
+    def _handle_browser_installation_error(self, error: Exception):
         """Handle browser installation errors with helpful guidance."""
         error_msg = str(error)
-        
+
         logger.error("=== BROWSER INSTALLATION ERROR ===")
         logger.error("Error details", error=error_msg)
-        
+
         if "chromium" in error_msg.lower() or "browser" in error_msg.lower():
             logger.error("🔧 Browser Installation Issue Detected")
             logger.error("   This is likely because patchright browsers need to be installed.")
@@ -159,25 +156,25 @@ class SimpleBrowserManager:
             logger.error("")
             logger.error("   Or if using the ClaudeMcpTools CLI:")
             logger.error("   claude-mcp-tools install  # Browsers are auto-installed during setup")
-            
+
         elif "path" in error_msg.lower() or "not found" in error_msg.lower():
-            logger.error("🔍 Browser Path Issue Detected") 
+            logger.error("🔍 Browser Path Issue Detected")
             logger.error("   The browser executable was not found at the expected location.")
             logger.error("   This may happen if:")
             logger.error("   1. Browsers were not installed: Run 'uv run python -m patchright install chromium'")
             logger.error("   2. Installation directory changed: Check ~/.cache/ms-playwright/")
             logger.error("   3. Permissions issue: Ensure browser executable has proper permissions")
-            
+
         else:
             logger.error("🚨 Unknown Browser Error")
             logger.error("   Please check:")
             logger.error("   1. Browser installation: uv run python -m patchright install chromium")
             logger.error("   2. System requirements: https://playwright.dev/docs/intro")
             logger.error("   3. WSL compatibility (if using WSL): Extra dependencies may be needed")
-            
+
         logger.error("=== END BROWSER ERROR DETAILS ===")
 
-    async def _setup_context(self):
+    def _setup_context(self):
         """Set up context with common headers and handlers."""
         if not self.browser_context:
             return
@@ -194,12 +191,12 @@ class SimpleBrowserManager:
 
         # Set headers for existing pages
         for page in self.browser_context.pages:
-            await page.set_extra_http_headers(headers)
+            page.set_extra_http_headers(headers)
 
         # Set up page event handlers
         self.browser_context.on("page", self._setup_page_handlers)
 
-    async def _setup_page_handlers(self, page):
+    def _setup_page_handlers(self, page):
         """Set up handlers for new pages."""
         # Set headers for new pages
         headers = {
@@ -210,33 +207,33 @@ class SimpleBrowserManager:
             "DNT": "1",
             "User-Agent": self.user_agent.chrome,
         }
-        await page.set_extra_http_headers(headers)
+        page.set_extra_http_headers(headers)
 
         # Set up event handlers
-        page.on("dialog", lambda dialog: asyncio.create_task(dialog.dismiss()))
+        page.on("dialog", lambda dialog: dialog.dismiss())
         page.on("pageerror", lambda err: logger.error("Page error", error=str(err)))
         page.on("crash", lambda: logger.error("Page crashed", url=page.url))
 
-    async def new_page(self):
+    def new_page(self):
         """Create a new page."""
         if not self.browser_context:
-            await self.initialize()
+            self.initialize()
         if not self.browser_context:
             raise RuntimeError("Browser context is not initialized")
-        return await self.browser_context.new_page()
+        return self.browser_context.new_page()
 
-    async def close(self):
+    def close(self):
         """Close browser context."""
         if self.browser_context:
-            await self.browser_context.close()
+            self.browser_context.close()
         if self.playwright:
-            await self.playwright.stop()
+            self.playwright.stop()
 
 
 class NavigationMixin:
     """Navigation utilities with retry logic."""
 
-    async def navigate_to_url(self, page, url: str, options: dict | None = None) -> bool:
+    def navigate_to_url(self, page, url: str, options: dict | None = None) -> bool:
         """Navigate to URL with retry logic."""
         options = options or {}
 
@@ -250,7 +247,7 @@ class NavigationMixin:
             # If we can't get current URL, proceed with navigation
             pass
 
-        for attempt in range(getattr(self, 'retry_count', 3)):
+        for attempt in range(getattr(self, "retry_count", 3)):
             try:
                 logger.info("🌐 Navigating to URL", url=url, attempt=attempt + 1)
 
@@ -261,10 +258,10 @@ class NavigationMixin:
                     **options,
                 }
 
-                await page.goto(url, **nav_options)
+                page.goto(url, **nav_options)
 
                 # Wait for page to be ready
-                await page.wait_for_load_state("networkidle", timeout=10000)
+                page.wait_for_load_state("networkidle", timeout=10000)
 
                 # Verify we actually navigated to the correct URL
                 final_url = page.url
@@ -277,8 +274,8 @@ class NavigationMixin:
 
             except Exception as e:
                 logger.warning("Navigation attempt failed", url=url, attempt=attempt + 1, error=str(e))
-                if attempt < getattr(self, 'retry_count', 3) - 1:
-                    await asyncio.sleep(getattr(self, 'retry_delay', 2.0) * (attempt + 1))
+                if attempt < getattr(self, "retry_count", 3) - 1:
+                    time.sleep(getattr(self, "retry_delay", 2.0) * (attempt + 1))
                 else:
                     logger.error("❌ All navigation attempts failed", url=url)
                     return False
@@ -288,19 +285,19 @@ class NavigationMixin:
 class InteractionMixin:
     """Element interaction utilities."""
 
-    async def click_element(self, page, selector: str, options: dict | None = None) -> bool:
+    def click_element(self, page, selector: str, options: dict | None = None) -> bool:
         """Click element with human-like behavior."""
         options = options or {}
 
         try:
             # Wait for element to be visible and stable
-            await page.wait_for_selector(selector, state="visible", timeout=10000)
+            page.wait_for_selector(selector, state="visible", timeout=10000)
 
             # Scroll element into view
-            await page.locator(selector).scroll_into_view_if_needed()
+            page.locator(selector).scroll_into_view_if_needed()
 
             # Add human-like delay
-            await asyncio.sleep(random.uniform(0.1, 0.3))
+            time.sleep(random.uniform(0.1, 0.3))
 
             # Click with options
             click_options = {
@@ -309,10 +306,10 @@ class InteractionMixin:
                 **options,
             }
 
-            await page.locator(selector).click(**click_options)
+            page.locator(selector).click(**click_options)
 
             # Wait for any navigation or dynamic content
-            await page.wait_for_load_state("networkidle", timeout=5000)
+            page.wait_for_load_state("networkidle", timeout=5000)
 
             logger.info("✅ Clicked element", selector=selector)
             return True
@@ -321,16 +318,16 @@ class InteractionMixin:
             logger.error("❌ Failed to click element", selector=selector, error=str(e))
             return False
 
-    async def fill_input(self, page, selector: str, text: str, options: dict | None = None) -> bool:
+    def fill_input(self, page, selector: str, text: str, options: dict | None = None) -> bool:
         """Fill input with human-like typing."""
         options = options or {}
 
         try:
             # Wait for input to be ready
-            await page.wait_for_selector(selector, state="visible", timeout=10000)
+            page.wait_for_selector(selector, state="visible", timeout=10000)
 
             # Clear existing content
-            await page.locator(selector).clear()
+            page.locator(selector).clear()
 
             # Type with human-like delay
             type_options = {
@@ -338,7 +335,7 @@ class InteractionMixin:
                 **options,
             }
 
-            await page.locator(selector).fill(text, **type_options)
+            page.locator(selector).fill(text, **type_options)
 
             logger.info("✅ Filled input", selector=selector, text=text)
             return True
@@ -351,25 +348,25 @@ class InteractionMixin:
 class ExtractionMixin:
     """Content extraction utilities."""
 
-    async def extract_text(self, page, selector: str, options: dict | None = None) -> str | None:
+    def extract_text(self, page, selector: str, options: dict | None = None) -> str | None:
         """Extract text from element with proper waiting and visibility checks."""
         options = options or {}
         timeout = options.get("timeout", 5000)
 
         try:
             # Wait for element to exist
-            await page.wait_for_selector(selector, timeout=timeout)
+            page.wait_for_selector(selector, timeout=timeout)
 
             # Get the first matching element
             element = page.locator(selector).first
-            
+
             # Check if element is visible before extracting
-            if not await element.is_visible(timeout=2000):
+            if not element.is_visible(timeout=2000):
                 logger.debug("Element not visible", selector=selector)
                 return None
 
             # Get text content
-            text = await element.text_content()
+            text = element.text_content()
 
             # Clean text if needed
             if options.get("clean", True):
@@ -381,7 +378,7 @@ class ExtractionMixin:
             logger.debug("Failed to extract text", selector=selector, error=str(e))
             return None
 
-    async def extract_multiple(self, page, selector: str, options: dict | None = None) -> list[str]:
+    def extract_multiple(self, page, selector: str, options: dict | None = None) -> list[str]:
         """Extract text from multiple elements with visibility checks."""
         options = options or {}
         timeout = options.get("timeout", 5000)
@@ -389,22 +386,22 @@ class ExtractionMixin:
 
         try:
             # Wait for at least one element
-            await page.wait_for_selector(selector, timeout=timeout)
+            page.wait_for_selector(selector, timeout=timeout)
 
             # Get all matching elements
             elements = page.locator(selector)
-            count = await elements.count()
+            count = elements.count()
 
             results = []
             for i in range(count):
                 try:
                     element = elements.nth(i)
-                    
+
                     # Check visibility if requested
-                    if only_visible and not await element.is_visible(timeout=1000):
+                    if only_visible and not element.is_visible(timeout=1000):
                         continue
-                    
-                    text = await element.text_content()
+
+                    text = element.text_content()
                     if text and text.strip():
                         cleaned_text = text.strip()
                         # Avoid duplicates
@@ -419,81 +416,21 @@ class ExtractionMixin:
             logger.debug("Failed to extract multiple elements", selector=selector, error=str(e))
             return []
 
-    async def _handle_dynamic_content(self, page) -> None:
-        """Handle dynamic content loading, SPAs, and lazy loading."""
-        try:
-            # Check if this is a Single Page Application
-            is_spa = await page.evaluate("""
-                () => {
-                    // Common SPA indicators
-                    const frameworks = ['react', 'vue', 'angular', 'svelte'];
-                    const bodyClasses = document.body.className.toLowerCase();
-                    const htmlAttributes = document.documentElement.outerHTML.toLowerCase();
-                    
-                    return frameworks.some(fw => 
-                        bodyClasses.includes(fw) || 
-                        htmlAttributes.includes(fw) ||
-                        window[fw] !== undefined
-                    );
-                }
-            """)
-            
-            if is_spa:
-                logger.debug("Detected SPA, waiting for content to render")
-                # Wait a bit longer for SPAs to fully render
-                await asyncio.sleep(2)
-                await page.wait_for_load_state("networkidle", timeout=10000)
-            
-            # Handle lazy loading by scrolling down to trigger content
-            await self._trigger_lazy_loading(page)
-            
-            # Wait for any final content to load
-            await page.wait_for_load_state("networkidle", timeout=5000)
-            
-        except Exception as e:
-            logger.debug("Dynamic content handling failed", error=str(e))
-
-    async def _trigger_lazy_loading(self, page) -> None:
-        """Trigger lazy loading by scrolling and waiting for content."""
-        try:
-            # Get initial content count
-            initial_content = await page.evaluate("document.body.innerText.length")
-            
-            # Scroll down in steps to trigger lazy loading
-            for i in range(3):  # Scroll 3 times max
-                await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                await asyncio.sleep(1)  # Wait for lazy content to load
-                
-                # Check if new content was loaded
-                new_content = await page.evaluate("document.body.innerText.length")
-                if new_content > initial_content * 1.1:  # 10% more content
-                    logger.debug(f"Lazy loading triggered, content increased from {initial_content} to {new_content}")
-                    initial_content = new_content
-                else:
-                    break  # No more content being loaded
-            
-            # Scroll back to top
-            await page.evaluate("window.scrollTo(0, 0)")
-            await asyncio.sleep(0.5)
-            
-        except Exception as e:
-            logger.debug("Lazy loading trigger failed", error=str(e))
-
-    async def extract_page_content(self, page) -> dict[str, Any]:
-        """Extract page content using simplified approach: selector -> AI alternatives -> fallback."""
+    def extract_page_content(self, page) -> dict[str, Any]:
+        """Extract basic page content including title and links."""
         try:
             # Wait for page to be fully loaded
-            await page.wait_for_load_state("networkidle", timeout=15000)
-            
+            page.wait_for_load_state("networkidle", timeout=15000)
+
             # Extract title
-            title = await page.evaluate("document.title") or ""
+            title = page.evaluate("document.title") or ""
             if not title:
                 # Try common title selectors
                 for selector in ["h1", "h2", ".title", ".page-title"]:
                     try:
                         element = page.locator(selector).first
-                        if await element.is_visible(timeout=2000):
-                            title = await element.text_content() or ""
+                        if element.is_visible(timeout=2000):
+                            title = element.text_content() or ""
                             if title.strip():
                                 title = title.strip()
                                 break
@@ -503,7 +440,7 @@ class ExtractionMixin:
             # Extract links (pattern-based or same-domain)
             links = []
             try:
-                links = await page.evaluate("""
+                links = page.evaluate("""
                     () => {
                         return Array.from(document.querySelectorAll('a[href]'))
                                     .map(a => {
@@ -538,435 +475,7 @@ class ExtractionMixin:
                 "url": page.url,
             }
 
-    async def extract_content_with_strategy(self, page, selectors: dict[str, str] | None = None) -> dict[str, Any]:
-        """Extract content using the new simplified strategy: selector -> AI alternatives -> fallback."""
-        content_data = await self.extract_page_content(page)
-        
-        # Strategy 1: Try provided CSS selector
-        if selectors and "content" in selectors:
-            content = await self._try_css_selector(page, selectors["content"])
-            if content and content.strip():
-                content_data["content"] = content.strip()
-                logger.info("✅ Content extracted using provided selector")
-                return content_data
-        
-        # Strategy 2: Try default content selectors
-        default_selectors = [
-            "main", "article", ".content", ".main-content", "#content", 
-            ".documentation", ".doc-content", "[role='main']"
-        ]
-        
-        for selector in default_selectors:
-            content = await self._try_css_selector(page, selector)
-            if content and content.strip():
-                content_data["content"] = content.strip()
-                logger.info("✅ Content extracted using default selector", selector=selector)
-                return content_data
-        
-        # Strategy 3: AI-suggested alternative selectors (placeholder for future implementation)
-        # TODO: Implement AI selector suggestion based on page structure
-        logger.info("🤖 AI selector suggestion not yet implemented, falling back to body extraction")
-        
-        # Strategy 4: Fallback - clean body content and convert to markdown
-        logger.info("📄 Falling back to body content extraction with cleanup")
-        content = await self._extract_clean_body_content(page)
-        if content:
-            content_data["content"] = content
-            logger.info("✅ Content extracted using fallback body cleanup")
-        else:
-            logger.warning("⚠️ No content could be extracted from page")
-        
-        return content_data
-    
-    async def _try_css_selector(self, page, selector: str) -> str | None:
-        """Try to extract content using a CSS selector."""
-        try:
-            element = page.locator(selector).first
-            if await element.is_visible(timeout=2000):
-                content = await element.text_content()
-                return content if content and len(content.strip()) > 20 else None
-        except Exception:
-            pass
-        return None
-    
-    async def _extract_clean_body_content(self, page) -> str:
-        """Extract and clean body content, convert to markdown-like format."""
-        try:
-            # Extract body content and clean it
-            cleaned_content = await page.evaluate(r"""
-                () => {
-                    // Clone body to avoid modifying original page
-                    const clone = document.body.cloneNode(true);
-                    
-                    // Remove unwanted elements
-                    const unwantedSelectors = [
-                        'script', 'style', 'nav', 'header', 'footer', 
-                        '.navigation', '.menu', '.sidebar', '.ad', '.advertisement',
-                        '.cookie-banner', '.popup', '.modal', '.overlay'
-                    ];
-                    
-                    unwantedSelectors.forEach(selector => {
-                        clone.querySelectorAll(selector).forEach(el => el.remove());
-                    });
-                    
-                    // Simple markdown-like conversion
-                    function nodeToMarkdown(node) {
-                        if (node.nodeType === Node.TEXT_NODE) {
-                            return node.textContent.trim();
-                        }
-                        
-                        if (node.nodeType !== Node.ELEMENT_NODE) {
-                            return '';
-                        }
-                        
-                        const tagName = node.tagName.toLowerCase();
-                        const text = Array.from(node.childNodes)
-                            .map(child => nodeToMarkdown(child))
-                            .join('')
-                            .trim();
-                        
-                        if (!text) return '';
-                        
-                        // Convert common elements to markdown-like format
-                        switch (tagName) {
-                            case 'h1': return `# ${text}\\n\\n`;
-                            case 'h2': return `## ${text}\\n\\n`;
-                            case 'h3': return `### ${text}\\n\\n`;
-                            case 'h4': return `#### ${text}\\n\\n`;
-                            case 'h5': return `##### ${text}\\n\\n`;
-                            case 'h6': return `###### ${text}\\n\\n`;
-                            case 'p': return `${text}\\n\\n`;
-                            case 'pre': return `\`\`\`\\n${text}\\n\`\`\`\\n\\n`;
-                            case 'code': return text.includes('\\n') ? `\`\`\`\\n${text}\\n\`\`\`` : `\`${text}\``;
-                            case 'li': return `- ${text}\\n`;
-                            case 'br': return '\\n';
-                            default: return text + ' ';
-                        }
-                    }
-                    
-                    return nodeToMarkdown(clone).replace(/\\n\\s*\\n\\s*\\n/g, '\\n\\n').trim();
-                }
-            """)
-            
-            return cleaned_content if cleaned_content and len(cleaned_content.strip()) > 50 else ""
-            
-        except Exception as e:
-            logger.error("Failed to extract clean body content", error=str(e))
-            return ""
-
-
-class DocumentationScraper(SimpleBrowserManager, NavigationMixin, InteractionMixin, ExtractionMixin):
-    """Complete documentation scraper with all capabilities."""
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.scraped_urls = set()
-        self.failed_urls = set()
-        self.file_logger = None  # Will be initialized when scraping starts
-
-    async def scrape_documentation_source(
-        self,
-        ctx,
-        base_url: str,
-        crawl_depth: int = 3,
-        selectors: dict[str, str] | None = None,
-        allow_patterns: list[str] | None = None,
-        ignore_patterns: list[str] | None = None,
-        include_subdomains: bool = False,
-        progress_callback = None,
-    ) -> dict[str, Any]:
-        """Scrape documentation from a source with crawling."""
-        # Initialize file logger for this scraping session
-        job_id = str(uuid.uuid4())[:8]
-        self.file_logger = create_scraper_logger(job_id, base_url)
-        self.file_logger.log_job_start(crawl_depth, allow_patterns, ignore_patterns)
-        
-        logger.info("🚀 Starting documentation scraping", url=base_url, depth=crawl_depth, job_id=job_id)
-        
-        start_time = time.time()
-
-        try:
-            # Initialize browser if not already done
-            if not self.browser_context:
-                await self.initialize()
-
-            # Reset tracking sets
-            self.scraped_urls.clear()
-            self.failed_urls.clear()
-
-            # Start scraping from base URL
-            scraped_entries = []
-            urls_to_scrape = [(base_url, 0)]  # (url, depth)
-            pages_processed = 0
-            total_discovered = 1  # Start with the base URL
-
-            # Only report progress if context is available and not in background mode
-            if ctx and getattr(ctx, '_background_mode', False) is False:
-                try:
-                    await ctx.report_progress(pages_processed, total_discovered)
-                except Exception as ctx_error:
-                    logger.debug("Context progress reporting failed", error=str(ctx_error))
-
-            while urls_to_scrape:
-                url, depth = urls_to_scrape.pop(0)
-
-                # Skip if already scraped or failed
-                if url in self.scraped_urls or url in self.failed_urls:
-                    continue
-
-                # Skip if depth exceeded
-                if depth > crawl_depth:
-                    continue
-
-                # Check allow patterns first (allowlist) - if specified, URL must match at least one
-                if allow_patterns and not any(re.search(pattern, url) for pattern in allow_patterns):
-                    self.file_logger.log_url_filtering(url, "FILTERED", "doesn't match allow patterns")
-                    logger.debug("Skipping URL - doesn't match allow patterns", url=url, patterns=allow_patterns)
-                    if ctx and getattr(ctx, '_background_mode', False) is False:
-                        try:
-                            await ctx.info(f"⏭️ Skipping {url} (doesn't match allow patterns)")
-                        except Exception as ctx_error:
-                            logger.debug("Context logging failed", error=str(ctx_error))
-                    continue
-
-                # Check ignore patterns (blocklist) - applied after allow patterns
-                if ignore_patterns and any(re.search(pattern, url) for pattern in ignore_patterns):
-                    self.file_logger.log_url_filtering(url, "FILTERED", "matches ignore pattern")
-                    logger.debug("Skipping URL due to ignore pattern", url=url, patterns=ignore_patterns)
-                    if ctx and getattr(ctx, '_background_mode', False) is False:
-                        try:
-                            await ctx.info(f"⏭️ Skipping {url} (matches ignore pattern)")
-                        except Exception as ctx_error:
-                            logger.debug("Context logging failed", error=str(ctx_error))
-                    continue
-
-                # Scrape this URL
-                if ctx and getattr(ctx, '_background_mode', False) is False:
-                    try:
-                        await ctx.info(f"📄 Scraping page {pages_processed + 1}/{total_discovered}: {url}")
-                    except Exception as ctx_error:
-                        logger.debug("Context logging failed", error=str(ctx_error))
-                
-                # Call progress callback for page start
-                if progress_callback:
-                    try:
-                        await progress_callback({
-                            "type": "page_start",
-                            "url": url,
-                            "page_number": pages_processed + 1,
-                            "total_discovered": total_discovered,
-                            "depth": depth
-                        })
-                    except Exception as callback_error:
-                        logger.warning("Progress callback failed", error=str(callback_error))
-                
-                self.file_logger.log_url_filtering(url, "ALLOWED", "passed all filters")
-                entry_data = await self._scrape_single_url(url, selectors)
-                if entry_data:
-                    scraped_entries.append(entry_data)
-                    self.scraped_urls.add(url)
-                    
-                    title = entry_data.get("title", "Untitled")[:50]
-                    content_length = len(entry_data.get("content", ""))
-                    links_found = len(entry_data.get("links", []))
-                    
-                    self.file_logger.log_page_processing_complete(
-                        url, True, content_length, links_found, depth
-                    )
-                    
-                    if ctx and getattr(ctx, '_background_mode', False) is False:
-                        try:
-                            await ctx.info(f"✅ Successfully scraped: {title}")
-                        except Exception as ctx_error:
-                            logger.debug("Context logging failed", error=str(ctx_error))
-                    
-                    # Call progress callback for success
-                    if progress_callback:
-                        try:
-                            await progress_callback({
-                                "type": "page_success",
-                                "url": url,
-                                "title": title,
-                                "content_length": len(entry_data.get("content", "")),
-                                "links_found": len(entry_data.get("links", []))
-                            })
-                        except Exception as callback_error:
-                            logger.warning("Progress callback failed", error=str(callback_error))
-
-                    # Add internal links for deeper crawling if within depth limit
-                    if depth < crawl_depth:
-                        all_discovered_links = entry_data.get("links", [])
-                        self.file_logger.log_url_discovery(url, all_discovered_links)
-                        
-                        internal_links = self._filter_internal_links(all_discovered_links, base_url, include_subdomains)
-                        new_links_count = 0
-                        for link in internal_links:
-                            if link not in self.scraped_urls and link not in self.failed_urls:
-                                urls_to_scrape.append((link, depth + 1))
-                                new_links_count += 1
-                        
-                        # Update total discovered pages (total grows as we find more links)
-                        total_discovered += new_links_count
-                        if ctx and new_links_count > 0 and getattr(ctx, '_background_mode', False) is False:
-                            try:
-                                await ctx.info(f"🔗 Discovered {new_links_count} new links (total: {total_discovered})")
-                            except Exception as ctx_error:
-                                logger.debug("Context logging failed", error=str(ctx_error))
-                else:
-                    self.failed_urls.add(url)
-                    self.file_logger.log_page_processing_complete(url, False, depth=depth)
-                    if ctx and getattr(ctx, '_background_mode', False) is False:
-                        try:
-                            await ctx.error(f"❌ Failed to scrape: {url}")
-                        except Exception as ctx_error:
-                            logger.debug("Context error logging failed", error=str(ctx_error))
-
-                # Update progress - pages processed vs current total discovered
-                pages_processed += 1
-                self.file_logger.log_job_progress(pages_processed, total_discovered, len(urls_to_scrape))
-                
-                if ctx and getattr(ctx, '_background_mode', False) is False:
-                    # Use current progress vs total discovered, capped to not exceed the range 50-80
-                    # (leaving room for post-processing in the parent function)
-                    progress_range = 30  # 50 to 80 (80-50)
-                    progress_ratio = min(pages_processed / max(total_discovered, 1), 1.0)
-                    current_progress = 50 + int(progress_ratio * progress_range)
-                    try:
-                        await ctx.report_progress(current_progress, 100)
-                    except Exception as ctx_error:
-                        logger.debug("Context progress reporting failed", error=str(ctx_error))
-
-                # Add delay between requests
-                await asyncio.sleep(random.uniform(0.5, 1.5))
-
-            # Log job completion
-            duration = time.time() - start_time
-            self.file_logger.log_job_completion(
-                True, len(scraped_entries), len(self.failed_urls), duration
-            )
-            
-            logger.info(
-                "✅ Documentation scraping completed",
-                total_scraped=len(scraped_entries),
-                failed_count=len(self.failed_urls),
-            )
-
-            return {
-                "success": True,
-                "entries_scraped": len(scraped_entries),
-                "entries_failed": len(self.failed_urls),
-                "entries": scraped_entries,
-                "base_url": base_url,
-                "crawl_depth": crawl_depth,
-            }
-
-        except Exception as e:
-            # Log job failure
-            duration = time.time() - start_time
-            if self.file_logger:
-                self.file_logger.log_job_completion(
-                    False, len(scraped_entries) if 'scraped_entries' in locals() else 0, 
-                    len(self.failed_urls), duration, str(e)
-                )
-            
-            logger.error("❌ Documentation scraping failed", error=str(e))
-            return {
-                "success": False,
-                "error": str(e),
-                "entries_scraped": 0,
-                "entries_failed": 0,
-                "entries": [],
-            }
-        finally:
-            # Clean up file logger
-            if self.file_logger:
-                self.file_logger.close()
-
-    async def _scrape_single_url(self, url: str, selectors: dict[str, str] | None = None) -> dict[str, Any] | None:
-        """Scrape a single URL and return structured data."""
-        try:
-            logger.debug("📄 Scraping single URL", url=url)
-
-            # Create new page
-            page = await self.new_page()
-
-            try:
-                # CRITICAL: Always navigate to the requested URL, even for reused browser contexts
-                # This ensures we don't stay on a previous page when domain browsers are reused
-                logger.info("🌐 Navigating to requested URL", url=url)
-                if not await self.navigate_to_url(page, url):
-                    logger.error("❌ Failed to navigate to URL", url=url)
-                    return None
-
-                # Extract content using new simplified strategy
-                content_data = await self.extract_content_with_strategy(page, selectors)
-
-                # Generate content hash for deduplication
-                content_text = content_data.get("content", "")
-                content_hash = hashlib.sha256(content_text.encode()).hexdigest()
-
-                # Create entry data
-                entry_data = {
-                    "id": str(uuid.uuid4()),
-                    "url": url,
-                    "title": content_data.get("title", ""),
-                    "content": content_text,
-                    "content_hash": content_hash,
-                    "links": content_data.get("links", []),
-                    "code_examples": content_data.get("code_examples", []),
-                    "extracted_at": datetime.now(timezone.utc),
-                }
-
-                logger.debug("✅ Successfully scraped URL", url=url, title=entry_data["title"][:50])
-                return entry_data
-
-            finally:
-                await page.close()
-
-        except Exception as e:
-            logger.error("❌ Failed to scrape URL", url=url, error=str(e))
-            return None
-
-
-    def _convert_pattern_to_regex(self, pattern: str) -> str:
-        """Convert glob pattern to regex pattern or return regex as-is.
-        
-        Auto-detects pattern type:
-        - Glob patterns: **/docs/**, /docs/*, *.html
-        - Regex patterns: .*/docs/.*, \\d+, [a-z]+
-        
-        Examples:
-        - '**/docs/**' → '.*/docs(/.*)?'  (matches /docs and /docs/anything)
-        - '/docs/**' → '/docs(/.*)?'  
-        - '*.html' → '[^/]*\\.html'
-        - '.*/docs/.*' → '.*/docs/.*' (already regex)
-        """
-        # Check if it's already a regex pattern (contains regex-specific chars)
-        regex_indicators = ['.*', '\\d', '\\w', '\\s', '[', ']', '{', '}', '(', ')', '|', '^', '$']
-        if any(indicator in pattern for indicator in regex_indicators):
-            return pattern  # Already a regex
-        
-        # Convert glob pattern to regex
-        regex_pattern = pattern
-        
-        # Escape regex special characters except * and ?
-        regex_pattern = re.escape(regex_pattern)
-        
-        # Convert glob wildcards back to regex
-        # Special handling for ** at end to make trailing path optional
-        if regex_pattern.endswith('\\*\\*'):
-            # **/docs/** → .*/docs(/.*)? (matches /docs and /docs/anything)
-            regex_pattern = regex_pattern[:-4] + '(/.*)?'
-        else:
-            # Regular ** in middle → .*
-            regex_pattern = regex_pattern.replace('\\*\\*', '.*')
-            
-        regex_pattern = regex_pattern.replace('\\*', '[^/]*')  # * matches any chars except /
-        regex_pattern = regex_pattern.replace('\\?', '.')      # ? matches single char
-        
-        return regex_pattern
-
-    def _filter_internal_links(self, links: list[str], base_url: str, include_subdomains: bool = False) -> list[str]:
+    def filter_internal_links(self, links: list[str], base_url: str, include_subdomains: bool = False) -> list[str]:
         """Filter links to only include internal ones with subdomain control."""
         base_domain = urlparse(base_url).netloc
         internal_links = []
@@ -984,37 +493,23 @@ class DocumentationScraper(SimpleBrowserManager, NavigationMixin, InteractionMix
                 continue
 
         return list(set(internal_links))  # Remove duplicates
-    
+
     def _is_allowed_domain(self, url_domain: str, base_domain: str, include_subdomains: bool) -> bool:
         """Check if a domain is allowed based on subdomain policy."""
         if not url_domain:
             return False
-        
+
         # Exact domain match is always allowed
         if url_domain == base_domain:
             return True
-        
+
         # Subdomain check only if explicitly enabled
-        if include_subdomains and url_domain.endswith(f'.{base_domain}'):
+        if include_subdomains and url_domain.endswith(f".{base_domain}"):
             return True
-            
+
         return False
 
-
-class ThreadPoolDocumentationScraper:
-    """ThreadPoolExecutor-based documentation scraper with event loop isolation.
-    
-    This class solves uvloop + Playwright conflicts by using ThreadPoolExecutor
-    where each thread gets its own isolated asyncio.run() event loop.
-    Research-validated approach for I/O-bound browser automation.
-    """
-    
-    def __init__(self, max_concurrent_browsers: int = 2):
-        self.executor = ThreadPoolExecutor(max_workers=max_concurrent_browsers)
-        self.active_jobs = {}  # Direct tracking without complex queues
-        self._file_loggers = {}  # Track file loggers per job
-        
-    def _convert_pattern_to_regex(self, pattern: str) -> str:
+    def convert_pattern_to_regex(self, pattern: str) -> str:
         """Convert glob pattern to regex pattern or return regex as-is.
         
         Auto-detects pattern type:
@@ -1028,868 +523,26 @@ class ThreadPoolDocumentationScraper:
         - '.*/docs/.*' → '.*/docs/.*' (already regex)
         """
         # Check if it's already a regex pattern (contains regex-specific chars)
-        regex_indicators = ['.*', '\\d', '\\w', '\\s', '[', ']', '{', '}', '(', ')', '|', '^', '$']
+        regex_indicators = [".*", "\\d", "\\w", "\\s", "[", "]", "{", "}", "(", ")", "|", "^", "$"]
         if any(indicator in pattern for indicator in regex_indicators):
             return pattern  # Already a regex
-        
+
         # Convert glob pattern to regex
         regex_pattern = pattern
-        
+
         # Escape regex special characters except * and ?
         regex_pattern = re.escape(regex_pattern)
-        
+
         # Convert glob wildcards back to regex
         # Special handling for ** at end to make trailing path optional
-        if regex_pattern.endswith('\\*\\*'):
+        if regex_pattern.endswith("\\*\\*"):
             # **/docs/** → .*/docs(/.*)? (matches /docs and /docs/anything)
-            regex_pattern = regex_pattern[:-4] + '(/.*)?'
+            regex_pattern = regex_pattern[:-4] + "(/.*)?"
         else:
             # Regular ** in middle → .*
-            regex_pattern = regex_pattern.replace('\\*\\*', '.*')
-            
-        regex_pattern = regex_pattern.replace('\\*', '[^/]*')  # * matches any chars except /
-        regex_pattern = regex_pattern.replace('\\?', '.')      # ? matches single char
-        
+            regex_pattern = regex_pattern.replace("\\*\\*", ".*")
+
+        regex_pattern = regex_pattern.replace("\\*", "[^/]*")  # * matches any chars except /
+        regex_pattern = regex_pattern.replace("\\?", ".")      # ? matches single char
+
         return regex_pattern
-    
-    async def _check_existing_urls(self, urls: list[str], source_id: str) -> set[str]:
-        """Check which URLs have already been scraped using database lookups.
-        
-        Args:
-            urls: List of URLs to check
-            source_id: Documentation source ID
-            
-        Returns:
-            Set of normalized URLs that already exist in database
-        """
-        if not urls:
-            return set()
-            
-        # Normalize all URLs first
-        normalized_urls = [ScrapedUrl.normalize_url(url) for url in urls]
-        
-        try:
-            async with get_session() as session:
-                from sqlalchemy import select
-                
-                # Query existing URLs in batch
-                stmt = select(ScrapedUrl.normalized_url).where(
-                    ScrapedUrl.normalized_url.in_(normalized_urls),
-                    ScrapedUrl.source_id == source_id
-                )
-                result = await session.execute(stmt)
-                existing_normalized = {row[0] for row in result.fetchall()}
-                
-                logger.info("🔍 Database URL check completed",
-                           total_urls=len(urls),
-                           existing_count=len(existing_normalized),
-                           new_count=len(normalized_urls) - len(existing_normalized))
-                
-                return existing_normalized
-                
-        except Exception as e:
-            logger.warning("Failed to check existing URLs, proceeding without deduplication", 
-                         error=str(e))
-            return set()
-    
-    async def _save_scraped_urls(self, scraped_data: list[dict], source_id: str) -> None:
-        """Save scraped URLs to database for deduplication.
-        
-        Args:
-            scraped_data: List of scraped entry data with URLs
-            source_id: Documentation source ID
-        """
-        if not scraped_data:
-            return
-            
-        try:
-            async with get_session() as session:
-                scraped_url_records = []
-                
-                for entry_data in scraped_data:
-                    url = entry_data.get("url")
-                    content_hash = entry_data.get("content_hash")
-                    
-                    if url:
-                        normalized_url = ScrapedUrl.normalize_url(url)
-                        
-                        # Create ScrapedUrl record
-                        scraped_url = ScrapedUrl(
-                            id=str(uuid.uuid4()),
-                            normalized_url=normalized_url,
-                            original_url=url,
-                            source_id=source_id,
-                            content_hash=content_hash,
-                            last_scraped=datetime.now(timezone.utc),
-                            scrape_count=1,
-                            last_status_code=200
-                        )
-                        scraped_url_records.append(scraped_url)
-                
-                # Batch insert
-                if scraped_url_records:
-                    session.add_all(scraped_url_records)
-                    await session.commit()
-                    
-                    # Log to file logger if available
-                    if source_id in self._file_loggers:
-                        self._file_loggers[source_id].log_database_operation(
-                            "save_urls", True, f"saved {len(scraped_url_records)} URLs"
-                        )
-                    
-                    logger.info("💾 Saved scraped URLs to database",
-                               count=len(scraped_url_records))
-                
-        except Exception as e:
-            # Log database failure
-            if source_id in self._file_loggers:
-                self._file_loggers[source_id].log_database_operation(
-                    "save_urls", False, str(e)
-                )
-            logger.warning("Failed to save scraped URLs to database", error=str(e))
-        
-    async def scrape_documentation(
-        self,
-        url: str,
-        source_id: str,
-        selectors: dict[str, str] | None = None,
-        crawl_depth: int = 3,
-        batch_size: int = 20,
-        allow_patterns: list[str] | None = None,
-        ignore_patterns: list[str] | None = None,
-        include_subdomains: bool = False,
-    ) -> dict[str, Any]:
-        """Scrape documentation using single-page navigation with unlimited link discovery.
-        
-        Args:
-            url: Base URL to scrape
-            source_id: Documentation source identifier
-            selectors: CSS selectors for content extraction
-            crawl_depth: Maximum depth for link crawling
-            batch_size: Number of URLs to process per batch
-            allow_patterns: URL patterns to include (allowlist)
-            ignore_patterns: URL patterns to skip (blocklist)
-            include_subdomains: Include subdomains when filtering internal links for crawling
-            
-        Returns:
-            Dictionary with scraping results and metadata
-        """
-        logger.info("🚀 Starting ThreadPool documentation scraping", 
-                   url=url, source_id=source_id, crawl_depth=crawl_depth)
-        
-        # Initialize file logger for this job
-        file_logger = create_scraper_logger(source_id, url)
-        self._file_loggers[source_id] = file_logger
-        file_logger.log_job_start(crawl_depth, allow_patterns, ignore_patterns)
-        
-        # Track job start
-        self.active_jobs[source_id] = {
-            "status": ScrapeJobStatus.IN_PROGRESS.value,
-            "url": url,
-            "start_time": datetime.now(timezone.utc),
-            "pages_processed": 0
-        }
-        
-        try:
-            # Get the current event loop (FastMCP's uvloop)
-            loop = asyncio.get_running_loop()
-            
-            # Run browser work in ThreadPoolExecutor with isolated event loop
-            result = await loop.run_in_executor(
-                self.executor,
-                self._browser_worker_thread,
-                url,
-                source_id,
-                selectors,
-                crawl_depth,
-                batch_size,
-                allow_patterns,
-                ignore_patterns,
-                include_subdomains
-            )
-            
-            # Log job completion and cleanup
-            if source_id in self._file_loggers:
-                duration = (datetime.now(timezone.utc) - self.active_jobs[source_id]["start_time"]).total_seconds()
-                self._file_loggers[source_id].log_job_completion(
-                    True, result.get("pages_scraped", 0), 
-                    len(result.get("failed_urls", [])), duration
-                )
-                self._file_loggers[source_id].close()
-                del self._file_loggers[source_id]
-            
-            # Update job tracking
-            self.active_jobs[source_id]["status"] = ScrapeJobStatus.COMPLETED.value
-            self.active_jobs[source_id]["end_time"] = datetime.now(timezone.utc)
-            
-            logger.info("✅ ThreadPool documentation scraping completed", 
-                       source_id=source_id, pages=result.get("pages_scraped", 0))
-            
-            return result
-            
-        except Exception as e:
-            # Log job failure and cleanup
-            if source_id in self._file_loggers:
-                duration = (datetime.now(timezone.utc) - self.active_jobs[source_id]["start_time"]).total_seconds()
-                self._file_loggers[source_id].log_job_completion(
-                    False, 0, 0, duration, str(e)
-                )
-                self._file_loggers[source_id].close()
-                del self._file_loggers[source_id]
-            
-            # Update job tracking
-            self.active_jobs[source_id]["status"] = ScrapeJobStatus.FAILED.value
-            self.active_jobs[source_id]["error"] = str(e)
-            self.active_jobs[source_id]["end_time"] = datetime.now(timezone.utc)
-            
-            logger.error("❌ ThreadPool documentation scraping failed", 
-                        source_id=source_id, error=str(e))
-            
-            return {
-                "success": False,
-                "error": str(e),
-                "source_id": source_id,
-                "pages_scraped": 0,
-                "entries": []
-            }
-    
-    def _browser_worker_thread(
-        self,
-        url: str,
-        source_id: str,
-        selectors: dict[str, str] | None,
-        crawl_depth: int,
-        batch_size: int,
-        allow_patterns: list[str] | None,
-        ignore_patterns: list[str] | None,
-        include_subdomains: bool,
-    ) -> dict[str, Any]:
-        """Browser worker function that runs in separate thread with isolated event loop.
-        
-        This function runs asyncio.run() to create a completely isolated event loop,
-        avoiding conflicts with FastMCP's uvloop in the main thread.
-        """
-        import asyncio
-        from patchright.async_api import async_playwright
-        
-        async def browser_task():
-            """Complete browser automation task with Playwright async API."""
-            logger.info("🔧 Starting browser task in isolated thread", 
-                       thread_id=threading.current_thread().ident,
-                       source_id=source_id)
-            
-            scraped_urls = set()
-            failed_urls = set()
-            scraped_entries = []
-            
-            # Each thread creates its own Playwright instance (thread safety)
-            async with async_playwright() as p:
-                # Launch browser (headless for WSL compatibility)
-                browser = await p.chromium.launch(
-                    headless=True,  # WSL-compatible headless mode
-                    channel="chrome",  # Use system Chrome if available
-                    args=[
-                        "--no-sandbox",
-                        "--disable-blink-features=AutomationControlled",
-                        "--disable-dev-shm-usage"
-                    ]
-                )
-                
-                try:
-                    # Create new browser context
-                    context = await browser.new_context(
-                        viewport={"width": 1280, "height": 720},
-                        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                    )
-                    
-                    # Single-page navigation with unlimited link discovery
-                    urls_to_scrape = [(url, 0)]  # (url, depth)
-                    pages_processed = 0
-                    all_scraped_entries = []
-                    
-                    # Add enhanced filtering to ignore patterns
-                    enhanced_ignore_patterns = ignore_patterns.copy() if ignore_patterns else []
-                    
-                    # Add pattern to ignore versioned docs like /docs/v4.34/introduction
-                    enhanced_ignore_patterns.append(r"/docs/v\d+\.\d+/.*")
-                    
-                    # Add patterns to ignore external chat/social/non-doc links
-                    # Keep PDFs, GitHub repos, and images - they contain valuable content!
-                    external_link_patterns = [
-                        r"discord\.com.*",          # Discord links
-                        r"chat\..*",                # Chat services (like chat.antfu.me)
-                        r"github\.com/.*/(issues|discussions|pull)/.*",  # GitHub issues/discussions (not repos)
-                        r"twitter\.com.*",          # Twitter
-                        r"x\.com.*",                # X (Twitter)
-                        r"facebook\.com.*",         # Facebook
-                        r"linkedin\.com.*",         # LinkedIn
-                        r"youtube\.com.*",          # YouTube
-                        r"reddit\.com.*",           # Reddit
-                        r"stackoverflow\.com.*",    # StackOverflow
-                        r"mailto:.*",               # Email links
-                        r"tel:.*",                  # Phone links
-                        r".*\.exe$",                # Executable files (security risk)
-                        # Removed: PDFs (valuable docs), GitHub repos (source code), images (diagrams/docs)
-                    ]
-                    enhanced_ignore_patterns.extend(external_link_patterns)
-                    
-                    logger.info("🚀 Starting single-page navigation with unlimited link discovery", 
-                               initial_url=url, 
-                               allow_patterns=allow_patterns,
-                               ignore_patterns=enhanced_ignore_patterns,
-                               crawl_depth=crawl_depth)
-                    
-                    # Create single page for navigation
-                    page = await context.new_page()
-                    
-                    try:
-                        # Process URLs one by one using single page navigation
-                        while urls_to_scrape:
-                            current_url, depth = urls_to_scrape.pop(0)
-                            
-                            # Skip if already processed
-                            if current_url in scraped_urls or current_url in failed_urls:
-                                logger.debug("⏭️ Skipping URL - already processed this session", url=current_url)
-                                continue
-                                
-                            # Check database for existing URL
-                            normalized_url = ScrapedUrl.normalize_url(current_url)
-                            existing_urls = await self._check_existing_urls([current_url], source_id)
-                            if normalized_url in existing_urls:
-                                logger.debug("⏭️ Skipping URL - already in database", url=current_url)
-                                scraped_urls.add(current_url)  # Track to avoid re-checking
-                                continue
-                                
-                            # Skip if depth exceeded
-                            if depth > crawl_depth:
-                                logger.debug("⏭️ Skipping URL - depth exceeded", url=current_url, depth=depth, max_depth=crawl_depth)
-                                continue
-                                
-                            # Check allow patterns first (allowlist)
-                            if allow_patterns:
-                                converted_allow = [self._convert_pattern_to_regex(pattern) for pattern in allow_patterns]
-                                if not any(re.search(regex_pattern, current_url) for regex_pattern in converted_allow):
-                                    logger.debug("⏭️ Skipping URL - doesn't match allow patterns", url=current_url)
-                                    continue
-                                    
-                            # Check ignore patterns (including versioned URLs)
-                            if enhanced_ignore_patterns:
-                                converted_ignore = [self._convert_pattern_to_regex(pattern) for pattern in enhanced_ignore_patterns]
-                                if any(re.search(regex_pattern, current_url) for regex_pattern in converted_ignore):
-                                    logger.debug("⏭️ Skipping URL - matches ignore patterns", url=current_url)
-                                    continue
-                            
-                            try:
-                                # Navigate to URL using single page
-                                logger.info("🌐 Navigating to page", url=current_url, depth=depth, queue_remaining=len(urls_to_scrape))
-                                await page.goto(current_url, wait_until="networkidle", timeout=30000)
-                                
-                                # Extract content using enhanced extraction
-                                content_data = await self._extract_page_content(page, selectors)
-                                
-                                # Generate entry
-                                entry = {
-                                    "id": str(uuid.uuid4()),
-                                    "url": current_url,
-                                    "title": content_data.get("title", ""),
-                                    "content": content_data.get("content", ""),
-                                    "content_hash": hashlib.sha256(
-                                        content_data.get("content", "").encode()
-                                    ).hexdigest(),
-                                    "links": content_data.get("links", []),
-                                    "code_examples": content_data.get("code_examples", []),
-                                    "extracted_at": datetime.now(timezone.utc),
-                                    "depth": depth
-                                }
-                                
-                                all_scraped_entries.append(entry)
-                                scraped_urls.add(current_url)
-                                pages_processed += 1
-                                
-                                # Update job progress
-                                if source_id in self.active_jobs:
-                                    self.active_jobs[source_id]["pages_processed"] = pages_processed
-                                
-                                logger.info("✅ Successfully scraped page", 
-                                           url=current_url, 
-                                           title=entry["title"][:50],
-                                           pages_processed=pages_processed)
-                                
-                                # Add discovered links to queue for continued discovery
-                                if depth < crawl_depth:
-                                    discovered_links = content_data.get("links", [])
-                                    new_links_added = 0
-                                    
-                                    for link in discovered_links:
-                                        # Skip if already processed
-                                        if link in scraped_urls or link in failed_urls:
-                                            continue
-                                            
-                                        # Normalize URL for duplicate checking
-                                        normalized_link = ScrapedUrl.normalize_url(link)
-                                        
-                                        # Check if normalized URL already in queue
-                                        already_queued = any(
-                                            ScrapedUrl.normalize_url(queued_url) == normalized_link 
-                                            for queued_url, _ in urls_to_scrape
-                                        )
-                                        
-                                        if not already_queued:
-                                            # Check patterns before adding to queue
-                                            should_add = True
-                                            
-                                            # Check allow patterns
-                                            if allow_patterns:
-                                                converted_allow = [self._convert_pattern_to_regex(pattern) for pattern in allow_patterns]
-                                                if not any(re.search(regex_pattern, link) for regex_pattern in converted_allow):
-                                                    should_add = False
-                                            
-                                            # Check ignore patterns (including version filtering)
-                                            if enhanced_ignore_patterns and should_add:
-                                                converted_ignore = [self._convert_pattern_to_regex(pattern) for pattern in enhanced_ignore_patterns]
-                                                if any(re.search(regex_pattern, link) for regex_pattern in converted_ignore):
-                                                    should_add = False
-                                            
-                                            # Check domain filtering with include_subdomains
-                                            if should_add:
-                                                internal_links = self._filter_internal_links([link], url, include_subdomains)
-                                                if not internal_links:
-                                                    should_add = False
-                                            
-                                            if should_add:
-                                                urls_to_scrape.append((link, depth + 1))
-                                                new_links_added += 1
-                                    
-                                    if new_links_added > 0:
-                                        logger.info("🔗 Added discovered links to queue",
-                                                   discovered=len(discovered_links),
-                                                   added=new_links_added,
-                                                   queue_size=len(urls_to_scrape))
-                                
-                                # Save entries periodically in batches
-                                if len(all_scraped_entries) % batch_size == 0:
-                                    batch_to_save = all_scraped_entries[-batch_size:]
-                                    await self._save_scraped_urls(batch_to_save, source_id)
-                                    logger.debug("💾 Saved batch to database", batch_size=len(batch_to_save))
-                                
-                            except Exception as page_error:
-                                logger.warning("❌ Failed to scrape page", 
-                                               url=current_url, error=str(page_error))
-                                failed_urls.add(current_url)
-                                continue
-                        
-                        # Save any remaining entries to database
-                        if all_scraped_entries:
-                            remaining_entries = all_scraped_entries[-(len(all_scraped_entries) % batch_size):]
-                            if remaining_entries:
-                                await self._save_scraped_urls(remaining_entries, source_id)
-                                logger.info("💾 Saved final batch to database", batch_size=len(remaining_entries))
-                    
-                    finally:
-                        await page.close()
-                    
-                    # Natural termination - no more unique URLs found
-                    logger.info("🎯 Single-page navigation completed - no more unique URLs", 
-                               pages_processed=pages_processed,
-                               total_entries=len(all_scraped_entries),
-                               failed_urls=len(failed_urls))
-                    
-                    result = {
-                        "success": True,
-                        "source_id": source_id,
-                        "pages_scraped": pages_processed,
-                        "entries": all_scraped_entries,
-                        "scraped_urls": list(scraped_urls),
-                        "failed_urls": list(failed_urls),
-                        "total_discovered": len(scraped_urls) + len(failed_urls),
-                        "navigation_method": "single_page"
-                    }
-                    
-                    logger.info("🎉 Single-page documentation scraping completed", 
-                               pages_scraped=pages_processed,
-                               total_entries=len(all_scraped_entries),
-                               scraped_urls_count=len(scraped_urls),
-                               failed_urls_count=len(failed_urls),
-                               source_id=source_id)
-                    
-                    return result
-                    
-                finally:
-                    # Ensure browser cleanup
-                    await browser.close()
-                    logger.info("🔧 Browser closed for thread", 
-                               thread_id=threading.current_thread().ident)
-        
-        # Each thread gets its own isolated event loop via asyncio.run()
-        # This completely bypasses uvloop conflicts in the main thread
-        return asyncio.run(browser_task())
-    
-    async def _extract_page_content(self, page, selectors: dict[str, str] | None) -> dict[str, Any]:
-        """Extract content from page using selectors or smart extraction."""
-        content_data = {"title": "", "content": "", "links": [], "code_examples": []}
-        
-        try:
-            # Extract title
-            content_data["title"] = await page.title()
-            
-            # Extract content using selectors or fallback to smart extraction
-            if selectors and "content" in selectors:
-                try:
-                    content_element = await page.query_selector(selectors["content"])
-                    if content_element:
-                        content_data["content"] = await content_element.inner_text()
-                except Exception:
-                    pass
-            
-            # Fallback to smart content extraction
-            if not content_data["content"]:
-                # Try common content selectors
-                content_selectors = [
-                    "main", "article", ".content", "#content", 
-                    ".documentation", ".docs", "[role='main']"
-                ]
-                
-                for selector in content_selectors:
-                    try:
-                        element = await page.query_selector(selector)
-                        if element:
-                            content_data["content"] = await element.inner_text()
-                            break
-                    except Exception:
-                        continue
-                
-                # Final fallback to body
-                if not content_data["content"]:
-                    body = await page.query_selector("body")
-                    if body:
-                        content_data["content"] = await body.inner_text()
-            
-            # Expand all collapsed navigation and trigger hover states
-            logger.info("🔧 Expanding collapsed navigation...")
-            expansion_result = await page.evaluate("""
-                () => {
-                    let clickedCount = 0;
-                    let unhiddenCount = 0;
-                    let hoveredCount = 0;
-                    
-                    try {
-                        // Click all expandable elements
-                        const expandableSelectors = [
-                            '[aria-expanded="false"]',
-                            '.collapsed', '[data-collapsed]', 
-                            '.menu__list-item--collapsed .menu__link',  // Docusaurus
-                            '.sidebar-toggle', '.nav-toggle', '.hamburger',
-                            '[data-toggle="collapse"]', '[data-bs-toggle="collapse"]',  // Bootstrap
-                            '.accordion-toggle', '.dropdown-toggle',
-                            '.expand', '.expandable', '.toggle',
-                            'summary',  // HTML details/summary
-                            '[role="button"][aria-expanded="false"]'
-                        ];
-                        
-                        expandableSelectors.forEach(selector => {
-                            document.querySelectorAll(selector).forEach(el => {
-                                try { 
-                                    el.click(); 
-                                    clickedCount++;
-                                } catch(e) {
-                                    console.log('Click error:', e);
-                                }
-                            });
-                        });
-                        
-                        // Show all hidden elements
-                        const hiddenSelectors = [
-                            '[style*="display: none"]', '[style*="display:none"]',
-                            '[hidden]', '.hidden', '.d-none',
-                            '.menu-hidden', '.sidebar-hidden', '.nav-hidden',
-                            '.collapse:not(.show)', '.collapsed-content'
-                        ];
-                        
-                        hiddenSelectors.forEach(selector => {
-                            document.querySelectorAll(selector).forEach(el => {
-                                try {
-                                    el.style.display = 'block';
-                                    el.style.visibility = 'visible';
-                                    el.removeAttribute('hidden');
-                                    el.classList.remove('hidden', 'd-none');
-                                    unhiddenCount++;
-                                } catch(e) {
-                                    console.log('Unhide error:', e);
-                                }
-                            });
-                        });
-                        
-                        // Trigger hover on navigation elements to reveal dropdowns
-                        const navSelectors = [
-                            'nav a', '.navigation a', '.menu a', '.sidebar a',
-                            '.nav-item', '.menu-item', '.dropdown', '.has-dropdown'
-                        ];
-                        
-                        navSelectors.forEach(selector => {
-                            document.querySelectorAll(selector).forEach(el => {
-                                try {
-                                    el.dispatchEvent(new MouseEvent('mouseenter', {bubbles: true}));
-                                    el.dispatchEvent(new MouseEvent('mouseover', {bubbles: true}));
-                                    hoveredCount++;
-                                } catch(e) {
-                                    console.log('Hover error:', e);
-                                }
-                            });
-                        });
-                        
-                    } catch(e) {
-                        console.log('Overall expansion error:', e);
-                    }
-                    
-                    return {clicked: clickedCount, unhidden: unhiddenCount, hovered: hoveredCount};
-                }
-            """)
-            
-            logger.info("🎯 Navigation expansion complete", 
-                       clicked=expansion_result.get('clicked', 0),
-                       unhidden=expansion_result.get('unhidden', 0), 
-                       hovered=expansion_result.get('hovered', 0))
-            
-            # Wait longer for navigation expansions and animations to complete
-            await page.wait_for_timeout(3000)
-            
-            # Wait for any additional network requests triggered by expansion
-            try:
-                await page.wait_for_load_state('networkidle', timeout=5000)
-            except Exception:
-                # Continue if network idle timeout - some sites have continuous requests
-                pass
-            
-            # Extract links using JavaScript evaluation to handle React/SPA apps
-            content_data["links"] = []
-            
-            # Batch process ALL links comprehensively in single evaluate call
-            logger.info("🔗 Starting batch link extraction...")
-            
-            try:
-                # Single batch operation to extract all link data with timeout
-                all_discovered_links = await asyncio.wait_for(
-                    page.evaluate("""
-                        () => {
-                            const allLinks = [];
-                            const linkElements = Array.from(document.querySelectorAll('a'));
-                            
-                            linkElements.forEach((element, index) => {
-                                try {
-                                    // Extract all attributes from this link element
-                                    const attrs = {};
-                                    for (let i = 0; i < element.attributes.length; i++) {
-                                        const attr = element.attributes[i];
-                                        attrs[attr.name] = attr.value;
-                                    }
-                                    attrs.textContent = element.textContent?.trim() || '';
-                                    
-                                    // Check ALL attributes for potential URLs
-                                    const potentialUrls = [];
-                                    
-                                    // Primary href
-                                    if (attrs.href) {
-                                        potentialUrls.push(attrs.href);
-                                    }
-                                    
-                                    // Data attributes that might contain URLs
-                                    Object.entries(attrs).forEach(([attrName, attrValue]) => {
-                                        if (attrValue && typeof attrValue === 'string') {
-                                            if (attrName.startsWith('data-') && 
-                                                (attrValue.includes('/') || attrValue.includes('http'))) {
-                                                potentialUrls.push(attrValue);
-                                            }
-                                        }
-                                    });
-                                    
-                                    // Process each potential URL
-                                    potentialUrls.forEach(url => {
-                                        if (url && url.trim()) {
-                                            // Convert relative URLs to absolute
-                                            let absoluteUrl;
-                                            if (url.startsWith('/')) {
-                                                absoluteUrl = new URL(url, window.location.origin).href;
-                                            } else if (url.startsWith('http')) {
-                                                absoluteUrl = url;
-                                            } else if (url.startsWith('#')) {
-                                                absoluteUrl = new URL(url, window.location.href).href;
-                                            }
-                                            
-                                            if (absoluteUrl) {
-                                                allLinks.push(absoluteUrl);
-                                            }
-                                        }
-                                    });
-                                    
-                                } catch (e) {
-                                    // Skip problematic link elements
-                                    console.log('Skipping link element due to error:', e);
-                                }
-                            });
-                            
-                            // Remove duplicates and return
-                            return [...new Set(allLinks)];
-                        }
-                    """), 
-                    timeout=30.0  # 30 second timeout for batch processing
-                )
-                
-                content_data["links"] = all_discovered_links
-                logger.info("🎯 Batch link extraction complete", 
-                           total_discovered=len(content_data["links"]))
-                
-            except asyncio.TimeoutError:
-                logger.warning("⏰ Batch link extraction timed out, falling back to simple method")
-                # Fallback to simple href extraction if batch times out
-                simple_links = await page.evaluate("""
-                    () => {
-                        return Array.from(document.querySelectorAll('a[href]'))
-                            .map(link => link.href)
-                            .filter(href => href && href.trim());
-                    }
-                """)
-                content_data["links"] = simple_links
-                logger.info("✅ Fallback link extraction complete", 
-                           total_discovered=len(content_data["links"]))
-                
-            except Exception as e:
-                logger.warning("❌ Link extraction failed, using empty list", error=str(e))
-                content_data["links"] = []
-            
-            # Extract code examples
-            code_elements = await page.query_selector_all("code, pre, .highlight, .code")
-            content_data["code_examples"] = []
-            for code_elem in code_elements:
-                try:
-                    code_text = await code_elem.inner_text()
-                    if code_text.strip():
-                        content_data["code_examples"].append(code_text.strip())
-                except Exception:
-                    continue
-                    
-        except Exception as e:
-            logger.warning("Failed to extract page content", error=str(e))
-        
-        return content_data
-    
-    def _filter_internal_links(self, links: list[str], base_url: str, include_subdomains: bool = False) -> list[str]:
-        """Filter links to only include internal ones with subdomain control and navigation tracking."""
-        base_domain = urlparse(base_url).netloc
-        internal_links = []
-        current_url = base_url  # Track current URL for navigation state
-        last_good_url = base_url  # Track last successful URL for recovery
-        
-        logger.debug("🔍 Filtering internal links", 
-                    total_links=len(links), 
-                    base_domain=base_domain, 
-                    include_subdomains=include_subdomains,
-                    current_url=current_url)
-        
-        for link in links:
-            try:
-                parsed = urlparse(link)
-                # Include if same domain, subdomain (if allowed), or relative URL
-                if self._is_allowed_domain(parsed.netloc, base_domain, include_subdomains) or not parsed.netloc:
-                    # Convert relative to absolute
-                    if not parsed.netloc:
-                        link = urljoin(base_url, link)
-                    internal_links.append(link)
-                    
-                    # Log domain filtering decisions for debugging
-                    if parsed.netloc and parsed.netloc != base_domain:
-                        logger.debug("✅ Allowed subdomain link", 
-                                   link=link, 
-                                   domain=parsed.netloc, 
-                                   base_domain=base_domain)
-                elif parsed.netloc:
-                    logger.debug("❌ Filtered external domain", 
-                               link=link, 
-                               domain=parsed.netloc, 
-                               base_domain=base_domain)
-            except Exception as e:
-                logger.debug("⚠️ Invalid URL during filtering", 
-                           link=link, 
-                           error=str(e),
-                           last_good_url=last_good_url)
-                continue
-        
-        unique_internal_links = list(set(internal_links))  # Remove duplicates
-        logger.debug("🎯 Internal link filtering complete", 
-                    filtered_count=len(unique_internal_links), 
-                    original_count=len(links))
-        
-        return unique_internal_links
-    
-    def _is_allowed_domain(self, url_domain: str, base_domain: str, include_subdomains: bool) -> bool:
-        """Check if a domain is allowed based on subdomain policy with enhanced navigation tracking."""
-        if not url_domain:
-            return False
-        
-        # Exact domain match is always allowed
-        if url_domain == base_domain:
-            logger.debug("✅ Exact domain match", 
-                        url_domain=url_domain, 
-                        base_domain=base_domain)
-            return True
-        
-        # Subdomain check only if explicitly enabled
-        if include_subdomains and url_domain.endswith(f'.{base_domain}'):
-            logger.debug("✅ Subdomain allowed", 
-                        url_domain=url_domain, 
-                        base_domain=base_domain, 
-                        include_subdomains=include_subdomains)
-            return True
-        
-        logger.debug("❌ Domain not allowed", 
-                    url_domain=url_domain, 
-                    base_domain=base_domain, 
-                    include_subdomains=include_subdomains)
-        return False
-    
-    def get_job_status(self, source_id: str) -> dict[str, Any] | None:
-        """Get current status of a scraping job."""
-        return self.active_jobs.get(source_id)
-    
-    def cleanup_completed_jobs(self, max_age_hours: int = 24):
-        """Clean up old completed job entries."""
-        current_time = datetime.now(timezone.utc)
-        cutoff_time = current_time - timedelta(hours=max_age_hours)
-        
-        to_remove = []
-        for source_id, job_data in self.active_jobs.items():
-            end_time = job_data.get("end_time")
-            if end_time and end_time < cutoff_time:
-                to_remove.append(source_id)
-        
-        for source_id in to_remove:
-            del self.active_jobs[source_id]
-            
-        logger.info("🧹 Cleaned up old job entries", removed=len(to_remove))
-    
-    async def shutdown(self):
-        """Gracefully shutdown the ThreadPoolExecutor."""
-        logger.info("🔧 Shutting down ThreadPoolExecutor...")
-        
-        # Close any remaining file loggers
-        for source_id, file_logger in self._file_loggers.items():
-            try:
-                file_logger.close()
-            except Exception:
-                pass
-        self._file_loggers.clear()
-        
-        self.executor.shutdown(wait=True)
-        logger.info("✅ ThreadPoolExecutor shutdown completed")
-
-
-# Global instance for use by FastMCP tools
-thread_pool_scraper = ThreadPoolDocumentationScraper()
-
-# Set up log cleanup on module import
-import atexit
-from ..utils.scraper_logger import ScraperFileLogger
-
-# Clean up old logs at startup and register cleanup on exit
-ScraperFileLogger.cleanup_old_logs(days_to_keep=7)
-atexit.register(lambda: ScraperFileLogger.cleanup_old_logs(days_to_keep=7))
-

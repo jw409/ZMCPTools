@@ -7,7 +7,7 @@ import structlog
 from pydantic import Field
 from markdownify import markdownify
 
-from ..services.web_scraper import DocumentationScraper
+from ..services.documentation_scraper import ThreadPoolDocumentationScraper
 from .app import app
 
 logger = structlog.get_logger("tools.browser")

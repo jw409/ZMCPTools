@@ -2,9 +2,11 @@
 
 import asyncio
 import shutil
+import sqlite3
 import sys
+import uuid
 from collections.abc import AsyncGenerator
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import structlog
@@ -738,6 +740,338 @@ async def init_engine_only(db_path: Path | None = None) -> None:
     )
     
     logger.info("Database engine initialized (lightweight mode)", db_path=str(db_path))
+
+
+# =============================================================================
+# SYNCHRONOUS DATABASE FUNCTIONS FOR THREADPOOLEXECUTOR
+# =============================================================================
+
+def get_session_sync(db_path: Path | None = None) -> sqlite3.Connection:
+    """Get a synchronous SQLite database connection for use within ThreadPoolExecutor threads.
+    
+    This function provides direct sqlite3 access for thread-safe operations that
+    avoid uvloop conflicts in ThreadPoolExecutor environments.
+    
+    Args:
+        db_path: Path to SQLite database file. If None, uses default location.
+        
+    Returns:
+        sqlite3.Connection: Direct SQLite database connection
+        
+    Raises:
+        sqlite3.Error: If database connection fails
+    """
+    if db_path is None:
+        db_path = Path.home() / ".mcptools" / "data" / "orchestration.db"
+    
+    # Ensure directory exists
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    try:
+        # Create connection with optimized settings for concurrent access
+        conn = sqlite3.connect(
+            str(db_path),
+            timeout=30.0,  # 30 second timeout for concurrent access
+            check_same_thread=False,  # Allow cross-thread usage
+            isolation_level=None  # Autocommit mode for thread safety
+        )
+        
+        # Set pragmas for better concurrent performance
+        conn.execute("PRAGMA busy_timeout = 30000")  # 30 second busy timeout
+        conn.execute("PRAGMA journal_mode = WAL")    # Write-Ahead Logging for concurrency
+        conn.execute("PRAGMA synchronous = NORMAL")  # Balance between safety and speed
+        conn.execute("PRAGMA cache_size = -64000")   # 64MB cache size
+        conn.execute("PRAGMA temp_store = MEMORY")   # Store temp tables in memory
+        
+        logger.debug("Synchronous database connection established", db_path=str(db_path))
+        return conn
+        
+    except sqlite3.Error as e:
+        logger.error("Failed to establish synchronous database connection", 
+                    db_path=str(db_path), error=str(e))
+        raise
+
+
+def save_scraped_urls_sync(scraped_data: list[dict], source_id: str, db_path: Path | None = None) -> None:
+    """Save scraped URLs to database for deduplication using synchronous SQLite access.
+    
+    This function mirrors the async _save_scraped_urls functionality for use in
+    ThreadPoolExecutor threads where async operations would conflict with uvloop.
+    
+    Args:
+        scraped_data: List of scraped entry data with URLs and metadata
+        source_id: Documentation source ID for associating URLs
+        db_path: Path to SQLite database file. If None, uses default location.
+        
+    Raises:
+        sqlite3.Error: If database operations fail
+    """
+    if not scraped_data:
+        logger.debug("No scraped data to save")
+        return
+    
+    conn = None
+    try:
+        conn = get_session_sync(db_path)
+        
+        # Import here to avoid circular imports
+        from .models.documentation import ScrapedUrl
+        
+        # Prepare batch insert data
+        scraped_url_records = []
+        
+        for entry_data in scraped_data:
+            url = entry_data.get("url")
+            content_hash = entry_data.get("content_hash")
+            
+            if url:
+                normalized_url = ScrapedUrl.normalize_url(url)
+                
+                # Create record data tuple
+                record = (
+                    str(uuid.uuid4()),              # id
+                    normalized_url,                 # normalized_url
+                    url,                           # original_url
+                    source_id,                     # source_id
+                    content_hash,                  # content_hash
+                    datetime.now(timezone.utc),    # last_scraped
+                    1,                             # scrape_count
+                    200,                           # last_status_code
+                    datetime.now(timezone.utc),    # created_at
+                    datetime.now(timezone.utc)     # updated_at
+                )
+                scraped_url_records.append(record)
+        
+        # Batch insert with IGNORE to handle conflicts gracefully
+        if scraped_url_records:
+            insert_sql = """
+                INSERT OR IGNORE INTO scraped_urls (
+                    id, normalized_url, original_url, source_id, content_hash,
+                    last_scraped, scrape_count, last_status_code, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """
+            
+            conn.executemany(insert_sql, scraped_url_records)
+            
+            # Get number of rows actually inserted
+            rows_inserted = conn.total_changes
+            
+            logger.info("💾 Saved scraped URLs to database (sync)",
+                       total_records=len(scraped_url_records),
+                       rows_inserted=rows_inserted,
+                       source_id=source_id)
+    
+    except sqlite3.Error as e:
+        logger.warning("Failed to save scraped URLs to database (sync)", 
+                      error=str(e), source_id=source_id)
+        raise
+    except Exception as e:
+        logger.error("Unexpected error saving scraped URLs (sync)", 
+                    error=str(e), source_id=source_id)
+        raise
+    finally:
+        if conn:
+            conn.close()
+
+
+def check_existing_urls_sync(urls: list[str], source_id: str, db_path: Path | None = None) -> set[str]:
+    """Check which URLs have already been scraped using synchronous database lookups.
+    
+    This function mirrors the async _check_existing_urls functionality for use in
+    ThreadPoolExecutor threads where async operations would conflict with uvloop.
+    
+    Args:
+        urls: List of URLs to check for existing records
+        source_id: Documentation source ID to scope the check
+        db_path: Path to SQLite database file. If None, uses default location.
+        
+    Returns:
+        Set of normalized URLs that already exist in the database
+        
+    Raises:
+        sqlite3.Error: If database query fails
+    """
+    if not urls:
+        logger.debug("No URLs to check")
+        return set()
+    
+    conn = None
+    try:
+        conn = get_session_sync(db_path)
+        
+        # Import here to avoid circular imports
+        from .models.documentation import ScrapedUrl
+        
+        # Normalize all URLs first
+        normalized_urls = [ScrapedUrl.normalize_url(url) for url in urls]
+        
+        # Prepare query with placeholders for IN clause
+        placeholders = ','.join('?' for _ in normalized_urls)
+        query_sql = f"""
+            SELECT normalized_url 
+            FROM scraped_urls 
+            WHERE normalized_url IN ({placeholders}) 
+            AND source_id = ?
+        """
+        
+        # Execute query with normalized URLs and source_id
+        cursor = conn.execute(query_sql, normalized_urls + [source_id])
+        existing_normalized = {row[0] for row in cursor.fetchall()}
+        
+        logger.info("🔍 Database URL check completed (sync)",
+                   total_urls=len(urls),
+                   existing_count=len(existing_normalized),
+                   new_count=len(normalized_urls) - len(existing_normalized),
+                   source_id=source_id)
+        
+        return existing_normalized
+    
+    except sqlite3.Error as e:
+        logger.warning("Failed to check existing URLs (sync), proceeding without deduplication", 
+                      error=str(e), source_id=source_id)
+        # Return empty set to allow processing to continue
+        return set()
+    except Exception as e:
+        logger.error("Unexpected error checking existing URLs (sync)", 
+                    error=str(e), source_id=source_id)
+        # Return empty set to allow processing to continue  
+        return set()
+    finally:
+        if conn:
+            conn.close()
+
+
+# Synchronous database functions for ThreadPoolExecutor use
+def get_session_sync(db_path: Path | None = None) -> "sqlite3.Connection":
+    """Get synchronous database connection for ThreadPoolExecutor use.
+    
+    Args:
+        db_path: Path to SQLite database file. If None, uses default location.
+        
+    Returns:
+        sqlite3.Connection: Synchronous database connection
+    """
+    import sqlite3
+    
+    if db_path is None:
+        db_path = Path.home() / ".mcptools" / "data" / "orchestration.db"
+    
+    # Ensure directory exists
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Create connection with optimized settings for concurrent access
+    conn = sqlite3.connect(
+        str(db_path),
+        timeout=20,  # 20 second timeout
+        check_same_thread=False,  # Allow cross-thread usage
+    )
+    
+    # Enable WAL mode for better concurrent access
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA cache_size=10000")
+    conn.execute("PRAGMA temp_store=memory")
+    
+    return conn
+
+
+def save_scraped_urls_sync(scraped_data: list[dict], source_id: str, db_path: Path | None = None) -> None:
+    """Save scraped URLs using sync database connection.
+    
+    Args:
+        scraped_data: List of scraped entry data with URLs
+        source_id: Documentation source ID
+        db_path: Path to SQLite database file. If None, uses default location.
+    """
+    if not scraped_data:
+        return
+    
+    try:
+        with get_session_sync(db_path) as conn:
+            cursor = conn.cursor()
+            
+            # Prepare batch insert
+            scraped_url_records = []
+            for entry_data in scraped_data:
+                url = entry_data.get("url")
+                content_hash = entry_data.get("content_hash")
+                
+                if url:
+                    # Import ScrapedUrl here to avoid circular imports
+                    from .models.documentation import ScrapedUrl
+                    normalized_url = ScrapedUrl.normalize_url(url)
+                    
+                    scraped_url_records.append((
+                        str(uuid.uuid4()),  # id
+                        normalized_url,     # normalized_url
+                        url,                # original_url
+                        source_id,          # source_id
+                        content_hash,       # content_hash
+                        datetime.now(timezone.utc).isoformat(),  # last_scraped
+                        1,                  # scrape_count
+                        200                 # last_status_code
+                    ))
+            
+            # Batch insert all records
+            if scraped_url_records:
+                cursor.executemany("""
+                    INSERT OR REPLACE INTO scraped_urls 
+                    (id, normalized_url, original_url, source_id, content_hash, 
+                     last_scraped, scrape_count, last_status_code)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, scraped_url_records)
+                
+                conn.commit()
+                logger.info("💾 Saved scraped URLs to database (sync)", 
+                           count=len(scraped_url_records))
+                
+    except Exception as e:
+        logger.warning("Failed to save scraped URLs to database (sync)", error=str(e))
+
+
+def check_existing_urls_sync(urls: list[str], source_id: str, db_path: Path | None = None) -> set[str]:
+    """Check existing URLs using sync database connection.
+    
+    Args:
+        urls: List of URLs to check
+        source_id: Documentation source ID
+        db_path: Path to SQLite database file. If None, uses default location.
+        
+    Returns:
+        Set of normalized URLs that already exist in database
+    """
+    if not urls:
+        return set()
+    
+    try:
+        # Import ScrapedUrl here to avoid circular imports
+        from .models.documentation import ScrapedUrl
+        normalized_urls = [ScrapedUrl.normalize_url(url) for url in urls]
+        
+        with get_session_sync(db_path) as conn:
+            cursor = conn.cursor()
+            
+            # Query existing URLs in batch using placeholders
+            placeholders = ','.join('?' * len(normalized_urls))
+            query = f"""
+                SELECT normalized_url FROM scraped_urls 
+                WHERE normalized_url IN ({placeholders}) AND source_id = ?
+            """
+            
+            cursor.execute(query, normalized_urls + [source_id])
+            existing_normalized = {row[0] for row in cursor.fetchall()}
+            
+            logger.info("🔍 Database URL check completed (sync)",
+                       total_urls=len(urls),
+                       existing_count=len(existing_normalized),
+                       new_count=len(normalized_urls) - len(existing_normalized))
+            
+            return existing_normalized
+            
+    except Exception as e:
+        logger.warning("Failed to check existing URLs (sync), proceeding without deduplication", 
+                     error=str(e))
+        return set()
 
 
 async def get_session_fast() -> AsyncGenerator[AsyncSession, None]:

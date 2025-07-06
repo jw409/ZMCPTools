@@ -27,7 +27,7 @@ from ..models import (
     UpdateFrequency,
 )
 from .vector_service import get_vector_service
-from .web_scraper import DocumentationScraper, thread_pool_scraper
+from .documentation_scraper import ThreadPoolDocumentationScraper, thread_pool_scraper
 from .domain_browser_manager import domain_manager
 from .scrape_job_service import ScrapeJobService
 
@@ -58,8 +58,8 @@ class DocumentationService:
         self.vector_db_path.mkdir(parents=True, exist_ok=True)
 
         self._vector_service = None
-        self._running_scrapers: dict[str, dict] = {}  # Track scraping jobs by source_id
-        self._web_scraper: DocumentationScraper | None = None
+        self._running_scrapers: dict[str, dict[str, Any]] = {}  # Track scraping jobs by source_id
+        self._web_scraper: ThreadPoolDocumentationScraper | None = None
         self._scrape_job_service: ScrapeJobService | None = None
         self._worker_tasks: dict[str, asyncio.Task] = {}  # Track background worker tasks
 
@@ -89,14 +89,8 @@ class DocumentationService:
             # Clean up completed worker tasks first
             await self._cleanup_completed_workers()
             
-            # Stop all running scrapers
-            for _scraper_id, task in self._running_scrapers.items():
-                if not task.done():
-                    task.cancel()
-                    try:
-                        await task
-                    except asyncio.CancelledError:
-                        pass
+            # Clear running scraper tracking (these are job metadata, not tasks)
+            self._running_scrapers.clear()
 
             # Stop all worker tasks
             for worker_id, task in self._worker_tasks.items():
@@ -309,7 +303,7 @@ class DocumentationService:
         force_refresh: bool = False,
         ctx=None,
         progress_callback=None,
-        agent_id: str = None,
+        agent_id: str | None = None,
     ) -> dict[str, Any]:
         """Queue documentation scraping job using the background job service.
 
@@ -1188,7 +1182,7 @@ class DocumentationService:
         force_refresh: bool = False,
         ctx=None,
         progress_callback=None,
-        agent_id: str = None,
+        agent_id: str | None = None,
     ) -> dict[str, Any]:
         """Direct scraping execution (legacy fallback when job service not available).
 
@@ -1538,7 +1532,7 @@ class DocumentationService:
     async def check_worker_health(self) -> dict[str, Any]:
         """Check health of all tracked workers and restart if needed."""
         try:
-            health_stats = {
+            health_stats: dict[str, Any] = {
                 "tracked_workers": len(self._worker_tasks),
                 "healthy_workers": 0,
                 "failed_workers": 0,
@@ -1829,7 +1823,7 @@ class DocumentationService:
         source_id: str,
         ctx=None,
         progress_callback=None,
-        agent_id: str = None,
+        agent_id: str | None = None,
     ) -> dict[str, Any]:
         """Scrape content with automatic cleanup of task tracking and agent termination."""
         try:
