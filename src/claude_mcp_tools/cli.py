@@ -5,6 +5,7 @@ import subprocess
 from enum import Enum
 from pathlib import Path
 from typing import Any
+import json
 
 import typer
 from rich.console import Console
@@ -1048,7 +1049,6 @@ exec claude-mcp-tools-server "$@"
             existing_settings = {}
             if settings_file.exists():
                 try:
-                    import json
                     existing_settings = json.loads(settings_file.read_text())
                 except (json.JSONDecodeError, FileNotFoundError):
                     existing_settings = {}
@@ -1060,16 +1060,16 @@ exec claude-mcp-tools-server "$@"
             merged_settings = safely_merge_claude_settings(existing_settings, default_settings)
             
             # Write merged settings
-            import json
             settings_file.write_text(json.dumps(merged_settings, indent=2))
 
             # Create or update CLAUDE.md with ClaudeMcpTools integration
             progress.update(task5, description="📝 Setting up CLAUDE.md integration...")
             _create_or_update_claude_md(Path.cwd())
 
-            progress.update(task5, advance=1, description="🔒 Project setup complete ✓")
+            progress.update(task5, advance=2, description="🔒 Project setup complete ✓")
 
         # Step 5.5: Hook installation (if not skipped)
+        hooks_status = ""
         if hook_scope != HookScope.SKIP:
             task_hooks = progress.add_task("🪝 Setting up hooks...", total=3)
             
@@ -1103,7 +1103,6 @@ exec claude-mcp-tools-server "$@"
                             "memory-monitor.sh",
                             "agent-monitor.sh", 
                             "compact-replan.sh",
-                            "docs-monitor.sh",
                             "mcp-monitor.sh"
                         ]
                         
@@ -1154,7 +1153,6 @@ If you have access to the ClaudeMcpTools source code, you can manually copy hook
 - memory-monitor.sh
 - agent-monitor.sh  
 - compact-replan.sh
-- docs-monitor.sh
 - mcp-monitor.sh
 
 Make sure to make them executable: `chmod +x *.sh`
@@ -1173,74 +1171,15 @@ Make sure to make them executable: `chmod +x *.sh`
                         project_settings_file = Path.cwd() / ".claude" / "settings.local.json"
                         if project_settings_file.exists():
                             try:
-                                import json
                                 existing_settings = json.loads(project_settings_file.read_text())
                             except (json.JSONDecodeError, FileNotFoundError):
                                 existing_settings = {}
                         else:
                             existing_settings = {}
                         
-                        # Add hooks configuration
+                        # Add hooks configuration - minimal set to avoid interference
                         hooks_config = {
                             "hooks": {
-                                "PostToolUse": [
-                                    {
-                                        "matcher": "mcp__claude-mcp-orchestration__store_memory",
-                                        "hooks": [{"type": "command", "command": ".claude/hooks/memory-monitor.sh"}]
-                                    },
-                                    {
-                                        "matcher": "mcp__claude-mcp-orchestration__search_memory", 
-                                        "hooks": [{"type": "command", "command": ".claude/hooks/memory-monitor.sh"}]
-                                    },
-                                    {
-                                        "matcher": "mcp__claude-mcp-orchestration__spawn_agent",
-                                        "hooks": [{"type": "command", "command": ".claude/hooks/agent-monitor.sh"}]
-                                    },
-                                    {
-                                        "matcher": "mcp__claude-mcp-orchestration__spawn_agents_batch",
-                                        "hooks": [{"type": "command", "command": ".claude/hooks/agent-monitor.sh"}]
-                                    },
-                                    {
-                                        "matcher": "mcp__claude-mcp-orchestration__orchestrate_objective",
-                                        "hooks": [{"type": "command", "command": ".claude/hooks/agent-monitor.sh"}]
-                                    },
-                                    {
-                                        "matcher": "mcp__claude-mcp-orchestration__terminate_agent",
-                                        "hooks": [{"type": "command", "command": ".claude/hooks/agent-monitor.sh"}]
-                                    },
-                                    {
-                                        "matcher": "mcp__claude-mcp-orchestration__list_agents",
-                                        "hooks": [{"type": "command", "command": ".claude/hooks/agent-monitor.sh"}]
-                                    },
-                                    {
-                                        "matcher": "mcp__claude-mcp-orchestration__get_agent_status",
-                                        "hooks": [{"type": "command", "command": ".claude/hooks/agent-monitor.sh"}]
-                                    },
-                                    {
-                                        "matcher": "mcp__claude-mcp-orchestration__scrape_documentation",
-                                        "hooks": [{"type": "command", "command": ".claude/hooks/docs-monitor.sh"}]
-                                    },
-                                    {
-                                        "matcher": "mcp__claude-mcp-orchestration__search_documentation",
-                                        "hooks": [{"type": "command", "command": ".claude/hooks/docs-monitor.sh"}]
-                                    },
-                                    {
-                                        "matcher": "mcp__claude-mcp-orchestration__update_documentation",
-                                        "hooks": [{"type": "command", "command": ".claude/hooks/docs-monitor.sh"}]
-                                    },
-                                    {
-                                        "matcher": "mcp__claude-mcp-orchestration__analyze_documentation_changes",
-                                        "hooks": [{"type": "command", "command": ".claude/hooks/docs-monitor.sh"}]
-                                    },
-                                    {
-                                        "matcher": "mcp__claude-mcp-orchestration__link_docs_to_code",
-                                        "hooks": [{"type": "command", "command": ".claude/hooks/docs-monitor.sh"}]
-                                    },
-                                    {
-                                        "matcher": "mcp__claude-mcp-orchestration__*",
-                                        "hooks": [{"type": "command", "command": ".claude/hooks/mcp-monitor.sh"}]
-                                    }
-                                ],
                                 "SubagentStop": [
                                     {
                                         "matcher": "*",
@@ -1261,74 +1200,15 @@ Make sure to make them executable: `chmod +x *.sh`
                         global_settings_file = Path.home() / ".claude" / "settings.json"
                         if global_settings_file.exists():
                             try:
-                                import json
                                 existing_settings = json.loads(global_settings_file.read_text())
                             except (json.JSONDecodeError, FileNotFoundError):
                                 existing_settings = {}
                         else:
                             existing_settings = {}
                         
-                        # Add global hooks configuration (using absolute paths)
+                        # Add global hooks configuration (using absolute paths) - minimal set
                         hooks_config = {
                             "hooks": {
-                                "PostToolUse": [
-                                    {
-                                        "matcher": "mcp__claude-mcp-orchestration__store_memory",
-                                        "hooks": [{"type": "command", "command": f"{Path.home()}/.claude/hooks/memory-monitor.sh"}]
-                                    },
-                                    {
-                                        "matcher": "mcp__claude-mcp-orchestration__search_memory",
-                                        "hooks": [{"type": "command", "command": f"{Path.home()}/.claude/hooks/memory-monitor.sh"}]
-                                    },
-                                    {
-                                        "matcher": "mcp__claude-mcp-orchestration__spawn_agent",
-                                        "hooks": [{"type": "command", "command": f"{Path.home()}/.claude/hooks/agent-monitor.sh"}]
-                                    },
-                                    {
-                                        "matcher": "mcp__claude-mcp-orchestration__spawn_agents_batch",
-                                        "hooks": [{"type": "command", "command": f"{Path.home()}/.claude/hooks/agent-monitor.sh"}]
-                                    },
-                                    {
-                                        "matcher": "mcp__claude-mcp-orchestration__orchestrate_objective",
-                                        "hooks": [{"type": "command", "command": f"{Path.home()}/.claude/hooks/agent-monitor.sh"}]
-                                    },
-                                    {
-                                        "matcher": "mcp__claude-mcp-orchestration__terminate_agent",
-                                        "hooks": [{"type": "command", "command": f"{Path.home()}/.claude/hooks/agent-monitor.sh"}]
-                                    },
-                                    {
-                                        "matcher": "mcp__claude-mcp-orchestration__list_agents",
-                                        "hooks": [{"type": "command", "command": f"{Path.home()}/.claude/hooks/agent-monitor.sh"}]
-                                    },
-                                    {
-                                        "matcher": "mcp__claude-mcp-orchestration__get_agent_status",
-                                        "hooks": [{"type": "command", "command": f"{Path.home()}/.claude/hooks/agent-monitor.sh"}]
-                                    },
-                                    {
-                                        "matcher": "mcp__claude-mcp-orchestration__scrape_documentation",
-                                        "hooks": [{"type": "command", "command": f"{Path.home()}/.claude/hooks/docs-monitor.sh"}]
-                                    },
-                                    {
-                                        "matcher": "mcp__claude-mcp-orchestration__search_documentation",
-                                        "hooks": [{"type": "command", "command": f"{Path.home()}/.claude/hooks/docs-monitor.sh"}]
-                                    },
-                                    {
-                                        "matcher": "mcp__claude-mcp-orchestration__update_documentation",
-                                        "hooks": [{"type": "command", "command": f"{Path.home()}/.claude/hooks/docs-monitor.sh"}]
-                                    },
-                                    {
-                                        "matcher": "mcp__claude-mcp-orchestration__analyze_documentation_changes",
-                                        "hooks": [{"type": "command", "command": f"{Path.home()}/.claude/hooks/docs-monitor.sh"}]
-                                    },
-                                    {
-                                        "matcher": "mcp__claude-mcp-orchestration__link_docs_to_code",
-                                        "hooks": [{"type": "command", "command": f"{Path.home()}/.claude/hooks/docs-monitor.sh"}]
-                                    },
-                                    {
-                                        "matcher": "mcp__claude-mcp-orchestration__*",
-                                        "hooks": [{"type": "command", "command": f"{Path.home()}/.claude/hooks/mcp-monitor.sh"}]
-                                    }
-                                ],
                                 "SubagentStop": [
                                     {
                                         "matcher": "*",
@@ -1411,6 +1291,8 @@ Make sure to make them executable: `chmod +x *.sh`
                 progress.update(task7, advance=1, description="⚙️ MCP server configuration complete ✓")
             except subprocess.CalledProcessError:
                 progress.update(task7, advance=1, description="⚠️ MCP server config failed (manual setup needed)")
+            except Exception as e:
+                progress.update(task7, advance=1, description=f"⚠️ MCP server config error: {e}")
 
     # Success message with hook status
     hook_status_msg = ""

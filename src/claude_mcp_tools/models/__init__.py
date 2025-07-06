@@ -36,6 +36,20 @@ class UpdateFrequency(enum.StrEnum):
     DAILY = "daily"
     WEEKLY = "weekly"
 
+class DocumentationStatus(enum.StrEnum):
+    NOT_STARTED = "not_started"      # Never been scraped
+    IN_PROGRESS = "in_progress"      # Currently scraping
+    COMPLETED = "completed"          # Successfully scraped
+    FAILED = "failed"               # Scraping failed
+    PAUSED = "paused"               # Manually paused
+    STALE = "stale"                 # Needs re-scraping
+
+class ScrapeJobStatus(enum.StrEnum):
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
 class SectionType(enum.StrEnum):
     CONTENT = "content"
     CODE = "code"
@@ -59,6 +73,7 @@ from .documentation import (
     DocumentationEmbedding,
     DocumentationEntry,
     DocumentationSource,
+    ScrapeJob,
     ScrapedUrl,
 )
 from .error_logging import ErrorLog, ErrorPattern, LearningEntry
@@ -81,6 +96,7 @@ __all__ = [
     "DocumentationEmbedding",
     "DocumentationEntry",
     "DocumentationSource",
+    "DocumentationStatus",
     "ErrorLog",
     "ErrorPattern",
     "FileAnalysis",
@@ -88,6 +104,8 @@ __all__ = [
     "LearningEntry",
     "Memory",
     "RoomMembership",
+    "ScrapeJob",
+    "ScrapeJobStatus",
     "ScrapedUrl",
     "SectionType",
     "SharedMemoryEntry",

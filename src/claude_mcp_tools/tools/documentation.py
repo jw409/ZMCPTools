@@ -64,14 +64,14 @@ async def scrape_documentation(
     allow_patterns: Annotated[
         str | list[str] | None,
         Field(
-            description="URL patterns to include during crawling (allowlist). Can be JSON array: [\"**/docs/**\", \"**/api/**\"]. If specified, only URLs matching these patterns will be crawled.",
+            description="URL patterns to include during crawling (allowlist). Supports both glob patterns and regex patterns. Glob patterns: * matches single level, ** matches multiple levels. Examples: '**/docs/**' (glob) matches any docs URL, '.*/api/.*' (regex) for advanced matching. Can be JSON array: [\"**/docs/**\", \"**/api/**\"].",
             default=None,
         ),
     ] = None,
     ignore_patterns: Annotated[
         str | list[str] | None,
         Field(
-            description="URL patterns to skip during crawling (blocklist). Can be JSON array: [\"**/blog/**\", \"**/community/**\"]. Applied after allow_patterns.",
+            description="URL patterns to skip during crawling (blocklist). Supports both glob patterns and regex patterns. Glob patterns: * matches single level, ** matches multiple levels. Examples: '**/blog/**' (glob) excludes blog URLs, '.*/community/.*' (regex) for advanced exclusion. Can be JSON array: [\"**/blog/**\", \"**/community/**\"]. Applied after allow_patterns.",
             default=None,
         ),
     ] = None,
@@ -111,6 +111,7 @@ async def scrape_documentation(
     ] = None,
 ) -> dict[str, Any]:
     """Scrape and index documentation from websites."""
+    logger.info("DEBUG: scrape_documentation function called", source_name=source_name, url=url)
     try:
         # Handle compatibility parameters
         if project_path and not source_name:
@@ -250,11 +251,23 @@ async def scrape_documentation(
             except Exception as ctx_error:
                 logger.warning("Context logging failed", error=str(ctx_error))
 
+            logger.info("DEBUG: About to call doc_service.scrape_documentation", source_id=source_id)
+            try:
+                await ctx.info("🔍 DEBUG: Calling scrape_documentation service...")
+            except Exception as ctx_error:
+                logger.warning("Context logging failed", error=str(ctx_error))
+            
             result = await doc_service.scrape_documentation(
                 source_id=source_id,
                 force_refresh=force_refresh,
                 ctx=ctx,
             )
+            
+            logger.info("DEBUG: doc_service.scrape_documentation completed", result=result)
+            try:
+                await ctx.info(f"🔍 DEBUG: Scrape service returned: {result}")
+            except Exception as ctx_error:
+                logger.warning("Context logging failed", error=str(ctx_error))
 
             try:
                 await ctx.report_progress(100, 100)
@@ -265,6 +278,12 @@ async def scrape_documentation(
                 try:
                     await ctx.info(f"🎉 Documentation scraping started! Source ID: {source_id}")
                     await ctx.info(f"📊 {source_name} is being scraped in the background")
+                except Exception as ctx_error:
+                    logger.warning("Context logging failed", error=str(ctx_error))
+                
+                logger.info("DEBUG: About to return success response", source_id=source_id)
+                try:
+                    await ctx.info("🔍 DEBUG: Preparing success response...")
                 except Exception as ctx_error:
                     logger.warning("Context logging failed", error=str(ctx_error))
                 
@@ -320,12 +339,15 @@ async def scrape_documentation(
         logger.error("Timeout error in scrape_documentation", source=source_name, url=url, error=str(e))
         return {"error": {"code": "TIMEOUT_ERROR", "message": f"Request timed out for {url}: {str(e)}"}}
     except Exception as e:
+        logger.error("DEBUG: Exception caught in scrape_documentation", error=str(e), exc_info=True)
         try:
             await ctx.error(f"💥 Critical error in documentation scraping: {str(e)}")
         except Exception as ctx_error:
             logger.warning("Context error logging failed", error=str(ctx_error))
         logger.error("Unexpected error in scrape_documentation", source=source_name, url=url, error=str(e), exc_info=True)
-        return {"error": {"code": "SCRAPE_DOCUMENTATION_FAILED", "message": f"Unexpected error: {str(e)}", "type": type(e).__name__}}
+        error_response = {"error": {"code": "SCRAPE_DOCUMENTATION_FAILED", "message": f"Unexpected error: {str(e)}", "type": type(e).__name__}}
+        logger.info("DEBUG: Returning error response", response=error_response)
+        return error_response
 
 
 @app.tool(tags={"documentation", "updates", "refresh", "maintenance"})
@@ -585,28 +607,56 @@ async def get_scraping_status(
 ) -> dict[str, Any]:
     """Check the status of documentation scraping for a source."""
     try:
+        from ..database import execute_query
+        from ..models import DocumentationSource
+        from sqlalchemy import select
+        
         doc_service = DocumentationService()
         await doc_service.initialize()
         
-        # Check if scraping is in progress
+        # Check if scraping is currently in progress
         is_running = doc_service.is_scraping_running(source_id)
         
+        # Get source information from database
+        async def _get_source_info(session):
+            stmt = select(DocumentationSource).where(DocumentationSource.id == source_id)
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
+        
+        source = await execute_query(_get_source_info)
+        
+        if not source:
+            return {
+                "success": False,
+                "source_id": source_id,
+                "status": "not_found",
+                "message": f"No documentation source found with ID: {source_id}",
+            }
+        
+        # If currently running, override database status
         if is_running:
             return {
                 "success": True,
                 "source_id": source_id,
-                "status": "scraping_in_progress",
+                "status": "in_progress",
                 "message": "Documentation scraping is currently running",
+                "source_name": source.name,
+                "url": source.url,
+                "last_scraped": source.last_scraped.isoformat() if source.last_scraped else None,
             }
-        else:
-            # Check if source exists and get last scraped info
-            # This would require a method to get source info
-            return {
-                "success": True,
-                "source_id": source_id,
-                "status": "completed_or_not_started",
-                "message": "No active scraping for this source",
-            }
+        
+        # Return actual database status
+        return {
+            "success": True,
+            "source_id": source_id,
+            "status": source.status.value,  # Use enum value
+            "message": f"Source status: {source.status.value}",
+            "source_name": source.name,
+            "url": source.url,
+            "last_scraped": source.last_scraped.isoformat() if source.last_scraped else None,
+            "created_at": source.created_at.isoformat(),
+            "updated_at": source.updated_at.isoformat(),
+        }
             
     except Exception as e:
         logger.error("Error checking scraping status", source_id=source_id, error=str(e))

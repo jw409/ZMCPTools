@@ -17,6 +17,8 @@ from urllib.parse import urljoin, urlparse
 import structlog
 from fake_useragent import UserAgent
 from patchright.sync_api import sync_playwright
+from ..database import get_session
+from ..models.documentation import ScrapedUrl
 
 logger = structlog.get_logger("web_scraper")
 
@@ -26,7 +28,7 @@ logger = structlog.get_logger("web_scraper")
 class SimpleBrowserManager:
     """Browser manager with anti-detection features using Patchright."""
 
-    def __init__(self, browser_type: str = "chrome", headless: bool = False):
+    def __init__(self, browser_type: str = "chrome", headless: bool = True):
         self.browser_type = browser_type
         self.headless = headless
         self.user_agent = UserAgent(os="Windows")
@@ -817,6 +819,44 @@ class DocumentationScraper(SimpleBrowserManager, NavigationMixin, InteractionMix
             return None
 
 
+    def _convert_pattern_to_regex(self, pattern: str) -> str:
+        """Convert glob pattern to regex pattern or return regex as-is.
+        
+        Auto-detects pattern type:
+        - Glob patterns: **/docs/**, /docs/*, *.html
+        - Regex patterns: .*/docs/.*, \\d+, [a-z]+
+        
+        Examples:
+        - '**/docs/**' → '.*/docs(/.*)?'  (matches /docs and /docs/anything)
+        - '/docs/**' → '/docs(/.*)?'  
+        - '*.html' → '[^/]*\\.html'
+        - '.*/docs/.*' → '.*/docs/.*' (already regex)
+        """
+        # Check if it's already a regex pattern (contains regex-specific chars)
+        regex_indicators = ['.*', '\\d', '\\w', '\\s', '[', ']', '{', '}', '(', ')', '|', '^', '$']
+        if any(indicator in pattern for indicator in regex_indicators):
+            return pattern  # Already a regex
+        
+        # Convert glob pattern to regex
+        regex_pattern = pattern
+        
+        # Escape regex special characters except * and ?
+        regex_pattern = re.escape(regex_pattern)
+        
+        # Convert glob wildcards back to regex
+        # Special handling for ** at end to make trailing path optional
+        if regex_pattern.endswith('\\*\\*'):
+            # **/docs/** → .*/docs(/.*)? (matches /docs and /docs/anything)
+            regex_pattern = regex_pattern[:-4] + '(/.*)?'
+        else:
+            # Regular ** in middle → .*
+            regex_pattern = regex_pattern.replace('\\*\\*', '.*')
+            
+        regex_pattern = regex_pattern.replace('\\*', '[^/]*')  # * matches any chars except /
+        regex_pattern = regex_pattern.replace('\\?', '.')      # ? matches single char
+        
+        return regex_pattern
+
     def _filter_internal_links(self, links: list[str], base_url: str) -> list[str]:
         """Filter links to only include internal ones."""
         base_domain = urlparse(base_url).netloc
@@ -849,24 +889,147 @@ class ThreadPoolDocumentationScraper:
         self.executor = ThreadPoolExecutor(max_workers=max_concurrent_browsers)
         self.active_jobs = {}  # Direct tracking without complex queues
         
+    def _convert_pattern_to_regex(self, pattern: str) -> str:
+        """Convert glob pattern to regex pattern or return regex as-is.
+        
+        Auto-detects pattern type:
+        - Glob patterns: **/docs/**, /docs/*, *.html
+        - Regex patterns: .*/docs/.*, \\d+, [a-z]+
+        
+        Examples:
+        - '**/docs/**' → '.*/docs(/.*)?'  (matches /docs and /docs/anything)
+        - '/docs/**' → '/docs(/.*)?'  
+        - '*.html' → '[^/]*\\.html'
+        - '.*/docs/.*' → '.*/docs/.*' (already regex)
+        """
+        # Check if it's already a regex pattern (contains regex-specific chars)
+        regex_indicators = ['.*', '\\d', '\\w', '\\s', '[', ']', '{', '}', '(', ')', '|', '^', '$']
+        if any(indicator in pattern for indicator in regex_indicators):
+            return pattern  # Already a regex
+        
+        # Convert glob pattern to regex
+        regex_pattern = pattern
+        
+        # Escape regex special characters except * and ?
+        regex_pattern = re.escape(regex_pattern)
+        
+        # Convert glob wildcards back to regex
+        # Special handling for ** at end to make trailing path optional
+        if regex_pattern.endswith('\\*\\*'):
+            # **/docs/** → .*/docs(/.*)? (matches /docs and /docs/anything)
+            regex_pattern = regex_pattern[:-4] + '(/.*)?'
+        else:
+            # Regular ** in middle → .*
+            regex_pattern = regex_pattern.replace('\\*\\*', '.*')
+            
+        regex_pattern = regex_pattern.replace('\\*', '[^/]*')  # * matches any chars except /
+        regex_pattern = regex_pattern.replace('\\?', '.')      # ? matches single char
+        
+        return regex_pattern
+    
+    async def _check_existing_urls(self, urls: list[str], source_id: str) -> set[str]:
+        """Check which URLs have already been scraped using database lookups.
+        
+        Args:
+            urls: List of URLs to check
+            source_id: Documentation source ID
+            
+        Returns:
+            Set of normalized URLs that already exist in database
+        """
+        if not urls:
+            return set()
+            
+        # Normalize all URLs first
+        normalized_urls = [ScrapedUrl.normalize_url(url) for url in urls]
+        
+        try:
+            async with get_session() as session:
+                from sqlalchemy import select
+                
+                # Query existing URLs in batch
+                stmt = select(ScrapedUrl.normalized_url).where(
+                    ScrapedUrl.normalized_url.in_(normalized_urls),
+                    ScrapedUrl.source_id == source_id
+                )
+                result = await session.execute(stmt)
+                existing_normalized = {row[0] for row in result.fetchall()}
+                
+                logger.info("🔍 Database URL check completed",
+                           total_urls=len(urls),
+                           existing_count=len(existing_normalized),
+                           new_count=len(normalized_urls) - len(existing_normalized))
+                
+                return existing_normalized
+                
+        except Exception as e:
+            logger.warning("Failed to check existing URLs, proceeding without deduplication", 
+                         error=str(e))
+            return set()
+    
+    async def _save_scraped_urls(self, scraped_data: list[dict], source_id: str) -> None:
+        """Save scraped URLs to database for deduplication.
+        
+        Args:
+            scraped_data: List of scraped entry data with URLs
+            source_id: Documentation source ID
+        """
+        if not scraped_data:
+            return
+            
+        try:
+            async with get_session() as session:
+                scraped_url_records = []
+                
+                for entry_data in scraped_data:
+                    url = entry_data.get("url")
+                    content_hash = entry_data.get("content_hash")
+                    
+                    if url:
+                        normalized_url = ScrapedUrl.normalize_url(url)
+                        
+                        # Create ScrapedUrl record
+                        scraped_url = ScrapedUrl(
+                            id=str(uuid.uuid4()),
+                            normalized_url=normalized_url,
+                            original_url=url,
+                            source_id=source_id,
+                            content_hash=content_hash,
+                            last_scraped=datetime.now(timezone.utc),
+                            scrape_count=1,
+                            last_status_code=200
+                        )
+                        scraped_url_records.append(scraped_url)
+                
+                # Batch insert
+                if scraped_url_records:
+                    session.add_all(scraped_url_records)
+                    await session.commit()
+                    
+                    logger.info("💾 Saved scraped URLs to database",
+                               count=len(scraped_url_records))
+                
+        except Exception as e:
+            logger.warning("Failed to save scraped URLs to database", error=str(e))
+        
     async def scrape_documentation(
         self,
         url: str,
         source_id: str,
         selectors: dict[str, str] | None = None,
         crawl_depth: int = 3,
-        max_pages: int = 100,
+        batch_size: int = 20,
         allow_patterns: list[str] | None = None,
         ignore_patterns: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Scrape documentation using ThreadPoolExecutor with isolated event loops.
+        """Scrape documentation using single-page navigation with unlimited link discovery.
         
         Args:
             url: Base URL to scrape
             source_id: Documentation source identifier
             selectors: CSS selectors for content extraction
             crawl_depth: Maximum depth for link crawling
-            max_pages: Maximum number of pages to scrape
+            batch_size: Number of URLs to process per batch
             allow_patterns: URL patterns to include (allowlist)
             ignore_patterns: URL patterns to skip (blocklist)
             
@@ -896,7 +1059,7 @@ class ThreadPoolDocumentationScraper:
                 source_id,
                 selectors,
                 crawl_depth,
-                max_pages,
+                batch_size,
                 allow_patterns,
                 ignore_patterns
             )
@@ -933,7 +1096,7 @@ class ThreadPoolDocumentationScraper:
         source_id: str,
         selectors: dict[str, str] | None,
         crawl_depth: int,
-        max_pages: int,
+        batch_size: int,
         allow_patterns: list[str] | None,
         ignore_patterns: list[str] | None,
     ) -> dict[str, Any]:
@@ -975,93 +1138,211 @@ class ThreadPoolDocumentationScraper:
                         user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
                     )
                     
-                    # Track URLs to scrape with depth
+                    # Single-page navigation with unlimited link discovery
                     urls_to_scrape = [(url, 0)]  # (url, depth)
                     pages_processed = 0
+                    all_scraped_entries = []
                     
-                    while urls_to_scrape and pages_processed < max_pages:
-                        current_url, depth = urls_to_scrape.pop(0)
-                        
-                        # Skip if already processed or depth exceeded
-                        if current_url in scraped_urls or current_url in failed_urls:
-                            continue
-                        if depth > crawl_depth:
-                            continue
-                            
-                        # Check URL patterns
-                        if allow_patterns and not any(re.search(pattern, current_url) for pattern in allow_patterns):
-                            logger.debug("Skipping URL - doesn't match allow patterns", 
-                                       url=current_url)
-                            continue
-                            
-                        if ignore_patterns and any(re.search(pattern, current_url) for pattern in ignore_patterns):
-                            logger.debug("Skipping URL - matches ignore patterns", 
-                                       url=current_url)
-                            continue
-                        
-                        try:
-                            # Create new page for this URL
-                            page = await context.new_page()
-                            
-                            # Navigate to URL with timeout
-                            logger.info("📄 Scraping page", url=current_url, depth=depth)
-                            await page.goto(current_url, wait_until="networkidle", timeout=30000)
-                            
-                            # Extract content using selectors or smart extraction
-                            content_data = await self._extract_page_content(page, selectors)
-                            
-                            # Generate entry
-                            entry = {
-                                "id": str(uuid.uuid4()),
-                                "url": current_url,
-                                "title": content_data.get("title", ""),
-                                "content": content_data.get("content", ""),
-                                "content_hash": hashlib.sha256(
-                                    content_data.get("content", "").encode()
-                                ).hexdigest(),
-                                "links": content_data.get("links", []),
-                                "code_examples": content_data.get("code_examples", []),
-                                "extracted_at": datetime.now(timezone.utc),
-                                "depth": depth
-                            }
-                            
-                            scraped_entries.append(entry)
-                            scraped_urls.add(current_url)
-                            pages_processed += 1
-                            
-                            # Update job progress
-                            if source_id in self.active_jobs:
-                                self.active_jobs[source_id]["pages_processed"] = pages_processed
-                            
-                            logger.info("✅ Successfully scraped page", 
-                                       url=current_url, title=entry["title"][:50])
-                            
-                            # Queue ALL discovered links for next depth level (no filtering)
-                            if depth < crawl_depth:
-                                discovered_links = content_data.get("links", [])
-                                for link in discovered_links:  # Process ALL links - no filtering
-                                    if link not in scraped_urls:
-                                        urls_to_scrape.append((link, depth + 1))
-                            
-                            await page.close()
-                            
-                        except Exception as page_error:
-                            logger.warning("❌ Failed to scrape page", 
-                                         url=current_url, error=str(page_error))
-                            failed_urls.add(current_url)
-                            if 'page' in locals():
-                                await page.close()
-                            continue
+                    # Add enhanced filtering to ignore patterns
+                    enhanced_ignore_patterns = ignore_patterns.copy() if ignore_patterns else []
                     
-                    return {
+                    # Add pattern to ignore versioned docs like /docs/v4.34/introduction
+                    enhanced_ignore_patterns.append(r"/docs/v\d+\.\d+/.*")
+                    
+                    # Add patterns to ignore external chat/social/non-doc links
+                    # Keep PDFs, GitHub repos, and images - they contain valuable content!
+                    external_link_patterns = [
+                        r"discord\.com.*",          # Discord links
+                        r"chat\..*",                # Chat services (like chat.antfu.me)
+                        r"github\.com/.*/(issues|discussions|pull)/.*",  # GitHub issues/discussions (not repos)
+                        r"twitter\.com.*",          # Twitter
+                        r"x\.com.*",                # X (Twitter)
+                        r"facebook\.com.*",         # Facebook
+                        r"linkedin\.com.*",         # LinkedIn
+                        r"youtube\.com.*",          # YouTube
+                        r"reddit\.com.*",           # Reddit
+                        r"stackoverflow\.com.*",    # StackOverflow
+                        r"mailto:.*",               # Email links
+                        r"tel:.*",                  # Phone links
+                        r".*\.exe$",                # Executable files (security risk)
+                        # Removed: PDFs (valuable docs), GitHub repos (source code), images (diagrams/docs)
+                    ]
+                    enhanced_ignore_patterns.extend(external_link_patterns)
+                    
+                    logger.info("🚀 Starting single-page navigation with unlimited link discovery", 
+                               initial_url=url, 
+                               allow_patterns=allow_patterns,
+                               ignore_patterns=enhanced_ignore_patterns,
+                               crawl_depth=crawl_depth)
+                    
+                    # Create single page for navigation
+                    page = await context.new_page()
+                    
+                    try:
+                        # Process URLs one by one using single page navigation
+                        while urls_to_scrape:
+                            current_url, depth = urls_to_scrape.pop(0)
+                            
+                            # Skip if already processed
+                            if current_url in scraped_urls or current_url in failed_urls:
+                                logger.debug("⏭️ Skipping URL - already processed this session", url=current_url)
+                                continue
+                                
+                            # Check database for existing URL
+                            normalized_url = ScrapedUrl.normalize_url(current_url)
+                            existing_urls = await self._check_existing_urls([current_url], source_id)
+                            if normalized_url in existing_urls:
+                                logger.debug("⏭️ Skipping URL - already in database", url=current_url)
+                                scraped_urls.add(current_url)  # Track to avoid re-checking
+                                continue
+                                
+                            # Skip if depth exceeded
+                            if depth > crawl_depth:
+                                logger.debug("⏭️ Skipping URL - depth exceeded", url=current_url, depth=depth, max_depth=crawl_depth)
+                                continue
+                                
+                            # Check allow patterns first (allowlist)
+                            if allow_patterns:
+                                converted_allow = [self._convert_pattern_to_regex(pattern) for pattern in allow_patterns]
+                                if not any(re.search(regex_pattern, current_url) for regex_pattern in converted_allow):
+                                    logger.debug("⏭️ Skipping URL - doesn't match allow patterns", url=current_url)
+                                    continue
+                                    
+                            # Check ignore patterns (including versioned URLs)
+                            if enhanced_ignore_patterns:
+                                converted_ignore = [self._convert_pattern_to_regex(pattern) for pattern in enhanced_ignore_patterns]
+                                if any(re.search(regex_pattern, current_url) for regex_pattern in converted_ignore):
+                                    logger.debug("⏭️ Skipping URL - matches ignore patterns", url=current_url)
+                                    continue
+                            
+                            try:
+                                # Navigate to URL using single page
+                                logger.info("🌐 Navigating to page", url=current_url, depth=depth, queue_remaining=len(urls_to_scrape))
+                                await page.goto(current_url, wait_until="networkidle", timeout=30000)
+                                
+                                # Extract content using enhanced extraction
+                                content_data = await self._extract_page_content(page, selectors)
+                                
+                                # Generate entry
+                                entry = {
+                                    "id": str(uuid.uuid4()),
+                                    "url": current_url,
+                                    "title": content_data.get("title", ""),
+                                    "content": content_data.get("content", ""),
+                                    "content_hash": hashlib.sha256(
+                                        content_data.get("content", "").encode()
+                                    ).hexdigest(),
+                                    "links": content_data.get("links", []),
+                                    "code_examples": content_data.get("code_examples", []),
+                                    "extracted_at": datetime.now(timezone.utc),
+                                    "depth": depth
+                                }
+                                
+                                all_scraped_entries.append(entry)
+                                scraped_urls.add(current_url)
+                                pages_processed += 1
+                                
+                                # Update job progress
+                                if source_id in self.active_jobs:
+                                    self.active_jobs[source_id]["pages_processed"] = pages_processed
+                                
+                                logger.info("✅ Successfully scraped page", 
+                                           url=current_url, 
+                                           title=entry["title"][:50],
+                                           pages_processed=pages_processed)
+                                
+                                # Add discovered links to queue for continued discovery
+                                if depth < crawl_depth:
+                                    discovered_links = content_data.get("links", [])
+                                    new_links_added = 0
+                                    
+                                    for link in discovered_links:
+                                        # Skip if already processed
+                                        if link in scraped_urls or link in failed_urls:
+                                            continue
+                                            
+                                        # Normalize URL for duplicate checking
+                                        normalized_link = ScrapedUrl.normalize_url(link)
+                                        
+                                        # Check if normalized URL already in queue
+                                        already_queued = any(
+                                            ScrapedUrl.normalize_url(queued_url) == normalized_link 
+                                            for queued_url, _ in urls_to_scrape
+                                        )
+                                        
+                                        if not already_queued:
+                                            # Check patterns before adding to queue
+                                            should_add = True
+                                            
+                                            # Check allow patterns
+                                            if allow_patterns:
+                                                converted_allow = [self._convert_pattern_to_regex(pattern) for pattern in allow_patterns]
+                                                if not any(re.search(regex_pattern, link) for regex_pattern in converted_allow):
+                                                    should_add = False
+                                            
+                                            # Check ignore patterns (including version filtering)
+                                            if enhanced_ignore_patterns and should_add:
+                                                converted_ignore = [self._convert_pattern_to_regex(pattern) for pattern in enhanced_ignore_patterns]
+                                                if any(re.search(regex_pattern, link) for regex_pattern in converted_ignore):
+                                                    should_add = False
+                                            
+                                            if should_add:
+                                                urls_to_scrape.append((link, depth + 1))
+                                                new_links_added += 1
+                                    
+                                    if new_links_added > 0:
+                                        logger.info("🔗 Added discovered links to queue",
+                                                   discovered=len(discovered_links),
+                                                   added=new_links_added,
+                                                   queue_size=len(urls_to_scrape))
+                                
+                                # Save entries periodically in batches
+                                if len(all_scraped_entries) % batch_size == 0:
+                                    batch_to_save = all_scraped_entries[-batch_size:]
+                                    await self._save_scraped_urls(batch_to_save, source_id)
+                                    logger.debug("💾 Saved batch to database", batch_size=len(batch_to_save))
+                                
+                            except Exception as page_error:
+                                logger.warning("❌ Failed to scrape page", 
+                                               url=current_url, error=str(page_error))
+                                failed_urls.add(current_url)
+                                continue
+                        
+                        # Save any remaining entries to database
+                        if all_scraped_entries:
+                            remaining_entries = all_scraped_entries[-(len(all_scraped_entries) % batch_size):]
+                            if remaining_entries:
+                                await self._save_scraped_urls(remaining_entries, source_id)
+                                logger.info("💾 Saved final batch to database", batch_size=len(remaining_entries))
+                    
+                    finally:
+                        await page.close()
+                    
+                    # Natural termination - no more unique URLs found
+                    logger.info("🎯 Single-page navigation completed - no more unique URLs", 
+                               pages_processed=pages_processed,
+                               total_entries=len(all_scraped_entries),
+                               failed_urls=len(failed_urls))
+                    
+                    result = {
                         "success": True,
                         "source_id": source_id,
                         "pages_scraped": pages_processed,
-                        "entries": scraped_entries,
+                        "entries": all_scraped_entries,
                         "scraped_urls": list(scraped_urls),
                         "failed_urls": list(failed_urls),
-                        "total_discovered": len(scraped_urls) + len(failed_urls)
+                        "total_discovered": len(scraped_urls) + len(failed_urls),
+                        "navigation_method": "single_page"
                     }
+                    
+                    logger.info("🎉 Single-page documentation scraping completed", 
+                               pages_scraped=pages_processed,
+                               total_entries=len(all_scraped_entries),
+                               scraped_urls_count=len(scraped_urls),
+                               failed_urls_count=len(failed_urls),
+                               source_id=source_id)
+                    
+                    return result
                     
                 finally:
                     # Ensure browser cleanup
@@ -1212,64 +1493,98 @@ class ThreadPoolDocumentationScraper:
             # Extract links using JavaScript evaluation to handle React/SPA apps
             content_data["links"] = []
             
-            # Get ALL link elements and extract ALL attributes comprehensively
-            all_links = await page.query_selector_all("a")
-            logger.info("🔗 Extracting links comprehensively", total_links=len(all_links))
+            # Batch process ALL links comprehensively in single evaluate call
+            logger.info("🔗 Starting batch link extraction...")
             
-            all_discovered_links = []
-            
-            for link in all_links:
-                try:
-                    # Extract ALL attributes from each link element
-                    attributes = await link.evaluate("""
-                        (element) => {
-                            const attrs = {};
-                            for (let i = 0; i < element.attributes.length; i++) {
-                                const attr = element.attributes[i];
-                                attrs[attr.name] = attr.value;
-                            }
-                            attrs.textContent = element.textContent?.trim() || '';
-                            return attrs;
+            try:
+                # Single batch operation to extract all link data with timeout
+                all_discovered_links = await asyncio.wait_for(
+                    page.evaluate("""
+                        () => {
+                            const allLinks = [];
+                            const linkElements = Array.from(document.querySelectorAll('a'));
+                            
+                            linkElements.forEach((element, index) => {
+                                try {
+                                    // Extract all attributes from this link element
+                                    const attrs = {};
+                                    for (let i = 0; i < element.attributes.length; i++) {
+                                        const attr = element.attributes[i];
+                                        attrs[attr.name] = attr.value;
+                                    }
+                                    attrs.textContent = element.textContent?.trim() || '';
+                                    
+                                    // Check ALL attributes for potential URLs
+                                    const potentialUrls = [];
+                                    
+                                    // Primary href
+                                    if (attrs.href) {
+                                        potentialUrls.push(attrs.href);
+                                    }
+                                    
+                                    // Data attributes that might contain URLs
+                                    Object.entries(attrs).forEach(([attrName, attrValue]) => {
+                                        if (attrValue && typeof attrValue === 'string') {
+                                            if (attrName.startsWith('data-') && 
+                                                (attrValue.includes('/') || attrValue.includes('http'))) {
+                                                potentialUrls.push(attrValue);
+                                            }
+                                        }
+                                    });
+                                    
+                                    // Process each potential URL
+                                    potentialUrls.forEach(url => {
+                                        if (url && url.trim()) {
+                                            // Convert relative URLs to absolute
+                                            let absoluteUrl;
+                                            if (url.startsWith('/')) {
+                                                absoluteUrl = new URL(url, window.location.origin).href;
+                                            } else if (url.startsWith('http')) {
+                                                absoluteUrl = url;
+                                            } else if (url.startsWith('#')) {
+                                                absoluteUrl = new URL(url, window.location.href).href;
+                                            }
+                                            
+                                            if (absoluteUrl) {
+                                                allLinks.push(absoluteUrl);
+                                            }
+                                        }
+                                    });
+                                    
+                                } catch (e) {
+                                    // Skip problematic link elements
+                                    console.log('Skipping link element due to error:', e);
+                                }
+                            });
+                            
+                            // Remove duplicates and return
+                            return [...new Set(allLinks)];
                         }
-                    """)
-                    
-                    # Check ALL attributes for potential URLs
-                    potential_urls = []
-                    
-                    # Primary href
-                    if attributes.get("href"):
-                        potential_urls.append(attributes["href"])
-                    
-                    # Data attributes that might contain URLs
-                    for attr_name, attr_value in attributes.items():
-                        if attr_value and isinstance(attr_value, str):
-                            # Look for URL-like patterns in any attribute
-                            if (attr_name.startswith('data-') and 
-                                ('/' in attr_value or 'http' in attr_value)):
-                                potential_urls.append(attr_value)
-                    
-                    # Add all discovered URLs
-                    for url in potential_urls:
-                        if url and url.strip():
-                            # Convert relative URLs to absolute
-                            if url.startswith('/'):
-                                absolute_url = urljoin(page.url, url)
-                                all_discovered_links.append(absolute_url)
-                            elif url.startswith('http'):
-                                all_discovered_links.append(url)
-                            elif url.startswith('#'):
-                                # Hash-based routing on same page
-                                absolute_url = urljoin(page.url, url)
-                                all_discovered_links.append(absolute_url)
+                    """), 
+                    timeout=30.0  # 30 second timeout for batch processing
+                )
                 
-                except Exception as e:
-                    # Skip this link if there's an error
-                    continue
-            
-            # Remove duplicates but keep ALL discovered links (no filtering)
-            content_data["links"] = list(set(all_discovered_links))
-            logger.info("🎯 Comprehensive link extraction complete", 
-                       total_discovered=len(content_data["links"]))
+                content_data["links"] = all_discovered_links
+                logger.info("🎯 Batch link extraction complete", 
+                           total_discovered=len(content_data["links"]))
+                
+            except asyncio.TimeoutError:
+                logger.warning("⏰ Batch link extraction timed out, falling back to simple method")
+                # Fallback to simple href extraction if batch times out
+                simple_links = await page.evaluate("""
+                    () => {
+                        return Array.from(document.querySelectorAll('a[href]'))
+                            .map(link => link.href)
+                            .filter(href => href && href.trim());
+                    }
+                """)
+                content_data["links"] = simple_links
+                logger.info("✅ Fallback link extraction complete", 
+                           total_discovered=len(content_data["links"]))
+                
+            except Exception as e:
+                logger.warning("❌ Link extraction failed, using empty list", error=str(e))
+                content_data["links"] = []
             
             # Extract code examples
             code_elements = await page.query_selector_all("code, pre, .highlight, .code")

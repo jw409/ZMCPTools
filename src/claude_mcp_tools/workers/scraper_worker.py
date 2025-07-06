@@ -1,17 +1,15 @@
-"""Independent scraper worker process using SQLite job queue."""
+"""Independent scraper worker process using database-backed job queue."""
 
 import asyncio
-import json
 import signal
 import sys
-import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import structlog
 import uvloop
-from litequeue import LiteQueue
 
 # Set up uvloop for performance
 uvloop.install()
@@ -20,31 +18,37 @@ logger = structlog.get_logger("scraper_worker")
 
 
 class ScraperWorker:
-    """Independent worker process for documentation scraping with smart browser management."""
+    """Independent worker process for documentation scraping with database-backed coordination."""
 
-    def __init__(self, queue_db_path: str | Path, data_dir: str | Path | None = None):
+    def __init__(self, data_dir: str | Path | None = None, worker_id: str | None = None):
         """Initialize scraper worker.
         
         Args:
-            queue_db_path: Path to SQLite database for job queue
             data_dir: Data directory for worker state and browser data
+            worker_id: Unique worker identifier (auto-generated if not provided)
         """
-        self.queue_db_path = Path(queue_db_path)
         self.data_dir = Path(data_dir) if data_dir else Path.home() / ".mcptools" / "workers"
         self.data_dir.mkdir(parents=True, exist_ok=True)
         
-        # Job queue for scraping tasks
-        self.job_queue = LiteQueue(str(self.queue_db_path), queue_name="scraping_jobs")
+        # Worker identification
+        self.worker_id = worker_id or f"worker-{uuid.uuid4().hex[:8]}"
+        
+        # Initialize job service for database-backed queue
+        from ..services.scrape_job_service import ScrapeJobService
+        self.job_service = ScrapeJobService(worker_id=self.worker_id)
         
         # Browser management
         self.browser_manager = None
         self.last_job_time = None
         self.browser_idle_timeout = 300  # 5 minutes
-        self.poll_interval = 2  # seconds
+        self.poll_interval = 5  # seconds - increased for database polling
+        self.heartbeat_interval = 30  # seconds
         
         # Worker state
         self.running = False
         self.current_job = None
+        self.current_job_id = None
+        self.heartbeat_task = None
         
         # Setup signal handlers for graceful shutdown (only in main thread)
         try:
@@ -63,10 +67,13 @@ class ScraperWorker:
     async def start(self):
         """Start the worker process."""
         logger.info("Starting scraper worker", 
-                   queue_path=str(self.queue_db_path),
+                   worker_id=self.worker_id,
                    data_dir=str(self.data_dir))
         
         self.running = True
+        
+        # Register worker and cleanup any orphaned locks from previous runs
+        await self._register_worker()
         
         try:
             await self._main_loop()
@@ -81,13 +88,16 @@ class ScraperWorker:
         while self.running:
             try:
                 # Check for new jobs
-                job_data = self._get_next_job()
+                job_data = await self._get_next_job()
                 
                 if job_data:
                     await self._process_job(job_data)
                 else:
                     # No jobs - check if browser should be closed
                     await self._manage_browser_lifecycle()
+                    
+                    # Cleanup expired locks periodically
+                    await self._cleanup_expired_locks()
                     
                     # Sleep before polling again
                     await asyncio.sleep(self.poll_interval)
@@ -96,21 +106,27 @@ class ScraperWorker:
                 logger.error("Error in main loop", error=str(e))
                 await asyncio.sleep(5)  # Wait before retrying
 
-    def _get_next_job(self) -> dict | None:
-        """Get the next scraping job from the queue."""
+    async def _get_next_job(self) -> dict | None:
+        """Get the next scraping job from the database queue."""
         try:
-            task = self.job_queue.pop()
-            if task:
-                logger.info("Got scraping job", message_id=task.message_id)
-                self.current_job = task
+            job_data = await self.job_service.acquire_next_job(self.worker_id)
+            
+            if job_data:
+                logger.info("Acquired scraping job", 
+                           job_id=job_data['job_id'],
+                           source_id=job_data['source_id'])
+                
+                self.current_job = job_data
+                self.current_job_id = job_data['job_id']
                 self.last_job_time = datetime.now(timezone.utc)
                 
-                # Parse job data
-                job_data = json.loads(task.message)
-                job_data['message_id'] = task.message_id
+                # Start heartbeat task to keep job lock alive
+                await self._start_heartbeat()
+                
                 return job_data
+                
         except Exception as e:
-            logger.error("Failed to get job from queue", error=str(e))
+            logger.error("Failed to acquire job from queue", error=str(e))
         
         return None
 
@@ -127,23 +143,25 @@ class ScraperWorker:
                    source_id=job_data.get('source_id', 'unknown'),
                    url=job_data.get('url', 'unknown'))
         
-        # Add message_id if not present (for compatibility with thread interface)
-        if 'message_id' not in job_data:
+        # Add job_id if not present (for compatibility with thread interface)
+        if 'job_id' not in job_data:
             import time
-            job_data['message_id'] = f"thread-job-{int(time.time())}"
+            job_data['job_id'] = f"thread-job-{int(time.time())}"
             
         # Call the internal processing method
         await self._process_job(job_data)
 
     async def _process_job(self, job_data: dict):
         """Process a scraping job."""
-        message_id = job_data['message_id']
+        job_id = job_data['job_id']
         source_id = job_data.get('source_id')
+        job_params = job_data.get('job_data', {})
         
         try:
             logger.info("Processing scraping job", 
+                       job_id=job_id,
                        source_id=source_id, 
-                       url=job_data.get('url'))
+                       url=job_params.get('source_url'))
             
             # Ensure browser is running
             await self._ensure_browser_running()
@@ -159,38 +177,65 @@ class ScraperWorker:
             # Execute scraping
             result = await scraper.scrape_documentation_source(
                 ctx=None,  # No context in worker mode
-                base_url=job_data['url'],
-                crawl_depth=job_data.get('crawl_depth', 3),
-                selectors=job_data.get('selectors'),
-                allow_patterns=job_data.get('allow_patterns'),
-                ignore_patterns=job_data.get('ignore_patterns'),
+                base_url=job_params.get('source_url'),
+                crawl_depth=job_params.get('crawl_depth', 3),
+                selectors=job_params.get('selectors'),
+                allow_patterns=job_params.get('allow_patterns'),
+                ignore_patterns=job_params.get('ignore_patterns'),
             )
             
             if result.get('success'):
                 # Store results in database
                 await self._store_scraping_results(source_id, result)
+                
+                # Mark job as completed
+                completion_result = await self.job_service.complete_job(
+                    job_id, 
+                    {
+                        'pages_scraped': result.get('entries_scraped', 0),
+                        'success': True,
+                        'scraped_urls': result.get('scraped_urls', []),
+                        'entries': len(result.get('entries', [])),
+                    },
+                    self.worker_id
+                )
+                
                 logger.info("Scraping job completed successfully", 
+                           job_id=job_id,
                            source_id=source_id,
-                           entries_scraped=result.get('entries_scraped', 0))
+                           entries_scraped=result.get('entries_scraped', 0),
+                           completion_success=completion_result.get('success', False))
             else:
+                # Mark job as failed
+                error_msg = result.get('error', 'Unknown scraping error')
+                await self.job_service.fail_job(job_id, error_msg, self.worker_id)
+                
                 logger.error("Scraping job failed", 
+                           job_id=job_id,
                            source_id=source_id, 
-                           error=result.get('error'))
-            
-            # Mark job as done
-            self.job_queue.done(message_id)
+                           error=error_msg)
             
         except Exception as e:
+            error_msg = f"Worker exception: {str(e)}"
             logger.error("Failed to process scraping job", 
+                        job_id=job_id,
                         source_id=source_id, 
-                        error=str(e))
+                        error=error_msg)
             
-            # Mark job as done even on failure to prevent infinite retry
-            # TODO: Add retry logic with exponential backoff
-            self.job_queue.done(message_id)
+            # Mark job as failed
+            try:
+                await self.job_service.fail_job(job_id, error_msg, self.worker_id)
+            except Exception as fail_error:
+                logger.error("Failed to mark job as failed", 
+                           job_id=job_id, 
+                           error=str(fail_error))
         
         finally:
+            # Stop heartbeat
+            await self._stop_heartbeat()
+            
             self.current_job = None
+            self.current_job_id = None
 
     async def _ensure_browser_running(self):
         """Ensure browser manager is initialized and running."""
@@ -297,12 +342,24 @@ class ScraperWorker:
 
     async def _cleanup(self):
         """Clean up resources on shutdown."""
-        logger.info("Cleaning up scraper worker")
+        logger.info("Cleaning up scraper worker", worker_id=self.worker_id)
         
-        # Finish current job if any
-        if self.current_job:
-            logger.info("Waiting for current job to finish")
-            # Job will complete naturally in the main loop
+        # Stop heartbeat if running
+        await self._stop_heartbeat()
+        
+        # Release current job lock if any
+        if self.current_job_id:
+            try:
+                logger.info("Releasing job lock on shutdown", job_id=self.current_job_id)
+                await self.job_service.fail_job(
+                    self.current_job_id, 
+                    "Worker shutdown - job released", 
+                    self.worker_id
+                )
+            except Exception as e:
+                logger.warning("Failed to release job lock on shutdown", 
+                             job_id=self.current_job_id, 
+                             error=str(e))
         
         # Close browser
         if self.browser_manager:
@@ -311,24 +368,113 @@ class ScraperWorker:
             except Exception as e:
                 logger.warning("Error during browser cleanup", error=str(e))
         
-        logger.info("Scraper worker cleanup complete")
+        logger.info("Scraper worker cleanup complete", worker_id=self.worker_id)
+
+    async def _register_worker(self):
+        """Register worker and cleanup any orphaned locks from previous runs."""
+        try:
+            # Release any expired locks from this worker ID
+            # (in case of unclean shutdown)
+            result = await self.job_service.release_expired_locks(max_age_minutes=0)
+            if result.get('success') and result.get('released_count', 0) > 0:
+                logger.info("Released orphaned locks from previous run",
+                           worker_id=self.worker_id,
+                           released_count=result['released_count'])
+                           
+            logger.info("Worker registered successfully", worker_id=self.worker_id)
+            
+        except Exception as e:
+            logger.warning("Failed to register worker", 
+                         worker_id=self.worker_id, 
+                         error=str(e))
+
+    async def _start_heartbeat(self):
+        """Start heartbeat task to keep current job lock alive."""
+        if self.heartbeat_task:
+            await self._stop_heartbeat()
+            
+        self.heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+
+    async def _stop_heartbeat(self):
+        """Stop heartbeat task."""
+        if self.heartbeat_task:
+            self.heartbeat_task.cancel()
+            try:
+                await self.heartbeat_task
+            except asyncio.CancelledError:
+                pass
+            self.heartbeat_task = None
+
+    async def _heartbeat_loop(self):
+        """Background task to send periodic heartbeats for current job."""
+        try:
+            while self.current_job_id and self.running:
+                await asyncio.sleep(self.heartbeat_interval)
+                
+                if self.current_job_id:  # Check again after sleep
+                    try:
+                        result = await self.job_service.heartbeat_job(
+                            self.current_job_id, 
+                            self.worker_id
+                        )
+                        
+                        if result.get('success'):
+                            logger.debug("Heartbeat sent successfully", 
+                                       job_id=self.current_job_id,
+                                       worker_id=self.worker_id)
+                        else:
+                            logger.warning("Heartbeat failed", 
+                                         job_id=self.current_job_id,
+                                         error=result.get('error'))
+                            break  # Stop heartbeat on failure
+                            
+                    except Exception as e:
+                        logger.error("Error sending heartbeat", 
+                                   job_id=self.current_job_id,
+                                   error=str(e))
+                        break
+                        
+        except asyncio.CancelledError:
+            logger.debug("Heartbeat task cancelled", 
+                       job_id=self.current_job_id,
+                       worker_id=self.worker_id)
+        except Exception as e:
+            logger.error("Heartbeat loop failed", 
+                       job_id=self.current_job_id,
+                       error=str(e))
+
+    async def _cleanup_expired_locks(self):
+        """Periodically cleanup expired locks from all workers."""
+        try:
+            # Only do this occasionally to avoid excessive database calls
+            if hasattr(self, '_last_cleanup'):
+                if (datetime.now(timezone.utc) - self._last_cleanup).total_seconds() < 300:
+                    return  # Skip if cleaned up less than 5 minutes ago
+            
+            result = await self.job_service.release_expired_locks(max_age_minutes=60)
+            if result.get('success') and result.get('released_count', 0) > 0:
+                logger.info("Released expired locks from all workers",
+                           released_count=result['released_count'])
+                           
+            self._last_cleanup = datetime.now(timezone.utc)
+            
+        except Exception as e:
+            logger.warning("Failed to cleanup expired locks", error=str(e))
 
 
 async def main():
     """Main entry point for the scraper worker."""
     import sys
     
-    # Get queue database path from command line or use default
+    # Get worker ID from command line if provided
+    worker_id = None
     if len(sys.argv) > 1:
-        queue_db_path = sys.argv[1]
-    else:
-        # Default to the main database path
-        queue_db_path = Path.home() / ".mcptools" / "data" / "orchestration.db"
+        worker_id = sys.argv[1]
     
-    logger.info("Starting scraper worker process", queue_db_path=queue_db_path)
+    logger.info("Starting scraper worker process", worker_id=worker_id)
     
     try:
-        worker = ScraperWorker(queue_db_path)
+        worker = ScraperWorker(worker_id=worker_id)
         await worker.start()
     except KeyboardInterrupt:
         logger.info("Worker interrupted by user")

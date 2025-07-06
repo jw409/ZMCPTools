@@ -250,6 +250,9 @@ def test_claude_command(
         
         # Read output in real-time
         while True:
+            if not process.stdout:
+                yield "No stdout available from process"
+                break
             output = process.stdout.readline()
             if output == '' and process.poll() is not None:
                 break
@@ -258,6 +261,9 @@ def test_claude_command(
         
         # Check for errors
         if process.returncode != 0:
+            if not process.stderr:
+                yield "No stderr available from process"
+                return
             stderr_output = process.stderr.read()
             if stderr_output:
                 yield f"ERROR: {stderr_output}"
@@ -349,9 +355,9 @@ def monitor_agent_output(process: subprocess.Popen, log_file_path: str | None = 
     """Monitor agent output in real-time with optional logging to file."""
     import structlog
     logger = structlog.get_logger("claude_spawner")
+    log_file = None
     
     try:
-        log_file = None
         if log_file_path:
             try:
                 log_file = open(log_file_path, 'w')
@@ -376,6 +382,10 @@ def monitor_agent_output(process: subprocess.Popen, log_file_path: str | None = 
                     except Exception:
                         pass
                 yield f"MONITOR_TIMEOUT: Process monitoring timed out after {timeout}s"
+                break
+            
+            if not process.stdout:
+                yield "No stdout available from process"
                 break
             
             output = process.stdout.readline()
@@ -404,6 +414,9 @@ def monitor_agent_output(process: subprocess.Popen, log_file_path: str | None = 
         
         # Check for errors
         if process.returncode != 0:
+            if not process.stderr:
+                yield "No stderr available from process"
+                return
             stderr_output = process.stderr.read()
             if stderr_output:
                 error_msg = f"ERROR: {stderr_output}"

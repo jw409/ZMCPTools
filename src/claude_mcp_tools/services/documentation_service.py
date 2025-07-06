@@ -19,6 +19,7 @@ from ..models import (
     DocumentationEmbedding,
     DocumentationEntry,
     DocumentationSource,
+    DocumentationStatus,
     SectionType,
     SourceType,
     UpdateFrequency,
@@ -26,6 +27,7 @@ from ..models import (
 from .vector_service import get_vector_service
 from .web_scraper import DocumentationScraper, thread_pool_scraper
 from .domain_browser_manager import domain_manager
+from .scrape_job_service import ScrapeJobService
 
 logger = structlog.get_logger()
 
@@ -56,6 +58,7 @@ class DocumentationService:
         self._vector_service = None
         self._running_scrapers: dict[str, dict] = {}  # Track scraping jobs by source_id
         self._web_scraper: DocumentationScraper | None = None
+        self._scrape_job_service: ScrapeJobService | None = None
 
     async def initialize(self) -> None:
         """Initialize documentation service components."""
@@ -65,6 +68,9 @@ class DocumentationService:
 
             # Initialize domain browser manager with our base data directory
             domain_manager.set_base_data_dir(self.docs_path)
+            
+            # Initialize scrape job service
+            self._scrape_job_service = ScrapeJobService()
 
             logger.info("Documentation service initialized",
                        docs_path=str(self.docs_path))
@@ -137,7 +143,7 @@ class DocumentationService:
                     source_type=SourceType(source_type),
                     crawl_depth=crawl_depth,
                     update_frequency=UpdateFrequency(update_frequency),
-                    status="active",
+                    status=DocumentationStatus.NOT_STARTED,
                 )
 
                 # Set selectors and pattern filters
@@ -264,15 +270,25 @@ class DocumentationService:
         progress_callback = None,
         agent_id: str = None,
     ) -> dict[str, Any]:
-        """Scrape documentation from a configured source.
+        """Queue documentation scraping job using the background job service.
         
         Args:
             source_id: ID of the documentation source
             force_refresh: Force refresh even if recently scraped
+            ctx: Context for progress reporting (optional)
+            progress_callback: Callback for progress updates (optional)
+            agent_id: Agent ID for tracking (optional)
             
         Returns:
-            Scraping result with statistics
+            Job queueing result with job_id and status
         """
+        if not self._scrape_job_service:
+            # Fallback to legacy behavior if job service not initialized
+            logger.warning("ScrapeJobService not initialized, falling back to direct execution")
+            return await self._scrape_documentation_direct(
+                source_id, force_refresh, ctx, progress_callback, agent_id
+            )
+        
         async def _get_source_for_scraping(session: AsyncSession):
             stmt = select(DocumentationSource).where(DocumentationSource.id == source_id)
             result = await session.execute(stmt)
@@ -286,6 +302,16 @@ class DocumentationService:
                 "error": f"Source {source_id} not found",
             }
 
+        # Check if scraping is currently running
+        if await self.is_scraping_running(source_id):
+            return {
+                "success": True,
+                "skipped": True,
+                "reason": "Scraping already in progress",
+                "source_id": source_id,
+                "message": f"Scraping is already running for {source_data.name}",
+            }
+
         # Check if scraping is needed
         if not force_refresh and source_data.last_scraped:
             time_since_scrape = datetime.now(timezone.utc) - source_data.last_scraped
@@ -297,179 +323,62 @@ class DocumentationService:
                     "last_scraped": source_data.last_scraped.isoformat(),
                 }
 
-        # Check if domain is already being scraped
-        if domain_manager.is_domain_busy(source_data.url):
-            domain_status = domain_manager.get_domain_status()
-            
-            # Extract domain safely
-            from urllib.parse import urlparse
-            try:
-                parsed = urlparse(source_data.url)
-                domain = parsed.netloc.lower().replace(".", "_").replace(":", "_")
-            except Exception:
-                domain = "unknown_domain"
-            
-            # Find which sources are currently using this domain
-            active_sources = domain_status.get(domain, {}).get("active_sources", [])
+        # Prepare job parameters
+        job_params = {
+            "force_refresh": force_refresh,
+            "selectors": source_data.get_selectors(),
+            "crawl_depth": source_data.crawl_depth,
+            "allow_patterns": source_data.get_allow_patterns(),
+            "ignore_patterns": source_data.get_ignore_patterns(),
+            "agent_id": agent_id,
+            "source_url": source_data.url,
+            "source_name": source_data.name,
+        }
+        
+        # Queue the scraping job
+        job_result = await self._scrape_job_service.queue_scrape_job(
+            source_id=source_id,
+            job_params=job_params,
+            priority=5  # Default priority
+        )
+        
+        if job_result.get("success"):
+            logger.info("Documentation scraping job queued", 
+                       source_id=source_id, 
+                       job_id=job_result.get("job_id"))
             
             return {
                 "success": True,
-                "domain_busy": True,
-                "reason": "Domain already being scraped",
-                "domain": domain,
-                "active_sources": active_sources,
-                "message": f"Domain {domain} is already being scraped by sources: {', '.join(active_sources)}",
-                "suggestion": f"Check status of existing scraping jobs: {', '.join(active_sources)}",
+                "job_id": job_result.get("job_id"),
+                "source_id": source_id,
+                "status": "queued",
+                "message": f"Scraping job queued for {source_data.name}",
+                "queued_at": job_result.get("created_at"),
+                "using_job_queue": True,
             }
-
-        # Mark domain as busy to prevent concurrent scraping
-        domain_manager.mark_domain_busy(source_data.url, source_id)
-        
-        # Update source status to in_progress
-        async def _update_source_status(session: AsyncSession):
-            stmt = (
-                update(DocumentationSource)
-                .where(DocumentationSource.id == source_id)
-                .values(
-                    status="in_progress",
-                    last_scraped=datetime.now(timezone.utc)
-                )
-            )
-            await session.execute(stmt)
-            await session.commit()
-        
-        await execute_query(_update_source_status)
-        
-        # Use ThreadPoolExecutor for scraping (no complex job queues!)
-        try:
-            logger.info("🚀 Starting ThreadPool documentation scraping", 
-                       source_id=source_id, url=source_data.url)
-            
-            # Track the job for this source
-            self._running_scrapers[source_id] = {
-                "type": "threadpool_job",
-                "started_at": datetime.now(timezone.utc),
-                "url": source_data.url,
-                "status": "in_progress"
-            }
-            
-            # Run scraping using ThreadPoolExecutor with isolated event loops
-            scraping_result = await thread_pool_scraper.scrape_documentation(
-                url=source_data.url,
-                source_id=source_id,
-                selectors=source_data.get_selectors(),
-                crawl_depth=source_data.crawl_depth,
-                max_pages=20,  # Reasonable default limit
-                allow_patterns=source_data.get_allow_patterns(),
-                ignore_patterns=source_data.get_ignore_patterns(),
-            )
-            
-            # Process and save the scraped results
-            if scraping_result.get("success"):
-                await self._store_scraped_entries(
-                    source_id=source_id,
-                    entries_data=scraping_result.get("entries", [])
-                )
-                
-                # Update source status to completed
-                async def _complete_source_status(session: AsyncSession):
-                    stmt = (
-                        update(DocumentationSource)
-                        .where(DocumentationSource.id == source_id)
-                        .values(
-                            status="completed",
-                            last_scraped=datetime.now(timezone.utc)
-                        )
-                    )
-                    await session.execute(stmt)
-                    await session.commit()
-                
-                await execute_query(_complete_source_status)
-                
-                # Update tracking
-                self._running_scrapers[source_id]["status"] = "completed"
-                self._running_scrapers[source_id]["completed_at"] = datetime.now(timezone.utc)
-                self._running_scrapers[source_id]["pages_scraped"] = scraping_result.get("pages_scraped", 0)
-                
-                logger.info("✅ ThreadPool documentation scraping completed successfully", 
-                           source_id=source_id, pages=scraping_result.get("pages_scraped", 0))
+        else:
+            # Handle existing job or queue failure
+            existing_job_id = job_result.get("existing_job_id")
+            if existing_job_id:
+                logger.info("Existing scraping job found", 
+                           source_id=source_id, 
+                           existing_job_id=existing_job_id)
                 
                 return {
                     "success": True,
-                    "message": f"Documentation scraping completed successfully for {source_data.name}",
+                    "job_id": existing_job_id,
                     "source_id": source_id,
-                    "scraping_in_progress": False,
-                    "pages_scraped": scraping_result.get("pages_scraped", 0),
-                    "entries_saved": len(scraping_result.get("entries", [])),
-                    "scraped_urls": scraping_result.get("scraped_urls", []),
-                    "failed_urls": scraping_result.get("failed_urls", []),
+                    "status": job_result.get("existing_status", "unknown"),
+                    "message": f"Scraping job already exists for {source_data.name}",
+                    "existing_job": True,
+                    "using_job_queue": True,
                 }
             else:
-                # Handle scraping failure
-                error_message = scraping_result.get("error", "Unknown scraping error")
-                
-                # Update source status to failed
-                async def _fail_source_status(session: AsyncSession):
-                    stmt = (
-                        update(DocumentationSource)
-                        .where(DocumentationSource.id == source_id)
-                        .values(status="failed")
-                    )
-                    await session.execute(stmt)
-                    await session.commit()
-                
-                await execute_query(_fail_source_status)
-                
-                # Update tracking
-                self._running_scrapers[source_id]["status"] = "failed"
-                self._running_scrapers[source_id]["error"] = error_message
-                self._running_scrapers[source_id]["failed_at"] = datetime.now(timezone.utc)
-                
-                logger.error("❌ ThreadPool documentation scraping failed", 
-                           source_id=source_id, error=error_message)
-                
                 return {
                     "success": False,
-                    "error": f"Scraping failed: {error_message}",
+                    "error": job_result.get("error", "Failed to queue scraping job"),
                     "source_id": source_id,
                 }
-            
-        except Exception as e:
-            # Handle unexpected errors
-            logger.error("❌ Unexpected error during ThreadPool scraping", 
-                        source_id=source_id, error=str(e))
-            
-            # Update source status to failed
-            try:
-                async def _error_source_status(session: AsyncSession):
-                    stmt = (
-                        update(DocumentationSource)
-                        .where(DocumentationSource.id == source_id)
-                        .values(status="failed")
-                    )
-                    await session.execute(stmt)
-                    await session.commit()
-                
-                await execute_query(_error_source_status)
-            except Exception as db_error:
-                logger.error("Failed to update source status after error", 
-                           source_id=source_id, db_error=str(db_error))
-            
-            # Update tracking
-            if source_id in self._running_scrapers:
-                self._running_scrapers[source_id]["status"] = "failed"
-                self._running_scrapers[source_id]["error"] = str(e)
-                self._running_scrapers[source_id]["failed_at"] = datetime.now(timezone.utc)
-            
-            return {
-                "success": False,
-                "error": f"Scraping execution failed: {str(e)}",
-                "source_id": source_id,
-            }
-        
-        finally:
-            # Always release domain lock
-            domain_manager.release_domain(source_data.url, source_id)
 
     async def search_documentation(
         self,
@@ -682,7 +591,13 @@ class DocumentationService:
             elif source_name:
                 stmt = select(DocumentationSource).where(DocumentationSource.name == source_name)
             else:
-                stmt = select(DocumentationSource).where(DocumentationSource.status == "active")
+                stmt = select(DocumentationSource).where(
+                    DocumentationSource.status.in_([
+                        DocumentationStatus.NOT_STARTED, 
+                        DocumentationStatus.COMPLETED,
+                        DocumentationStatus.STALE
+                    ])
+                )
 
             result = await session.execute(stmt)
             sources = result.scalars().all()
@@ -917,6 +832,151 @@ class DocumentationService:
 
         return await execute_query(_link_docs_to_code)
 
+    async def get_scrape_job_status(self, job_id: str) -> dict[str, Any] | None:
+        """Get status of a specific scrape job.
+        
+        Args:
+            job_id: Job ID to check status for
+            
+        Returns:
+            Job status details or None if not found
+        """
+        if not self._scrape_job_service:
+            return None
+            
+        return await self._scrape_job_service.get_job_status(job_id)
+
+    async def list_scrape_jobs(
+        self,
+        source_id: str | None = None,
+        status_filter: list[str] | None = None,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """List scrape jobs with optional filtering.
+        
+        Args:
+            source_id: Filter by source ID (optional)
+            status_filter: Filter by job status (optional)
+            limit: Maximum number of jobs to return
+            
+        Returns:
+            List of jobs with metadata
+        """
+        if not self._scrape_job_service:
+            return {
+                "success": False,
+                "error": "ScrapeJobService not initialized",
+            }
+        
+        try:
+            # Convert string status filter to enum if provided
+            enum_status_filter = None
+            if status_filter:
+                from ..models import ScrapeJobStatus
+                enum_status_filter = []
+                for status_str in status_filter:
+                    try:
+                        enum_status_filter.append(ScrapeJobStatus(status_str.upper()))
+                    except ValueError:
+                        logger.warning(f"Invalid status filter: {status_str}")
+            
+            result = await self._scrape_job_service.list_jobs(
+                status_filter=enum_status_filter,
+                limit=limit
+            )
+            
+            # Filter by source_id if provided
+            if source_id and result.get("success"):
+                filtered_jobs = [
+                    job for job in result.get("jobs", [])
+                    if job.get("source_id") == source_id
+                ]
+                result["jobs"] = filtered_jobs
+                result["total_returned"] = len(filtered_jobs)
+                result["filtered_by_source"] = source_id
+            
+            return result
+            
+        except Exception as e:
+            logger.error("Failed to list scrape jobs", error=str(e))
+            return {
+                "success": False,
+                "error": str(e),
+            }
+
+    async def get_scraping_status(self, source_id: str | None = None) -> dict[str, Any]:
+        """Get comprehensive scraping status for sources.
+        
+        Args:
+            source_id: Check specific source (all sources if None)
+            
+        Returns:
+            Scraping status with job queue information
+        """
+        if not self._scrape_job_service:
+            return {
+                "success": False,
+                "error": "ScrapeJobService not initialized",
+            }
+        
+        try:
+            # Get all jobs if no specific source requested
+            status_result = {
+                "success": True,
+                "source_id": source_id,
+                "legacy_scrapers": {},
+                "queued_jobs": [],
+                "active_jobs": [],
+                "completed_jobs": [],
+                "failed_jobs": [],
+            }
+            
+            # Check legacy scraper tracking
+            if source_id:
+                if source_id in self._running_scrapers:
+                    status_result["legacy_scrapers"][source_id] = self._running_scrapers[source_id]
+            else:
+                status_result["legacy_scrapers"] = dict(self._running_scrapers)
+            
+            # Get job queue status
+            jobs_result = await self._scrape_job_service.list_jobs(limit=100)
+            if jobs_result.get("success"):
+                for job in jobs_result.get("jobs", []):
+                    job_source_id = job.get("source_id")
+                    
+                    # Filter by source_id if specified
+                    if source_id and job_source_id != source_id:
+                        continue
+                    
+                    job_status = job.get("status")
+                    if job_status == "pending":
+                        status_result["queued_jobs"].append(job)
+                    elif job_status == "in_progress":
+                        status_result["active_jobs"].append(job)
+                    elif job_status == "completed":
+                        status_result["completed_jobs"].append(job)
+                    elif job_status == "failed":
+                        status_result["failed_jobs"].append(job)
+            
+            # Add summary counts
+            status_result["summary"] = {
+                "total_legacy_scrapers": len(status_result["legacy_scrapers"]),
+                "total_queued": len(status_result["queued_jobs"]),
+                "total_active": len(status_result["active_jobs"]),
+                "total_completed": len(status_result["completed_jobs"]),
+                "total_failed": len(status_result["failed_jobs"]),
+                "has_active_work": len(status_result["active_jobs"]) > 0 or len(status_result["legacy_scrapers"]) > 0,
+            }
+            
+            return status_result
+            
+        except Exception as e:
+            logger.error("Failed to get scraping status", source_id=source_id, error=str(e))
+            return {
+                "success": False,
+                "error": str(e),
+            }
+
     @staticmethod
     async def get_documentation_stats() -> dict[str, Any]:
         """Get comprehensive documentation statistics.
@@ -978,6 +1038,206 @@ class DocumentationService:
 
         return await self._vector_service.create_embeddings_for_entry(entry_id)
 
+    async def _scrape_documentation_direct(
+        self,
+        source_id: str,
+        force_refresh: bool = False,
+        ctx = None,
+        progress_callback = None,
+        agent_id: str = None,
+    ) -> dict[str, Any]:
+        """Direct scraping execution (legacy fallback when job service not available).
+        
+        This method preserves the original ThreadPool-based scraping behavior.
+        """
+        async def _get_source_for_scraping(session: AsyncSession):
+            stmt = select(DocumentationSource).where(DocumentationSource.id == source_id)
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
+
+        # Get source configuration
+        source_data = await execute_query(_get_source_for_scraping)
+        if not source_data:
+            return {
+                "success": False,
+                "error": f"Source {source_id} not found",
+            }
+
+        # Check if domain is already being scraped
+        if domain_manager.is_domain_busy(source_data.url):
+            domain_status = domain_manager.get_domain_status()
+            
+            # Extract domain safely
+            from urllib.parse import urlparse
+            try:
+                parsed = urlparse(source_data.url)
+                domain = parsed.netloc.lower().replace(".", "_").replace(":", "_")
+            except Exception:
+                domain = "unknown_domain"
+            
+            # Find which sources are currently using this domain
+            active_sources = domain_status.get(domain, {}).get("active_sources", [])
+            
+            return {
+                "success": True,
+                "domain_busy": True,
+                "reason": "Domain already being scraped",
+                "domain": domain,
+                "active_sources": active_sources,
+                "message": f"Domain {domain} is already being scraped by sources: {', '.join(active_sources)}",
+                "suggestion": f"Check status of existing scraping jobs: {', '.join(active_sources)}",
+            }
+
+        # Mark domain as busy to prevent concurrent scraping
+        domain_manager.mark_domain_busy(source_data.url, source_id)
+        
+        # Update source status to in_progress
+        async def _update_source_status(session: AsyncSession):
+            stmt = (
+                update(DocumentationSource)
+                .where(DocumentationSource.id == source_id)
+                .values(
+                    status=DocumentationStatus.IN_PROGRESS,
+                    last_scraped=datetime.now(timezone.utc)
+                )
+            )
+            await session.execute(stmt)
+            await session.commit()
+        
+        await execute_query(_update_source_status)
+        
+        # Use ThreadPoolExecutor for scraping (legacy fallback)
+        try:
+            logger.info("🚀 Starting direct ThreadPool documentation scraping", 
+                       source_id=source_id, url=source_data.url)
+            
+            # Track the job for this source
+            self._running_scrapers[source_id] = {
+                "type": "threadpool_job",
+                "started_at": datetime.now(timezone.utc),
+                "url": source_data.url,
+                "status": "in_progress"
+            }
+            
+            # Run scraping using ThreadPoolExecutor with isolated event loops
+            scraping_result = await thread_pool_scraper.scrape_documentation(
+                url=source_data.url,
+                source_id=source_id,
+                selectors=source_data.get_selectors(),
+                crawl_depth=source_data.crawl_depth,
+                batch_size=20,  # Process URLs in batches of 20
+                allow_patterns=source_data.get_allow_patterns(),
+                ignore_patterns=source_data.get_ignore_patterns(),
+            )
+            
+            # Process and save the scraped results
+            if scraping_result.get("success"):
+                await self._store_scraped_entries(
+                    source_id=source_id,
+                    entries_data=scraping_result.get("entries", [])
+                )
+                
+                # Update source status to completed
+                async def _complete_source_status(session: AsyncSession):
+                    stmt = (
+                        update(DocumentationSource)
+                        .where(DocumentationSource.id == source_id)
+                        .values(
+                            status=DocumentationStatus.COMPLETED,
+                            last_scraped=datetime.now(timezone.utc)
+                        )
+                    )
+                    await session.execute(stmt)
+                    await session.commit()
+                
+                await execute_query(_complete_source_status)
+                
+                # Update tracking
+                self._running_scrapers[source_id]["status"] = "completed"
+                self._running_scrapers[source_id]["completed_at"] = datetime.now(timezone.utc)
+                self._running_scrapers[source_id]["pages_scraped"] = scraping_result.get("pages_scraped", 0)
+                
+                logger.info("✅ Direct ThreadPool documentation scraping completed successfully", 
+                           source_id=source_id, pages=scraping_result.get("pages_scraped", 0))
+                
+                return {
+                    "success": True,
+                    "message": f"Documentation scraping completed successfully for {source_data.name}",
+                    "source_id": source_id,
+                    "scraping_in_progress": False,
+                    "pages_scraped": scraping_result.get("pages_scraped", 0),
+                    "entries_saved": len(scraping_result.get("entries", [])),
+                    "scraped_urls": scraping_result.get("scraped_urls", []),
+                    "failed_urls": scraping_result.get("failed_urls", []),
+                    "using_job_queue": False,
+                }
+            else:
+                # Handle scraping failure
+                error_message = scraping_result.get("error", "Unknown scraping error")
+                
+                # Update source status to failed
+                async def _fail_source_status(session: AsyncSession):
+                    stmt = (
+                        update(DocumentationSource)
+                        .where(DocumentationSource.id == source_id)
+                        .values(status=DocumentationStatus.FAILED)
+                    )
+                    await session.execute(stmt)
+                    await session.commit()
+                
+                await execute_query(_fail_source_status)
+                
+                # Update tracking
+                self._running_scrapers[source_id]["status"] = "failed"
+                self._running_scrapers[source_id]["error"] = error_message
+                self._running_scrapers[source_id]["failed_at"] = datetime.now(timezone.utc)
+                
+                logger.error("❌ Direct ThreadPool documentation scraping failed", 
+                           source_id=source_id, error=error_message)
+                
+                return {
+                    "success": False,
+                    "error": f"Scraping failed: {error_message}",
+                    "source_id": source_id,
+                }
+            
+        except Exception as e:
+            # Handle unexpected errors
+            logger.error("❌ Unexpected error during direct ThreadPool scraping", 
+                        source_id=source_id, error=str(e))
+            
+            # Update source status to failed
+            try:
+                async def _error_source_status(session: AsyncSession):
+                    stmt = (
+                        update(DocumentationSource)
+                        .where(DocumentationSource.id == source_id)
+                        .values(status=DocumentationStatus.FAILED)
+                    )
+                    await session.execute(stmt)
+                    await session.commit()
+                
+                await execute_query(_error_source_status)
+            except Exception as db_error:
+                logger.error("Failed to update source status after error", 
+                           source_id=source_id, db_error=str(db_error))
+            
+            # Update tracking
+            if source_id in self._running_scrapers:
+                self._running_scrapers[source_id]["status"] = "failed"
+                self._running_scrapers[source_id]["error"] = str(e)
+                self._running_scrapers[source_id]["failed_at"] = datetime.now(timezone.utc)
+            
+            return {
+                "success": False,
+                "error": f"Scraping execution failed: {str(e)}",
+                "source_id": source_id,
+            }
+        
+        finally:
+            # Always release domain lock
+            domain_manager.release_domain(source_data.url, source_id)
+
     # Private helper methods
 
 
@@ -996,16 +1256,29 @@ class DocumentationService:
         threshold = frequency_map.get(source.update_frequency, timedelta(days=1))
         return time_since_scrape < threshold
 
-    def is_scraping_running(self, source_id: str) -> bool:
+    async def is_scraping_running(self, source_id: str) -> bool:
         """Check if scraping is currently running for a source."""
-        if source_id not in self._running_scrapers:
-            return False
-            
-        scraper_info = self._running_scrapers[source_id]
+        # Check legacy tracking first
+        if source_id in self._running_scrapers:
+            scraper_info = self._running_scrapers[source_id]
+            if isinstance(scraper_info, dict) and scraper_info.get("status") == "in_progress":
+                return True
         
-        # Handle ThreadPoolExecutor jobs
-        if isinstance(scraper_info, dict):
-            return scraper_info.get("status") == "in_progress"
+        # Check job queue if available
+        if self._scrape_job_service:
+            try:
+                from ..models import ScrapeJobStatus
+                jobs = await self._scrape_job_service.list_jobs(
+                    status_filter=[ScrapeJobStatus.PENDING, ScrapeJobStatus.IN_PROGRESS],
+                    limit=100
+                )
+                
+                if jobs.get("success"):
+                    for job in jobs.get("jobs", []):
+                        if job.get("source_id") == source_id:
+                            return True
+            except Exception as e:
+                logger.warning("Failed to check job queue status", error=str(e))
             
         return False
 
