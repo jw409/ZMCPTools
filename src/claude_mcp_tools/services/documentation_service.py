@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import structlog
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -20,6 +20,8 @@ from ..models import (
     DocumentationEntry,
     DocumentationSource,
     DocumentationStatus,
+    ScrapeJob,
+    ScrapeJobStatus,
     SectionType,
     SourceType,
     UpdateFrequency,
@@ -37,7 +39,7 @@ class DocumentationService:
 
     def __init__(self, orchestration_path: Path | None = None):
         """Initialize documentation service.
-        
+
         Args:
             orchestration_path: Path to orchestration data directory
         """
@@ -59,6 +61,7 @@ class DocumentationService:
         self._running_scrapers: dict[str, dict] = {}  # Track scraping jobs by source_id
         self._web_scraper: DocumentationScraper | None = None
         self._scrape_job_service: ScrapeJobService | None = None
+        self._worker_tasks: dict[str, asyncio.Task] = {}  # Track background worker tasks
 
     async def initialize(self) -> None:
         """Initialize documentation service components."""
@@ -68,12 +71,13 @@ class DocumentationService:
 
             # Initialize domain browser manager with our base data directory
             domain_manager.set_base_data_dir(self.docs_path)
-            
+
             # Initialize scrape job service
             self._scrape_job_service = ScrapeJobService()
 
-            logger.info("Documentation service initialized",
-                       docs_path=str(self.docs_path))
+            logger.info(
+                "Documentation service initialized", docs_path=str(self.docs_path)
+            )
 
         except Exception as e:
             logger.error("Failed to initialize documentation service", error=str(e))
@@ -82,6 +86,9 @@ class DocumentationService:
     async def cleanup(self) -> None:
         """Clean up documentation service resources."""
         try:
+            # Clean up completed worker tasks first
+            await self._cleanup_completed_workers()
+            
             # Stop all running scrapers
             for _scraper_id, task in self._running_scrapers.items():
                 if not task.done():
@@ -90,6 +97,18 @@ class DocumentationService:
                         await task
                     except asyncio.CancelledError:
                         pass
+
+            # Stop all worker tasks
+            for worker_id, task in self._worker_tasks.items():
+                if not task.done():
+                    logger.info(f"Cancelling worker task {worker_id}")
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception as e:
+                        logger.warning(f"Error stopping worker {worker_id}: {e}")
 
             # Clean up all domain browser contexts
             await domain_manager.cleanup_all_domains(force=True)
@@ -114,9 +133,10 @@ class DocumentationService:
         selectors: dict[str, str] | None = None,
         allow_patterns: list[str] | None = None,
         ignore_patterns: list[str] | None = None,
+        include_subdomains: bool = False,
     ) -> dict[str, Any]:
         """Add a new documentation source for scraping.
-        
+
         Args:
             name: Human-readable name for the source
             url: Base URL for documentation
@@ -126,10 +146,12 @@ class DocumentationService:
             selectors: CSS selectors for content extraction
             allow_patterns: URL patterns to include during crawling (allowlist)
             ignore_patterns: URL patterns to ignore during crawling (blocklist)
-            
+            include_subdomains: Include subdomains when filtering internal links for crawling
+
         Returns:
             Source creation result with ID and status
         """
+
         async def _create_source(session: AsyncSession):
             try:
                 # Generate source ID
@@ -140,10 +162,11 @@ class DocumentationService:
                     id=source_id,
                     name=name,
                     url=url,
-                    source_type=SourceType(source_type),
+                    source_type=SourceType.from_string(source_type),
                     crawl_depth=crawl_depth,
-                    update_frequency=UpdateFrequency(update_frequency),
+                    update_frequency=UpdateFrequency.from_string(update_frequency),
                     status=DocumentationStatus.NOT_STARTED,
+                    include_subdomains=include_subdomains,
                 )
 
                 # Set selectors and pattern filters
@@ -158,11 +181,13 @@ class DocumentationService:
                 session.add(source)
                 await session.commit()
 
-                logger.info("Documentation source created",
-                           source_id=source_id,
-                           name=name,
-                           url=url,
-                           source_type=source_type)
+                logger.info(
+                    "Documentation source created",
+                    source_id=source_id,
+                    name=name,
+                    url=url,
+                    source_type=source_type,
+                )
 
                 return {
                     "success": True,
@@ -174,8 +199,12 @@ class DocumentationService:
                 }
 
             except Exception as e:
-                logger.error("Failed to create documentation source",
-                            name=name, url=url, error=str(e))
+                logger.error(
+                    "Failed to create documentation source",
+                    name=name,
+                    url=url,
+                    error=str(e),
+                )
                 return {
                     "success": False,
                     "error": str(e),
@@ -186,15 +215,18 @@ class DocumentationService:
     @staticmethod
     async def get_documentation_source(source_id: str) -> dict[str, Any] | None:
         """Get documentation source by ID.
-        
+
         Args:
             source_id: Source ID to retrieve
-            
+
         Returns:
             Source information or None if not found
         """
+
         async def _get_source(session: AsyncSession):
-            stmt = select(DocumentationSource).where(DocumentationSource.id == source_id)
+            stmt = select(DocumentationSource).where(
+                DocumentationSource.id == source_id
+            )
             result = await session.execute(stmt)
             source = result.scalar_one_or_none()
 
@@ -217,7 +249,9 @@ class DocumentationService:
                 "update_frequency": source.update_frequency.value,
                 "selectors": source.get_selectors(),
                 "ignore_patterns": source.get_ignore_patterns(),
-                "last_scraped": source.last_scraped.isoformat() if source.last_scraped else None,
+                "last_scraped": (
+                    source.last_scraped.isoformat() if source.last_scraped else None
+                ),
                 "status": source.status,
                 "entry_count": entry_count,
                 "created_at": source.created_at.isoformat(),
@@ -229,10 +263,11 @@ class DocumentationService:
     @staticmethod
     async def list_documentation_sources() -> list[dict[str, Any]]:
         """List all documentation sources.
-        
+
         Returns:
             List of documentation sources with metadata
         """
+
         async def _list_sources(session: AsyncSession):
             # Query sources with entry counts
             stmt = select(DocumentationSource).order_by(DocumentationSource.name)
@@ -248,15 +283,21 @@ class DocumentationService:
                 count_result = await session.execute(entry_count_stmt)
                 entry_count = count_result.scalar() or 0
 
-                source_list.append({
-                    "id": source.id,
-                    "name": source.name,
-                    "url": source.url,
-                    "source_type": source.source_type.value,
-                    "last_scraped": source.last_scraped.isoformat() if source.last_scraped else None,
-                    "entry_count": entry_count,
-                    "status": source.status,
-                })
+                source_list.append(
+                    {
+                        "id": source.id,
+                        "name": source.name,
+                        "url": source.url,
+                        "source_type": source.source_type.value,
+                        "last_scraped": (
+                            source.last_scraped.isoformat()
+                            if source.last_scraped
+                            else None
+                        ),
+                        "entry_count": entry_count,
+                        "status": source.status.value,
+                    }
+                )
 
             return source_list
 
@@ -266,31 +307,35 @@ class DocumentationService:
         self,
         source_id: str,
         force_refresh: bool = False,
-        ctx = None,
-        progress_callback = None,
+        ctx=None,
+        progress_callback=None,
         agent_id: str = None,
     ) -> dict[str, Any]:
         """Queue documentation scraping job using the background job service.
-        
+
         Args:
             source_id: ID of the documentation source
             force_refresh: Force refresh even if recently scraped
             ctx: Context for progress reporting (optional)
             progress_callback: Callback for progress updates (optional)
             agent_id: Agent ID for tracking (optional)
-            
+
         Returns:
             Job queueing result with job_id and status
         """
         if not self._scrape_job_service:
             # Fallback to legacy behavior if job service not initialized
-            logger.warning("ScrapeJobService not initialized, falling back to direct execution")
+            logger.warning(
+                "ScrapeJobService not initialized, falling back to direct execution"
+            )
             return await self._scrape_documentation_direct(
                 source_id, force_refresh, ctx, progress_callback, agent_id
             )
-        
+
         async def _get_source_for_scraping(session: AsyncSession):
-            stmt = select(DocumentationSource).where(DocumentationSource.id == source_id)
+            stmt = select(DocumentationSource).where(
+                DocumentationSource.id == source_id
+            )
             result = await session.execute(stmt)
             return result.scalar_one_or_none()
 
@@ -330,23 +375,33 @@ class DocumentationService:
             "crawl_depth": source_data.crawl_depth,
             "allow_patterns": source_data.get_allow_patterns(),
             "ignore_patterns": source_data.get_ignore_patterns(),
+            "include_subdomains": source_data.include_subdomains,
             "agent_id": agent_id,
             "source_url": source_data.url,
             "source_name": source_data.name,
         }
-        
+
         # Queue the scraping job
         job_result = await self._scrape_job_service.queue_scrape_job(
-            source_id=source_id,
-            job_params=job_params,
-            priority=5  # Default priority
+            source_id=source_id, job_params=job_params, priority=5  # Default priority
         )
-        
+
         if job_result.get("success"):
-            logger.info("Documentation scraping job queued", 
-                       source_id=source_id, 
-                       job_id=job_result.get("job_id"))
-            
+            logger.info(
+                "Documentation scraping job queued",
+                source_id=source_id,
+                job_id=job_result.get("job_id"),
+            )
+
+            # Auto-start a background worker if there are pending jobs and no active workers
+            try:
+                await self._ensure_worker_running()
+            except Exception as e:
+                logger.warning(
+                    "Failed to auto-start worker, jobs will remain pending until manual start",
+                    error=str(e),
+                )
+
             return {
                 "success": True,
                 "job_id": job_result.get("job_id"),
@@ -360,10 +415,12 @@ class DocumentationService:
             # Handle existing job or queue failure
             existing_job_id = job_result.get("existing_job_id")
             if existing_job_id:
-                logger.info("Existing scraping job found", 
-                           source_id=source_id, 
-                           existing_job_id=existing_job_id)
-                
+                logger.info(
+                    "Existing scraping job found",
+                    source_id=source_id,
+                    existing_job_id=existing_job_id,
+                )
+
                 return {
                     "success": True,
                     "job_id": existing_job_id,
@@ -390,7 +447,7 @@ class DocumentationService:
         min_relevance: float = 0.3,
     ) -> dict[str, Any]:
         """Search documentation content using text and semantic similarity.
-        
+
         Args:
             query: Search query
             source_names: Filter by specific source names
@@ -398,10 +455,11 @@ class DocumentationService:
             search_type: Search method (text, vector, hybrid)
             limit: Maximum number of results
             min_relevance: Minimum relevance score threshold
-            
+
         Returns:
             Search results with relevance scores
         """
+
         async def _search_docs(session: AsyncSession):
             results = []
 
@@ -440,9 +498,17 @@ class DocumentationService:
                     stmt = stmt.where(DocumentationEntry.source_id.in_(source_ids))
 
                 if content_types:
-                    content_type_enums = [SectionType(ct) for ct in content_types if ct in SectionType]
+                    content_type_enums = []
+                    for ct in content_types:
+                        try:
+                            content_type_enums.append(SectionType(ct))
+                        except ValueError:
+                            # Skip invalid content types
+                            pass
                     if content_type_enums:
-                        stmt = stmt.where(DocumentationEntry.section_type.in_(content_type_enums))
+                        stmt = stmt.where(
+                            DocumentationEntry.section_type.in_(content_type_enums)
+                        )
 
                 # Text search conditions
                 stmt = stmt.where(
@@ -466,17 +532,27 @@ class DocumentationService:
                     relevance = min(1.0, (title_matches * 0.3 + content_matches * 0.1))
 
                     if relevance >= min_relevance:
-                        text_results.append({
-                            "id": entry.id,
-                            "title": entry.title,
-                            "url": entry.url,
-                            "content": entry.content[:500] + "..." if len(entry.content) > 500 else entry.content,
-                            "source_name": entry.source.name,
-                            "section_type": entry.section_type.value,
-                            "relevance_score": relevance,
-                            "search_method": "text",
-                            "last_updated": entry.last_updated.isoformat() if entry.last_updated else None,
-                        })
+                        text_results.append(
+                            {
+                                "id": entry.id,
+                                "title": entry.title,
+                                "url": entry.url,
+                                "content": (
+                                    entry.content[:500] + "..."
+                                    if len(entry.content) > 500
+                                    else entry.content
+                                ),
+                                "source_name": entry.source.name,
+                                "section_type": entry.section_type.value,
+                                "relevance_score": relevance,
+                                "search_method": "text",
+                                "last_updated": (
+                                    entry.last_updated.isoformat()
+                                    if entry.last_updated
+                                    else None
+                                ),
+                            }
+                        )
 
             # Combine results
             if search_type == "hybrid":
@@ -488,24 +564,34 @@ class DocumentationService:
                 for vr in vector_results:
                     if vr["entry_id"] not in seen_ids:
                         # Get entry details from database
-                        entry_stmt = select(DocumentationEntry).options(
-                            selectinload(DocumentationEntry.source),
-                        ).where(DocumentationEntry.id == vr["entry_id"])
+                        entry_stmt = (
+                            select(DocumentationEntry)
+                            .options(
+                                selectinload(DocumentationEntry.source),
+                            )
+                            .where(DocumentationEntry.id == vr["entry_id"])
+                        )
                         entry_result = await session.execute(entry_stmt)
                         entry = entry_result.scalar_one_or_none()
 
                         if entry:
-                            combined_results.append({
-                                "id": entry.id,
-                                "title": entry.title,
-                                "url": entry.url,
-                                "content": vr["content"],
-                                "source_name": entry.source.name,
-                                "section_type": entry.section_type.value,
-                                "relevance_score": vr["similarity_score"],
-                                "search_method": "vector",
-                                "last_updated": entry.last_updated.isoformat() if entry.last_updated else None,
-                            })
+                            combined_results.append(
+                                {
+                                    "id": entry.id,
+                                    "title": entry.title,
+                                    "url": entry.url,
+                                    "content": vr["content"],
+                                    "source_name": entry.source.name,
+                                    "section_type": entry.section_type.value,
+                                    "relevance_score": vr["similarity_score"],
+                                    "search_method": "vector",
+                                    "last_updated": (
+                                        entry.last_updated.isoformat()
+                                        if entry.last_updated
+                                        else None
+                                    ),
+                                }
+                            )
                             seen_ids.add(entry.id)
 
                 # Add text results that weren't found by vector search
@@ -520,24 +606,34 @@ class DocumentationService:
             elif search_type == "vector":
                 # Vector-only results - convert to standard format
                 for vr in vector_results:
-                    entry_stmt = select(DocumentationEntry).options(
-                        selectinload(DocumentationEntry.source),
-                    ).where(DocumentationEntry.id == vr["entry_id"])
+                    entry_stmt = (
+                        select(DocumentationEntry)
+                        .options(
+                            selectinload(DocumentationEntry.source),
+                        )
+                        .where(DocumentationEntry.id == vr["entry_id"])
+                    )
                     entry_result = await session.execute(entry_stmt)
                     entry = entry_result.scalar_one_or_none()
 
                     if entry:
-                        results.append({
-                            "id": entry.id,
-                            "title": entry.title,
-                            "url": entry.url,
-                            "content": vr["content"],
-                            "source_name": entry.source.name,
-                            "section_type": entry.section_type.value,
-                            "relevance_score": vr["similarity_score"],
-                            "search_method": "vector",
-                            "last_updated": entry.last_updated.isoformat() if entry.last_updated else None,
-                        })
+                        results.append(
+                            {
+                                "id": entry.id,
+                                "title": entry.title,
+                                "url": entry.url,
+                                "content": vr["content"],
+                                "source_name": entry.source.name,
+                                "section_type": entry.section_type.value,
+                                "relevance_score": vr["similarity_score"],
+                                "search_method": "vector",
+                                "last_updated": (
+                                    entry.last_updated.isoformat()
+                                    if entry.last_updated
+                                    else None
+                                ),
+                            }
+                        )
 
             else:  # text search only
                 results = text_results
@@ -553,7 +649,7 @@ class DocumentationService:
                 "total_found": len(results),
                 "search_type": search_type,
                 "vector_search_available": self._vector_service is not None,
-                "search_timestamp": datetime.utcnow().isoformat(),
+                "search_timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
         return await execute_query(_search_docs)
@@ -566,16 +662,17 @@ class DocumentationService:
         cleanup_cache: bool = True,
     ) -> dict[str, Any]:
         """Update documentation from existing sources with cache maintenance.
-        
+
         Args:
             source_id: Specific source ID to update
             source_name: Specific source name to update
             force_refresh: Force refresh even if recently updated
             cleanup_cache: Perform cache cleanup after update
-            
+
         Returns:
             Update result with statistics
         """
+
         async def _update_docs(session: AsyncSession):
             update_stats = {
                 "sources_updated": 0,
@@ -587,16 +684,22 @@ class DocumentationService:
 
             # Get sources to update
             if source_id:
-                stmt = select(DocumentationSource).where(DocumentationSource.id == source_id)
+                stmt = select(DocumentationSource).where(
+                    DocumentationSource.id == source_id
+                )
             elif source_name:
-                stmt = select(DocumentationSource).where(DocumentationSource.name == source_name)
+                stmt = select(DocumentationSource).where(
+                    DocumentationSource.name == source_name
+                )
             else:
                 stmt = select(DocumentationSource).where(
-                    DocumentationSource.status.in_([
-                        DocumentationStatus.NOT_STARTED, 
-                        DocumentationStatus.COMPLETED,
-                        DocumentationStatus.STALE
-                    ])
+                    DocumentationSource.status.in_(
+                        [
+                            DocumentationStatus.NOT_STARTED,
+                            DocumentationStatus.COMPLETED,
+                            DocumentationStatus.STALE,
+                        ]
+                    )
                 )
 
             result = await session.execute(stmt)
@@ -606,13 +709,15 @@ class DocumentationService:
                 try:
                     # Check if update is needed
                     if not force_refresh and source.last_scraped:
-                        time_since_scrape = datetime.utcnow() - source.last_scraped
+                        time_since_scrape = datetime.now(timezone.utc) - source.last_scraped
                         frequency_map = {
                             UpdateFrequency.HOURLY: timedelta(hours=1),
                             UpdateFrequency.DAILY: timedelta(days=1),
                             UpdateFrequency.WEEKLY: timedelta(weeks=1),
                         }
-                        threshold = frequency_map.get(source.update_frequency, timedelta(days=1))
+                        threshold = frequency_map.get(
+                            source.update_frequency, timedelta(days=1)
+                        )
 
                         if time_since_scrape < threshold:
                             continue
@@ -621,23 +726,28 @@ class DocumentationService:
                     update_stats["sources_updated"] += 1
 
                     # Update timestamp
-                    source.last_scraped = datetime.utcnow()
+                    source.last_scraped = datetime.now(timezone.utc)
 
                 except Exception as e:
-                    logger.error("Failed to update documentation source",
-                                source_id=source.id, error=str(e))
-                    update_stats["errors"].append({
-                        "source_id": source.id,
-                        "source_name": source.name,
-                        "error": str(e),
-                    })
+                    logger.error(
+                        "Failed to update documentation source",
+                        source_id=source.id,
+                        error=str(e),
+                    )
+                    update_stats["errors"].append(
+                        {
+                            "source_id": source.id,
+                            "source_name": source.name,
+                            "error": str(e),
+                        }
+                    )
 
             await session.commit()
 
             return {
                 "success": True,
                 "update_stats": update_stats,
-                "updated_at": datetime.utcnow().isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
             }
 
         return await execute_query(_update_docs)
@@ -650,23 +760,28 @@ class DocumentationService:
         impact_threshold: str = "minor",
     ) -> dict[str, Any]:
         """Analyze recent documentation changes and their potential impact.
-        
+
         Args:
             source_id: Analyze specific source (all sources if None)
             days_back: Number of days to look back for changes
             change_types: Filter by change types
             impact_threshold: Minimum impact level
-            
+
         Returns:
             Change analysis with impact assessment
         """
+
         async def _analyze_changes(session: AsyncSession):
-            since_date = datetime.utcnow() - timedelta(days=days_back)
+            since_date = datetime.now(timezone.utc) - timedelta(days=days_back)
 
             # Build query for changes
-            stmt = select(DocumentationChange).options(
-                selectinload(DocumentationChange.entry),
-            ).where(DocumentationChange.detected_at >= since_date)
+            stmt = (
+                select(DocumentationChange)
+                .options(
+                    selectinload(DocumentationChange.entry),
+                )
+                .where(DocumentationChange.detected_at >= since_date)
+            )
 
             if source_id:
                 # Filter by source
@@ -700,29 +815,39 @@ class DocumentationService:
             for change in changes:
                 # Count by type
                 change_type = change.change_type
-                change_summary["by_type"][change_type] = change_summary["by_type"].get(change_type, 0) + 1
+                change_summary["by_type"][change_type] = (
+                    change_summary["by_type"].get(change_type, 0) + 1
+                )
 
                 # Count by impact
                 impact = change.impact_level
-                change_summary["by_impact"][impact] = change_summary["by_impact"].get(impact, 0) + 1
+                change_summary["by_impact"][impact] = (
+                    change_summary["by_impact"].get(impact, 0) + 1
+                )
 
                 # High impact changes
                 if impact_order.get(impact, 0) >= threshold_level:
-                    change_summary["high_impact_changes"].append({
-                        "id": change.id,
-                        "entry_title": change.entry.title if change.entry else "Unknown",
-                        "entry_url": change.entry.url if change.entry else "Unknown",
-                        "change_type": change.change_type,
-                        "impact_level": change.impact_level,
-                        "description": change.description,
-                        "detected_at": change.detected_at.isoformat(),
-                    })
+                    change_summary["high_impact_changes"].append(
+                        {
+                            "id": change.id,
+                            "entry_title": (
+                                change.entry.title if change.entry else "Unknown"
+                            ),
+                            "entry_url": (
+                                change.entry.url if change.entry else "Unknown"
+                            ),
+                            "change_type": change.change_type,
+                            "impact_level": change.impact_level,
+                            "description": change.description,
+                            "detected_at": change.detected_at.isoformat(),
+                        }
+                    )
 
             return {
                 "success": True,
                 "analysis_period": {
                     "since": since_date.isoformat(),
-                    "until": datetime.utcnow().isoformat(),
+                    "until": datetime.now(timezone.utc).isoformat(),
                     "days_back": days_back,
                 },
                 "source_id": source_id,
@@ -742,7 +867,7 @@ class DocumentationService:
         force_reanalysis: bool = False,
     ) -> dict[str, Any]:
         """Create AI-powered links between documentation and code symbols.
-        
+
         Args:
             project_path: Absolute path to code project
             documentation_sources: Specific doc sources to link
@@ -750,10 +875,11 @@ class DocumentationService:
             confidence_threshold: Minimum confidence for creating links
             max_links_per_symbol: Maximum documentation links per code symbol
             force_reanalysis: Force re-analysis of existing symbols
-            
+
         Returns:
             Linking results with created references and confidence scores
         """
+
         async def _link_docs_to_code(session: AsyncSession):
             try:
                 # Get documentation entries to analyze
@@ -773,7 +899,9 @@ class DocumentationService:
                 docs = result.scalars().all()
 
                 # Extract project symbols (placeholder - would integrate with existing analysis)
-                project_symbols = await _extract_project_symbols(project_path, file_patterns)
+                project_symbols = await _extract_project_symbols(
+                    project_path, file_patterns
+                )
 
                 # Perform AI-powered linking analysis (placeholder)
                 links_created = []
@@ -781,11 +909,15 @@ class DocumentationService:
                 # For each documentation entry, find matching code symbols
                 for doc in docs:
                     # Simple keyword matching for now (would be enhanced with AI)
-                    doc_keywords = _extract_keywords(doc.title + " " + doc.content[:1000])
+                    doc_keywords = _extract_keywords(
+                        doc.title + " " + doc.content[:1000]
+                    )
 
                     for symbol in project_symbols:
                         # Calculate confidence based on keyword overlap
-                        confidence = _calculate_doc_code_confidence(doc_keywords, symbol)
+                        confidence = _calculate_doc_code_confidence(
+                            doc_keywords, symbol
+                        )
 
                         if confidence >= confidence_threshold:
                             # Create link
@@ -802,14 +934,16 @@ class DocumentationService:
                             )
 
                             session.add(link)
-                            links_created.append({
-                                "id": link_id,
-                                "file_path": symbol["file_path"],
-                                "symbol_name": symbol["name"],
-                                "documentation_title": doc.title,
-                                "documentation_url": doc.url,
-                                "confidence": confidence,
-                            })
+                            links_created.append(
+                                {
+                                    "id": link_id,
+                                    "file_path": symbol["file_path"],
+                                    "symbol_name": symbol["name"],
+                                    "documentation_title": doc.title,
+                                    "documentation_url": doc.url,
+                                    "confidence": confidence,
+                                }
+                            )
 
                 await session.commit()
 
@@ -819,12 +953,15 @@ class DocumentationService:
                     "links_created": len(links_created),
                     "links": links_created[:100],  # Limit response size
                     "confidence_threshold": confidence_threshold,
-                    "analysis_timestamp": datetime.utcnow().isoformat(),
+                    "analysis_timestamp": datetime.now(timezone.utc).isoformat(),
                 }
 
             except Exception as e:
-                logger.error("Documentation-to-code linking failed",
-                            project_path=project_path, error=str(e))
+                logger.error(
+                    "Documentation-to-code linking failed",
+                    project_path=project_path,
+                    error=str(e),
+                )
                 return {
                     "success": False,
                     "error": str(e),
@@ -834,16 +971,16 @@ class DocumentationService:
 
     async def get_scrape_job_status(self, job_id: str) -> dict[str, Any] | None:
         """Get status of a specific scrape job.
-        
+
         Args:
             job_id: Job ID to check status for
-            
+
         Returns:
             Job status details or None if not found
         """
         if not self._scrape_job_service:
             return None
-            
+
         return await self._scrape_job_service.get_job_status(job_id)
 
     async def list_scrape_jobs(
@@ -853,12 +990,12 @@ class DocumentationService:
         limit: int = 50,
     ) -> dict[str, Any]:
         """List scrape jobs with optional filtering.
-        
+
         Args:
             source_id: Filter by source ID (optional)
             status_filter: Filter by job status (optional)
             limit: Maximum number of jobs to return
-            
+
         Returns:
             List of jobs with metadata
         """
@@ -867,36 +1004,37 @@ class DocumentationService:
                 "success": False,
                 "error": "ScrapeJobService not initialized",
             }
-        
+
         try:
             # Convert string status filter to enum if provided
             enum_status_filter = None
             if status_filter:
                 from ..models import ScrapeJobStatus
+
                 enum_status_filter = []
                 for status_str in status_filter:
                     try:
                         enum_status_filter.append(ScrapeJobStatus(status_str.upper()))
                     except ValueError:
                         logger.warning(f"Invalid status filter: {status_str}")
-            
+
             result = await self._scrape_job_service.list_jobs(
-                status_filter=enum_status_filter,
-                limit=limit
+                status_filter=enum_status_filter, limit=limit
             )
-            
+
             # Filter by source_id if provided
             if source_id and result.get("success"):
                 filtered_jobs = [
-                    job for job in result.get("jobs", [])
+                    job
+                    for job in result.get("jobs", [])
                     if job.get("source_id") == source_id
                 ]
                 result["jobs"] = filtered_jobs
                 result["total_returned"] = len(filtered_jobs)
                 result["filtered_by_source"] = source_id
-            
+
             return result
-            
+
         except Exception as e:
             logger.error("Failed to list scrape jobs", error=str(e))
             return {
@@ -906,10 +1044,10 @@ class DocumentationService:
 
     async def get_scraping_status(self, source_id: str | None = None) -> dict[str, Any]:
         """Get comprehensive scraping status for sources.
-        
+
         Args:
             source_id: Check specific source (all sources if None)
-            
+
         Returns:
             Scraping status with job queue information
         """
@@ -918,7 +1056,7 @@ class DocumentationService:
                 "success": False,
                 "error": "ScrapeJobService not initialized",
             }
-        
+
         try:
             # Get all jobs if no specific source requested
             status_result = {
@@ -930,34 +1068,36 @@ class DocumentationService:
                 "completed_jobs": [],
                 "failed_jobs": [],
             }
-            
+
             # Check legacy scraper tracking
             if source_id:
                 if source_id in self._running_scrapers:
-                    status_result["legacy_scrapers"][source_id] = self._running_scrapers[source_id]
+                    status_result["legacy_scrapers"][source_id] = (
+                        self._running_scrapers[source_id]
+                    )
             else:
                 status_result["legacy_scrapers"] = dict(self._running_scrapers)
-            
+
             # Get job queue status
             jobs_result = await self._scrape_job_service.list_jobs(limit=100)
             if jobs_result.get("success"):
                 for job in jobs_result.get("jobs", []):
                     job_source_id = job.get("source_id")
-                    
+
                     # Filter by source_id if specified
                     if source_id and job_source_id != source_id:
                         continue
-                    
+
                     job_status = job.get("status")
-                    if job_status == "pending":
+                    if job_status == ScrapeJobStatus.PENDING.value:
                         status_result["queued_jobs"].append(job)
-                    elif job_status == "in_progress":
+                    elif job_status == ScrapeJobStatus.IN_PROGRESS.value:
                         status_result["active_jobs"].append(job)
-                    elif job_status == "completed":
+                    elif job_status == ScrapeJobStatus.COMPLETED.value:
                         status_result["completed_jobs"].append(job)
-                    elif job_status == "failed":
+                    elif job_status == ScrapeJobStatus.FAILED.value:
                         status_result["failed_jobs"].append(job)
-            
+
             # Add summary counts
             status_result["summary"] = {
                 "total_legacy_scrapers": len(status_result["legacy_scrapers"]),
@@ -965,13 +1105,16 @@ class DocumentationService:
                 "total_active": len(status_result["active_jobs"]),
                 "total_completed": len(status_result["completed_jobs"]),
                 "total_failed": len(status_result["failed_jobs"]),
-                "has_active_work": len(status_result["active_jobs"]) > 0 or len(status_result["legacy_scrapers"]) > 0,
+                "has_active_work": len(status_result["active_jobs"]) > 0
+                or len(status_result["legacy_scrapers"]) > 0,
             }
-            
+
             return status_result
-            
+
         except Exception as e:
-            logger.error("Failed to get scraping status", source_id=source_id, error=str(e))
+            logger.error(
+                "Failed to get scraping status", source_id=source_id, error=str(e)
+            )
             return {
                 "success": False,
                 "error": str(e),
@@ -980,10 +1123,11 @@ class DocumentationService:
     @staticmethod
     async def get_documentation_stats() -> dict[str, Any]:
         """Get comprehensive documentation statistics.
-        
+
         Returns:
             Statistics about documentation sources, entries, and usage
         """
+
         async def _get_stats(session: AsyncSession):
             # Count sources
             source_count_stmt = select(func.count(DocumentationSource.id))
@@ -1006,7 +1150,7 @@ class DocumentationService:
             total_links = link_count.scalar() or 0
 
             # Recent activity
-            recent_date = datetime.utcnow() - timedelta(days=7)
+            recent_date = datetime.now(timezone.utc) - timedelta(days=7)
             recent_entries_stmt = select(func.count(DocumentationEntry.id)).where(
                 DocumentationEntry.extracted_at >= recent_date,
             )
@@ -1019,17 +1163,17 @@ class DocumentationService:
                 "total_embeddings": total_embeddings,
                 "total_code_links": total_links,
                 "recent_entries_7_days": recent_entries_count,
-                "generated_at": datetime.utcnow().isoformat(),
+                "generated_at": datetime.now(timezone.utc).isoformat(),
             }
 
         return await execute_query(_get_stats)
 
     async def create_embeddings_for_entry(self, entry_id: str) -> dict[str, Any]:
         """Create embeddings for a documentation entry.
-        
+
         Args:
             entry_id: Documentation entry ID
-            
+
         Returns:
             Result with embedding creation statistics
         """
@@ -1042,16 +1186,19 @@ class DocumentationService:
         self,
         source_id: str,
         force_refresh: bool = False,
-        ctx = None,
-        progress_callback = None,
+        ctx=None,
+        progress_callback=None,
         agent_id: str = None,
     ) -> dict[str, Any]:
         """Direct scraping execution (legacy fallback when job service not available).
-        
+
         This method preserves the original ThreadPool-based scraping behavior.
         """
+
         async def _get_source_for_scraping(session: AsyncSession):
-            stmt = select(DocumentationSource).where(DocumentationSource.id == source_id)
+            stmt = select(DocumentationSource).where(
+                DocumentationSource.id == source_id
+            )
             result = await session.execute(stmt)
             return result.scalar_one_or_none()
 
@@ -1066,18 +1213,19 @@ class DocumentationService:
         # Check if domain is already being scraped
         if domain_manager.is_domain_busy(source_data.url):
             domain_status = domain_manager.get_domain_status()
-            
+
             # Extract domain safely
             from urllib.parse import urlparse
+
             try:
                 parsed = urlparse(source_data.url)
                 domain = parsed.netloc.lower().replace(".", "_").replace(":", "_")
             except Exception:
                 domain = "unknown_domain"
-            
+
             # Find which sources are currently using this domain
             active_sources = domain_status.get(domain, {}).get("active_sources", [])
-            
+
             return {
                 "success": True,
                 "domain_busy": True,
@@ -1090,7 +1238,7 @@ class DocumentationService:
 
         # Mark domain as busy to prevent concurrent scraping
         domain_manager.mark_domain_busy(source_data.url, source_id)
-        
+
         # Update source status to in_progress
         async def _update_source_status(session: AsyncSession):
             stmt = (
@@ -1098,27 +1246,30 @@ class DocumentationService:
                 .where(DocumentationSource.id == source_id)
                 .values(
                     status=DocumentationStatus.IN_PROGRESS,
-                    last_scraped=datetime.now(timezone.utc)
+                    last_scraped=datetime.now(timezone.utc),
                 )
             )
             await session.execute(stmt)
             await session.commit()
-        
+
         await execute_query(_update_source_status)
-        
+
         # Use ThreadPoolExecutor for scraping (legacy fallback)
         try:
-            logger.info("🚀 Starting direct ThreadPool documentation scraping", 
-                       source_id=source_id, url=source_data.url)
-            
+            logger.info(
+                "🚀 Starting direct ThreadPool documentation scraping",
+                source_id=source_id,
+                url=source_data.url,
+            )
+
             # Track the job for this source
             self._running_scrapers[source_id] = {
                 "type": "threadpool_job",
                 "started_at": datetime.now(timezone.utc),
                 "url": source_data.url,
-                "status": "in_progress"
+                "status": ScrapeJobStatus.IN_PROGRESS.value,
             }
-            
+
             # Run scraping using ThreadPoolExecutor with isolated event loops
             scraping_result = await thread_pool_scraper.scrape_documentation(
                 url=source_data.url,
@@ -1128,15 +1279,15 @@ class DocumentationService:
                 batch_size=20,  # Process URLs in batches of 20
                 allow_patterns=source_data.get_allow_patterns(),
                 ignore_patterns=source_data.get_ignore_patterns(),
+                include_subdomains=source_data.include_subdomains,
             )
-            
+
             # Process and save the scraped results
             if scraping_result.get("success"):
                 await self._store_scraped_entries(
-                    source_id=source_id,
-                    entries_data=scraping_result.get("entries", [])
+                    source_id=source_id, entries_data=scraping_result.get("entries", [])
                 )
-                
+
                 # Update source status to completed
                 async def _complete_source_status(session: AsyncSession):
                     stmt = (
@@ -1144,22 +1295,31 @@ class DocumentationService:
                         .where(DocumentationSource.id == source_id)
                         .values(
                             status=DocumentationStatus.COMPLETED,
-                            last_scraped=datetime.now(timezone.utc)
+                            last_scraped=datetime.now(timezone.utc),
                         )
                     )
                     await session.execute(stmt)
                     await session.commit()
-                
+
                 await execute_query(_complete_source_status)
-                
+
                 # Update tracking
-                self._running_scrapers[source_id]["status"] = "completed"
-                self._running_scrapers[source_id]["completed_at"] = datetime.now(timezone.utc)
-                self._running_scrapers[source_id]["pages_scraped"] = scraping_result.get("pages_scraped", 0)
-                
-                logger.info("✅ Direct ThreadPool documentation scraping completed successfully", 
-                           source_id=source_id, pages=scraping_result.get("pages_scraped", 0))
-                
+                self._running_scrapers[source_id][
+                    "status"
+                ] = ScrapeJobStatus.COMPLETED.value
+                self._running_scrapers[source_id]["completed_at"] = datetime.now(
+                    timezone.utc
+                )
+                self._running_scrapers[source_id]["pages_scraped"] = (
+                    scraping_result.get("pages_scraped", 0)
+                )
+
+                logger.info(
+                    "✅ Direct ThreadPool documentation scraping completed successfully",
+                    source_id=source_id,
+                    pages=scraping_result.get("pages_scraped", 0),
+                )
+
                 return {
                     "success": True,
                     "message": f"Documentation scraping completed successfully for {source_data.name}",
@@ -1174,7 +1334,7 @@ class DocumentationService:
             else:
                 # Handle scraping failure
                 error_message = scraping_result.get("error", "Unknown scraping error")
-                
+
                 # Update source status to failed
                 async def _fail_source_status(session: AsyncSession):
                     stmt = (
@@ -1184,30 +1344,41 @@ class DocumentationService:
                     )
                     await session.execute(stmt)
                     await session.commit()
-                
+
                 await execute_query(_fail_source_status)
-                
+
                 # Update tracking
-                self._running_scrapers[source_id]["status"] = "failed"
+                self._running_scrapers[source_id][
+                    "status"
+                ] = ScrapeJobStatus.FAILED.value
                 self._running_scrapers[source_id]["error"] = error_message
-                self._running_scrapers[source_id]["failed_at"] = datetime.now(timezone.utc)
-                
-                logger.error("❌ Direct ThreadPool documentation scraping failed", 
-                           source_id=source_id, error=error_message)
-                
+                self._running_scrapers[source_id]["failed_at"] = datetime.now(
+                    timezone.utc
+                )
+
+                logger.error(
+                    "❌ Direct ThreadPool documentation scraping failed",
+                    source_id=source_id,
+                    error=error_message,
+                )
+
                 return {
                     "success": False,
                     "error": f"Scraping failed: {error_message}",
                     "source_id": source_id,
                 }
-            
+
         except Exception as e:
             # Handle unexpected errors
-            logger.error("❌ Unexpected error during direct ThreadPool scraping", 
-                        source_id=source_id, error=str(e))
-            
+            logger.error(
+                "❌ Unexpected error during direct ThreadPool scraping",
+                source_id=source_id,
+                error=str(e),
+            )
+
             # Update source status to failed
             try:
+
                 async def _error_source_status(session: AsyncSession):
                     stmt = (
                         update(DocumentationSource)
@@ -1216,30 +1387,393 @@ class DocumentationService:
                     )
                     await session.execute(stmt)
                     await session.commit()
-                
+
                 await execute_query(_error_source_status)
             except Exception as db_error:
-                logger.error("Failed to update source status after error", 
-                           source_id=source_id, db_error=str(db_error))
-            
+                logger.error(
+                    "Failed to update source status after error",
+                    source_id=source_id,
+                    db_error=str(db_error),
+                )
+
             # Update tracking
             if source_id in self._running_scrapers:
-                self._running_scrapers[source_id]["status"] = "failed"
+                self._running_scrapers[source_id][
+                    "status"
+                ] = ScrapeJobStatus.FAILED.value
                 self._running_scrapers[source_id]["error"] = str(e)
-                self._running_scrapers[source_id]["failed_at"] = datetime.now(timezone.utc)
-            
+                self._running_scrapers[source_id]["failed_at"] = datetime.now(
+                    timezone.utc
+                )
+
             return {
                 "success": False,
                 "error": f"Scraping execution failed: {str(e)}",
                 "source_id": source_id,
             }
-        
+
         finally:
             # Always release domain lock
             domain_manager.release_domain(source_data.url, source_id)
 
     # Private helper methods
 
+    async def _ensure_worker_running(self):
+        """Ensure a background worker is running to process pending jobs."""
+        try:
+            # Clean up completed worker tasks first
+            await self._cleanup_completed_workers()
+            
+            # Check if there are any active workers already processing jobs
+            if self._scrape_job_service:
+                # Get queue stats to see if there are workers active
+                stats = await self._scrape_job_service.get_queue_stats()
+
+                if stats.get("success"):
+                    active_workers = stats.get("active_workers", [])
+                    pending_count = stats.get("queue_stats", {}).get("pending_count", 0)
+                    tracked_workers = len(self._worker_tasks)
+
+                    logger.debug(
+                        f"Worker check: {len(active_workers)} active workers (DB), {tracked_workers} tracked worker tasks, {pending_count} pending jobs"
+                    )
+
+                    if pending_count > 0 and len(active_workers) == 0 and tracked_workers == 0:
+                        logger.info(
+                            f"🚀 Found {pending_count} pending jobs with no active workers, starting background worker..."
+                        )
+
+                        # Start a background worker with proper tracking
+                        await self._start_tracked_worker()
+
+                        logger.info(
+                            "✅ Background scraper worker started automatically"
+                        )
+
+        except Exception as e:
+            logger.warning("Failed to check/start background worker", error=str(e))
+
+    async def _start_tracked_worker(self) -> str:
+        """Start a background worker with proper task tracking and error handling."""
+        from ..workers.scraper_worker import ScraperWorker
+        import uuid
+        
+        # Generate unique worker ID
+        worker_id = f"auto-worker-{uuid.uuid4().hex[:8]}"
+        
+        try:
+            worker = ScraperWorker(worker_id=worker_id)
+            
+            # Create and track the worker task
+            worker_task = asyncio.create_task(
+                self._run_worker_with_monitoring(worker, worker_id)
+            )
+            
+            # Store task reference for tracking
+            self._worker_tasks[worker_id] = worker_task
+            
+            logger.info(
+                "Started tracked background worker",
+                worker_id=worker_id,
+                task_id=id(worker_task)
+            )
+            
+            return worker_id
+            
+        except Exception as e:
+            logger.error(
+                "Failed to start tracked worker",
+                worker_id=worker_id,
+                error=str(e)
+            )
+            raise
+
+    async def _run_worker_with_monitoring(self, worker, worker_id: str):
+        """Run worker with monitoring and error handling."""
+        try:
+            logger.info(f"Worker {worker_id} starting...")
+            await worker.start()
+            logger.info(f"Worker {worker_id} completed normally")
+            
+        except Exception as e:
+            logger.error(
+                f"Worker {worker_id} failed with exception",
+                error=str(e),
+                worker_id=worker_id
+            )
+            raise
+        finally:
+            # Remove from tracking when done (success or failure)
+            if worker_id in self._worker_tasks:
+                del self._worker_tasks[worker_id]
+                logger.debug(f"Removed worker {worker_id} from tracking")
+
+    async def _cleanup_completed_workers(self):
+        """Clean up completed worker tasks from tracking."""
+        completed_workers = []
+        
+        for worker_id, task in self._worker_tasks.items():
+            if task.done():
+                completed_workers.append(worker_id)
+                
+                # Log any exceptions from completed tasks
+                try:
+                    # This will raise the exception if the task failed
+                    await task
+                except Exception as e:
+                    logger.error(
+                        f"Completed worker {worker_id} had exception",
+                        error=str(e),
+                        worker_id=worker_id
+                    )
+        
+        # Remove completed workers from tracking
+        for worker_id in completed_workers:
+            del self._worker_tasks[worker_id]
+            logger.debug(f"Cleaned up completed worker {worker_id}")
+        
+        if completed_workers:
+            logger.info(f"Cleaned up {len(completed_workers)} completed worker tasks")
+
+    async def check_worker_health(self) -> dict[str, Any]:
+        """Check health of all tracked workers and restart if needed."""
+        try:
+            health_stats = {
+                "tracked_workers": len(self._worker_tasks),
+                "healthy_workers": 0,
+                "failed_workers": 0,
+                "restarted_workers": 0,
+                "database_workers": 0,
+                "pending_jobs": 0,
+            }
+            
+            # Clean up completed workers first
+            await self._cleanup_completed_workers()
+            
+            # Check database for active workers
+            if self._scrape_job_service:
+                stats = await self._scrape_job_service.get_queue_stats()
+                if stats.get("success"):
+                    health_stats["database_workers"] = len(stats.get("active_workers", []))
+                    health_stats["pending_jobs"] = stats.get("queue_stats", {}).get("pending_count", 0)
+            
+            # Check each tracked worker
+            for worker_id, task in list(self._worker_tasks.items()):
+                if task.done():
+                    # Check if it failed
+                    try:
+                        await task
+                        health_stats["healthy_workers"] += 1
+                    except Exception as e:
+                        health_stats["failed_workers"] += 1
+                        logger.error(f"Worker {worker_id} failed", error=str(e))
+                else:
+                    health_stats["healthy_workers"] += 1
+            
+            # Auto-restart workers if we have pending jobs but no active workers
+            if (health_stats["pending_jobs"] > 0 and 
+                health_stats["database_workers"] == 0 and 
+                health_stats["tracked_workers"] == 0):
+                
+                logger.info(f"Auto-restarting worker: {health_stats['pending_jobs']} pending jobs, no active workers")
+                try:
+                    await self._start_tracked_worker()
+                    health_stats["restarted_workers"] = 1
+                except Exception as e:
+                    logger.error("Failed to auto-restart worker", error=str(e))
+            
+            health_stats["timestamp"] = datetime.now(timezone.utc).isoformat()
+            health_stats["status"] = "healthy" if health_stats["failed_workers"] == 0 else "degraded"
+            
+            return {"success": True, "health": health_stats}
+            
+        except Exception as e:
+            logger.error("Failed to check worker health", error=str(e))
+            return {"success": False, "error": str(e)}
+
+    async def restart_failed_workers(self, max_workers: int = 1) -> dict[str, Any]:
+        """Restart failed workers if there are pending jobs."""
+        try:
+            restart_stats = {
+                "workers_restarted": 0,
+                "errors": [],
+            }
+            
+            # Check if restart is needed
+            if self._scrape_job_service:
+                stats = await self._scrape_job_service.get_queue_stats()
+                if stats.get("success"):
+                    active_workers = stats.get("active_workers", [])
+                    pending_count = stats.get("queue_stats", {}).get("pending_count", 0)
+                    
+                    if pending_count > 0 and len(active_workers) == 0 and len(self._worker_tasks) == 0:
+                        # Need to restart workers
+                        workers_to_start = min(max_workers, pending_count)
+                        
+                        for i in range(workers_to_start):
+                            try:
+                                worker_id = await self._start_tracked_worker()
+                                restart_stats["workers_restarted"] += 1
+                                logger.info(f"Restarted worker {worker_id} ({i+1}/{workers_to_start})")
+                            except Exception as e:
+                                error_msg = f"Failed to restart worker {i+1}: {e}"
+                                restart_stats["errors"].append(error_msg)
+                                logger.error(error_msg)
+            
+            return {"success": True, "restart_stats": restart_stats}
+            
+        except Exception as e:
+            logger.error("Failed to restart workers", error=str(e))
+            return {"success": False, "error": str(e)}
+
+    async def diagnose_stuck_jobs(self) -> dict[str, Any]:
+        """Diagnose jobs that are stuck in pending or in_progress state."""
+        try:
+            
+            async def _diagnose_jobs(session: AsyncSession):
+                now = datetime.now(timezone.utc)
+                diagnosis = {
+                    "stuck_jobs": [],
+                    "summary": {
+                        "total_stuck": 0,
+                        "long_pending": 0,
+                        "long_running": 0,
+                        "orphaned": 0,
+                    },
+                    "recommendations": [],
+                }
+                
+                # Find jobs that have been pending or in_progress for too long
+                stuck_threshold = timedelta(minutes=30)  # Jobs stuck for more than 30 minutes
+                long_running_threshold = timedelta(hours=2)  # Jobs running for more than 2 hours
+                
+                # Query for potentially stuck jobs
+                stmt = select(ScrapeJob).where(
+                    or_(
+                        ScrapeJob.status == ScrapeJobStatus.PENDING,
+                        ScrapeJob.status == ScrapeJobStatus.IN_PROGRESS
+                    )
+                )
+                result = await session.execute(stmt)
+                jobs = result.scalars().all()
+                
+                for job in jobs:
+                    job_age = now - job.created_at
+                    last_activity_age = None
+                    
+                    # Use locked_at as heartbeat/activity indicator
+                    if job.locked_at:
+                        last_activity_age = now - job.locked_at
+                    
+                    is_stuck = False
+                    stuck_reason = []
+                    
+                    # Check for various stuck conditions
+                    if job.status == ScrapeJobStatus.PENDING and job_age > stuck_threshold:
+                        is_stuck = True
+                        stuck_reason.append(f"Pending for {job_age}")
+                        diagnosis["summary"]["long_pending"] += 1
+                    
+                    elif job.status == ScrapeJobStatus.IN_PROGRESS:
+                        if job_age > long_running_threshold:
+                            is_stuck = True
+                            stuck_reason.append(f"Running for {job_age}")
+                            diagnosis["summary"]["long_running"] += 1
+                        
+                        if last_activity_age and last_activity_age > timedelta(minutes=10):
+                            is_stuck = True
+                            stuck_reason.append(f"No activity for {last_activity_age}")
+                            diagnosis["summary"]["orphaned"] += 1
+                    
+                    if is_stuck:
+                        diagnosis["stuck_jobs"].append({
+                            "job_id": job.id,
+                            "source_id": job.source_id,
+                            "status": job.status.value,
+                            "created_at": job.created_at.isoformat(),
+                            "last_activity_at": job.locked_at.isoformat() if job.locked_at else None,
+                            "locked_by": job.locked_by,
+                            "job_age_minutes": int(job_age.total_seconds() / 60),
+                            "stuck_reasons": stuck_reason,
+                        })
+                        diagnosis["summary"]["total_stuck"] += 1
+                
+                # Generate recommendations
+                if diagnosis["summary"]["long_pending"] > 0:
+                    diagnosis["recommendations"].append(
+                        f"Found {diagnosis['summary']['long_pending']} jobs pending for >30min. Check if workers are running."
+                    )
+                
+                if diagnosis["summary"]["orphaned"] > 0:
+                    diagnosis["recommendations"].append(
+                        f"Found {diagnosis['summary']['orphaned']} jobs with stale activity. Workers may have crashed."
+                    )
+                
+                if diagnosis["summary"]["long_running"] > 0:
+                    diagnosis["recommendations"].append(
+                        f"Found {diagnosis['summary']['long_running']} jobs running for >2hrs. May need manual intervention."
+                    )
+                
+                if diagnosis["summary"]["total_stuck"] == 0:
+                    diagnosis["recommendations"].append("No stuck jobs detected. System appears healthy.")
+                
+                return diagnosis
+            
+            result = await execute_query(_diagnose_jobs)
+            return {"success": True, "diagnosis": result}
+            
+        except Exception as e:
+            logger.error("Failed to diagnose stuck jobs", error=str(e))
+            return {"success": False, "error": str(e)}
+
+    async def cleanup_stuck_jobs(self, max_age_hours: int = 4) -> dict[str, Any]:
+        """Clean up jobs that have been stuck for too long."""
+        try:
+            
+            async def _cleanup_jobs(session: AsyncSession):
+                now = datetime.now(timezone.utc)
+                cleanup_threshold = now - timedelta(hours=max_age_hours)
+                cleanup_stats = {
+                    "jobs_cleaned": 0,
+                    "jobs_failed": 0,
+                }
+                
+                # Find old stuck jobs
+                stmt = select(ScrapeJob).where(
+                    and_(
+                        or_(
+                            ScrapeJob.status == ScrapeJobStatus.PENDING,
+                            ScrapeJob.status == ScrapeJobStatus.IN_PROGRESS
+                        ),
+                        ScrapeJob.created_at < cleanup_threshold
+                    )
+                )
+                result = await session.execute(stmt)
+                stuck_jobs = result.scalars().all()
+                
+                for job in stuck_jobs:
+                    try:
+                        # Mark job as failed
+                        job.status = ScrapeJobStatus.FAILED
+                        job.completed_at = now
+                        job.error_message = f"Cleaned up after being stuck for >{max_age_hours}h"
+                        
+                        cleanup_stats["jobs_cleaned"] += 1
+                        logger.info(f"Cleaned up stuck job {job.id} (age: {now - job.created_at})")
+                        
+                    except Exception as e:
+                        cleanup_stats["jobs_failed"] += 1
+                        logger.error(f"Failed to cleanup job {job.id}", error=str(e))
+                
+                await session.commit()
+                return cleanup_stats
+            
+            result = await execute_query(_cleanup_jobs)
+            return {"success": True, "cleanup_stats": result}
+            
+        except Exception as e:
+            logger.error("Failed to cleanup stuck jobs", error=str(e))
+            return {"success": False, "error": str(e)}
 
     def _should_skip_scraping(
         self,
@@ -1258,61 +1792,84 @@ class DocumentationService:
 
     async def is_scraping_running(self, source_id: str) -> bool:
         """Check if scraping is currently running for a source."""
+        from ..models import ScrapeJobStatus
+
         # Check legacy tracking first
         if source_id in self._running_scrapers:
             scraper_info = self._running_scrapers[source_id]
-            if isinstance(scraper_info, dict) and scraper_info.get("status") == "in_progress":
+            if (
+                isinstance(scraper_info, dict)
+                and scraper_info.get("status") == ScrapeJobStatus.IN_PROGRESS.value
+            ):
                 return True
-        
+
         # Check job queue if available
         if self._scrape_job_service:
             try:
-                from ..models import ScrapeJobStatus
                 jobs = await self._scrape_job_service.list_jobs(
-                    status_filter=[ScrapeJobStatus.PENDING, ScrapeJobStatus.IN_PROGRESS],
-                    limit=100
+                    status_filter=[
+                        ScrapeJobStatus.PENDING,
+                        ScrapeJobStatus.IN_PROGRESS,
+                    ],
+                    limit=100,
                 )
-                
+
                 if jobs.get("success"):
                     for job in jobs.get("jobs", []):
                         if job.get("source_id") == source_id:
                             return True
             except Exception as e:
                 logger.warning("Failed to check job queue status", error=str(e))
-            
+
         return False
 
-    async def _scrape_source_content_with_cleanup(self, source: DocumentationSource, source_id: str, ctx=None, progress_callback=None, agent_id: str = None) -> dict[str, Any]:
+    async def _scrape_source_content_with_cleanup(
+        self,
+        source: DocumentationSource,
+        source_id: str,
+        ctx=None,
+        progress_callback=None,
+        agent_id: str = None,
+    ) -> dict[str, Any]:
         """Scrape content with automatic cleanup of task tracking and agent termination."""
         try:
             # Mark context as background mode to prevent spam in main chat
             if ctx:
                 ctx._background_mode = True
-                logger.debug("Context marked as background mode to prevent main chat spam")
-            
+                logger.debug(
+                    "Context marked as background mode to prevent main chat spam"
+                )
+
             result = await self._scrape_source_content(source, ctx, progress_callback)
-            
+
             # Update last scraped timestamp on success
             if result.get("success"):
                 await self._update_source_last_scraped(source_id)
-                
+
             return result
-            
+
         except Exception as e:
-            logger.error("Documentation scraping failed", source_id=source_id, error=str(e))
-            
+            logger.error(
+                "Documentation scraping failed", source_id=source_id, error=str(e)
+            )
+
             # Call progress callback for error
             if progress_callback:
                 try:
-                    await progress_callback({
-                        "type": "error",
-                        "source_id": source_id,
-                        "error": str(e),
-                        "fatal": True
-                    })
+                    await progress_callback(
+                        {
+                            "type": "error",
+                            "source_id": source_id,
+                            "error": str(e),
+                            "fatal": True,
+                        }
+                    )
                 except Exception as callback_error:
-                    logger.warning("Progress callback failed during error", error=str(callback_error))
-            
+                    logger.warning(
+                        "Progress callback failed during error",
+                        error=str(callback_error),
+                    )
+
             return {
                 "success": False,
                 "error": str(e),
@@ -1321,25 +1878,43 @@ class DocumentationService:
             # Clean up task reference
             if source_id in self._running_scrapers:
                 del self._running_scrapers[source_id]
-            
+
             # Auto-terminate agent if provided
             if agent_id:
                 try:
                     from .agent_service import AgentService
-                    agent_service = AgentService()
-                    await agent_service.terminate_agent(agent_id, "Scraping completed - auto cleanup")
-                    logger.info("Auto-terminated agent after scraping completion", agent_id=agent_id)
-                except Exception as cleanup_error:
-                    logger.warning("Failed to auto-terminate agent", agent_id=agent_id, error=str(cleanup_error))
 
-    async def _scrape_source_content(self, source: DocumentationSource, ctx=None, progress_callback=None) -> dict[str, Any]:
+                    agent_service = AgentService()
+                    await agent_service.terminate_agent(
+                        agent_id,
+                    )
+                    logger.info(
+                        "Auto-terminated agent after scraping completion",
+                        agent_id=agent_id,
+                    )
+                except Exception as cleanup_error:
+                    logger.warning(
+                        "Failed to auto-terminate agent",
+                        agent_id=agent_id,
+                        error=str(cleanup_error),
+                    )
+
+    async def _scrape_source_content(
+        self, source: DocumentationSource, ctx=None, progress_callback=None
+    ) -> dict[str, Any]:
         """Scrape content from a documentation source using domain-managed browser."""
         try:
             # Get domain-managed scraper for this source
-            scraper, is_new = await domain_manager.get_scraper_for_domain(source.url, source.id)
-            logger.info("Got domain scraper", source_id=source.id, domain_scraper_new=is_new)
+            scraper, is_new = await domain_manager.get_scraper_for_domain(
+                source.url, source.id
+            )
+            logger.info(
+                "Got domain scraper", source_id=source.id, domain_scraper_new=is_new
+            )
         except Exception as e:
-            logger.error("Failed to get domain scraper", source_id=source.id, error=str(e))
+            logger.error(
+                "Failed to get domain scraper", source_id=source.id, error=str(e)
+            )
             return {
                 "success": False,
                 "error": f"Failed to get domain scraper: {str(e)}",
@@ -1349,16 +1924,20 @@ class DocumentationService:
             }
 
         try:
-            logger.info("🚀 Starting source scraping", 
-                       source_id=source.id, 
-                       source_name=source.name, 
-                       url=source.url)
+            logger.info(
+                "🚀 Starting source scraping",
+                source_id=source.id,
+                source_name=source.name,
+                url=source.url,
+            )
 
             if ctx:
                 try:
                     await ctx.report_progress(40, 100)
                 except Exception as ctx_error:
-                    logger.warning("Context progress reporting failed", error=str(ctx_error))
+                    logger.warning(
+                        "Context progress reporting failed", error=str(ctx_error)
+                    )
 
             # Get scraping configuration
             selectors = source.get_selectors()
@@ -1369,7 +1948,9 @@ class DocumentationService:
                 try:
                     await ctx.report_progress(45, 100)
                 except Exception as ctx_error:
-                    logger.warning("Context progress reporting failed", error=str(ctx_error))
+                    logger.warning(
+                        "Context progress reporting failed", error=str(ctx_error)
+                    )
 
             # Scrape the documentation using domain-managed scraper
             scrape_result = await scraper.scrape_documentation_source(
@@ -1393,25 +1974,31 @@ class DocumentationService:
 
             # Process and store the scraped entries
             entries_data = scrape_result.get("entries", [])
-            
+
             if ctx:
                 try:
                     await ctx.report_progress(85, 100)
                 except Exception as ctx_error:
-                    logger.warning("Context progress reporting failed", error=str(ctx_error))
-                
+                    logger.warning(
+                        "Context progress reporting failed", error=str(ctx_error)
+                    )
+
             storage_result = await self._store_scraped_entries(source.id, entries_data)
 
             if ctx:
                 try:
                     await ctx.report_progress(95, 100)
                 except Exception as ctx_error:
-                    logger.warning("Context progress reporting failed", error=str(ctx_error))
+                    logger.warning(
+                        "Context progress reporting failed", error=str(ctx_error)
+                    )
 
-            logger.info("✅ Source scraping completed", 
-                       source_id=source.id,
-                       entries_scraped=len(entries_data),
-                       entries_stored=storage_result.get("entries_stored", 0))
+            logger.info(
+                "✅ Source scraping completed",
+                source_id=source.id,
+                entries_scraped=len(entries_data),
+                entries_stored=storage_result.get("entries_stored", 0),
+            )
 
             return {
                 "success": True,
@@ -1422,9 +2009,7 @@ class DocumentationService:
             }
 
         except Exception as e:
-            logger.error("❌ Source scraping failed", 
-                        source_id=source.id, 
-                        error=str(e))
+            logger.error("❌ Source scraping failed", source_id=source.id, error=str(e))
             return {
                 "success": False,
                 "error": str(e),
@@ -1438,12 +2023,17 @@ class DocumentationService:
                 await domain_manager.release_scraper_for_source(source.url, source.id)
                 logger.info("Released domain scraper for source", source_id=source.id)
             except Exception as cleanup_error:
-                logger.warning("Failed to release domain scraper", 
-                             source_id=source.id, 
-                             error=str(cleanup_error))
+                logger.warning(
+                    "Failed to release domain scraper",
+                    source_id=source.id,
+                    error=str(cleanup_error),
+                )
 
-    async def _store_scraped_entries(self, source_id: str, entries_data: list[dict[str, Any]]) -> dict[str, Any]:
+    async def _store_scraped_entries(
+        self, source_id: str, entries_data: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         """Store scraped entries in the database with deduplication."""
+
         async def _store_entries(session: AsyncSession):
             stats = {
                 "entries_stored": 0,
@@ -1471,12 +2061,16 @@ class DocumentationService:
                         # Update existing entry if content or URL changed
                         updated = False
                         if existing_entry.url != entry_data.get("url"):
-                            existing_entry.url = entry_data.get("url", existing_entry.url)
+                            existing_entry.url = entry_data.get(
+                                "url", existing_entry.url
+                            )
                             updated = True
                         if existing_entry.title != entry_data.get("title"):
-                            existing_entry.title = entry_data.get("title", existing_entry.title)
+                            existing_entry.title = entry_data.get(
+                                "title", existing_entry.title
+                            )
                             updated = True
-                        
+
                         if updated:
                             existing_entry.last_updated = datetime.now(timezone.utc)
                             stats["entries_updated"] += 1
@@ -1491,7 +2085,9 @@ class DocumentationService:
                             title=entry_data.get("title", ""),
                             content=entry_data.get("content", ""),
                             content_hash=content_hash,
-                            extracted_at=entry_data.get("extracted_at", datetime.now(timezone.utc)),
+                            extracted_at=entry_data.get(
+                                "extracted_at", datetime.now(timezone.utc)
+                            ),
                             section_type=SectionType.CONTENT,  # Default type
                         )
 
@@ -1508,14 +2104,20 @@ class DocumentationService:
                         # Create embeddings if vector service is available
                         if self._vector_service:
                             try:
-                                await self._vector_service.create_embeddings_for_entry(new_entry.id)
+                                await self._vector_service.create_embeddings_for_entry(
+                                    new_entry.id
+                                )
                             except Exception as e:
-                                logger.warning("Failed to create embeddings", 
-                                             entry_id=new_entry.id, 
-                                             error=str(e))
+                                logger.warning(
+                                    "Failed to create embeddings",
+                                    entry_id=new_entry.id,
+                                    error=str(e),
+                                )
 
                 except Exception as e:
-                    error_msg = f"Failed to store entry {entry_data.get('url', 'unknown')}: {e}"
+                    error_msg = (
+                        f"Failed to store entry {entry_data.get('url', 'unknown')}: {e}"
+                    )
                     logger.error("Entry storage failed", error=error_msg)
                     stats["errors"].append(error_msg)
 
@@ -1526,10 +2128,15 @@ class DocumentationService:
 
     async def _update_source_last_scraped(self, source_id: str) -> None:
         """Update the last scraped timestamp for a source."""
+
         async def _update_timestamp(session: AsyncSession):
-            stmt = update(DocumentationSource).where(
-                DocumentationSource.id == source_id,
-            ).values(last_scraped=datetime.now(timezone.utc))
+            stmt = (
+                update(DocumentationSource)
+                .where(
+                    DocumentationSource.id == source_id,
+                )
+                .values(last_scraped=datetime.now(timezone.utc))
+            )
             await session.execute(stmt)
             await session.commit()
 
@@ -1538,23 +2145,32 @@ class DocumentationService:
 
 # Helper functions
 
+
 def _generate_change_recommendations(change_summary: dict[str, Any]) -> list[str]:
     """Generate recommendations based on change analysis."""
     recommendations = []
 
     if change_summary["by_impact"].get("breaking", 0) > 0:
-        recommendations.append("Review breaking changes for potential impact on existing integrations")
+        recommendations.append(
+            "Review breaking changes for potential impact on existing integrations"
+        )
 
     if change_summary["by_type"].get("updated", 0) > 5:
-        recommendations.append("High documentation update activity - consider reviewing for consistency")
+        recommendations.append(
+            "High documentation update activity - consider reviewing for consistency"
+        )
 
     if change_summary["by_type"].get("deleted", 0) > 0:
-        recommendations.append("Documentation deletions detected - verify if related code/links need updates")
+        recommendations.append(
+            "Documentation deletions detected - verify if related code/links need updates"
+        )
 
     return recommendations
 
 
-async def _extract_project_symbols(project_path: str, file_patterns: list[str] | None = None) -> list[dict[str, Any]]:
+async def _extract_project_symbols(
+    project_path: str, file_patterns: list[str] | None = None
+) -> list[dict[str, Any]]:
     """Extract symbols from project code (placeholder for integration with existing analysis)."""
     # This would integrate with existing AgentTreeGraph analysis
     # Placeholder implementation
@@ -1572,13 +2188,20 @@ def _extract_keywords(text: str) -> list[str]:
     """Extract keywords from text for matching."""
     # Simple keyword extraction - could be enhanced with NLP
     import re
+
     words = re.findall(r"\b\w+\b", text.lower())
     # Filter out common words and keep meaningful terms
-    meaningful_words = [w for w in words if len(w) > 3 and w not in ["the", "and", "for", "with", "this", "that"]]
+    meaningful_words = [
+        w
+        for w in words
+        if len(w) > 3 and w not in ["the", "and", "for", "with", "this", "that"]
+    ]
     return list(set(meaningful_words))
 
 
-def _calculate_doc_code_confidence(doc_keywords: list[str], symbol: dict[str, Any]) -> float:
+def _calculate_doc_code_confidence(
+    doc_keywords: list[str], symbol: dict[str, Any]
+) -> float:
     """Calculate confidence score for documentation-code linking."""
     # Simple keyword-based confidence calculation
     symbol_name = symbol["name"].lower()

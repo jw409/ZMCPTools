@@ -182,6 +182,7 @@ class ScraperWorker:
                 selectors=job_params.get('selectors'),
                 allow_patterns=job_params.get('allow_patterns'),
                 ignore_patterns=job_params.get('ignore_patterns'),
+                include_subdomains=job_params.get('include_subdomains', False),
             )
             
             if result.get('success'):

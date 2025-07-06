@@ -14,7 +14,9 @@ DEFAULT_CONFIG = {
         "verbose": False,
         "debug": False,
         "capture_fastmcp_errors": True,
-        "startup_logging": False
+        "startup_logging": False,
+        "terminal_safe": True,  # Use JSON logging to avoid terminal control issues
+        "mcp_mode": "auto"  # "auto", "force", "disable" - auto-detect MCP environment
     },
     "server": {
         "startup_diagnostics": True,
@@ -86,6 +88,8 @@ class McpToolsConfig:
         log_level = self.config["logging"]["level"]
         verbose = self.config["logging"]["verbose"]
         debug = self.config["logging"]["debug"]
+        terminal_safe = self.config["logging"]["terminal_safe"]
+        mcp_mode = self.config["logging"]["mcp_mode"]
         
         # Set log level
         if debug:
@@ -95,17 +99,46 @@ class McpToolsConfig:
         else:
             level = getattr(logging, log_level.upper(), logging.INFO)
         
-        # Configure structlog - ensure logs go to stderr for MCP compatibility
+        # Determine if we're running in MCP environment
+        is_mcp_environment = self._detect_mcp_environment(mcp_mode)
+        
+        # Configure structlog renderer based on environment and settings
         import sys
+        
+        if terminal_safe or is_mcp_environment:
+            # Use JSONRenderer for MCP compatibility - avoids ANSI escape codes that cause terminal issues
+            renderer = structlog.processors.JSONRenderer()
+        else:
+            # Use ConsoleRenderer for direct terminal usage (better for development)
+            renderer = structlog.dev.ConsoleRenderer() if debug or verbose else structlog.processors.JSONRenderer()
+        
         structlog.configure(
             processors=[
                 structlog.processors.TimeStamper(fmt="iso"),
-                structlog.dev.ConsoleRenderer() if debug or verbose else structlog.processors.JSONRenderer(),
+                renderer,
             ],
             wrapper_class=structlog.make_filtering_bound_logger(level),
             logger_factory=structlog.PrintLoggerFactory(file=sys.stderr),  # Force stderr for MCP
             cache_logger_on_first_use=True,
         )
+
+    def _detect_mcp_environment(self, mcp_mode: str) -> bool:
+        """Detect if we're running in an MCP environment like Claude Code."""
+        if mcp_mode == "force":
+            return True
+        elif mcp_mode == "disable":
+            return False
+        elif mcp_mode == "auto":
+            import os
+            # Check for Claude Code environment indicators
+            indicators = [
+                "CLAUDE_CODE" in os.environ,
+                "MCP_SERVER" in os.environ,
+                os.environ.get("_", "").endswith("claude"),
+                "claude" in os.environ.get("TERM_PROGRAM", "").lower(),
+            ]
+            return any(indicators)
+        return False
     
     def update_config(self, **kwargs) -> None:
         """Update configuration and save to file.

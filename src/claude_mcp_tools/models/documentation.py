@@ -3,7 +3,7 @@
 import json
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -24,6 +24,7 @@ class DocumentationSource(Base):
     selectors: Mapped[str | None] = mapped_column(Text)  # JSON object for CSS selectors
     allow_patterns: Mapped[str | None] = mapped_column(Text)  # JSON array of URL patterns to include (allowlist)
     ignore_patterns: Mapped[str | None] = mapped_column(Text)  # JSON array of URL patterns to exclude (blocklist)
+    include_subdomains: Mapped[bool | None] = mapped_column(Boolean, default=False)  # Allow subdomain crawling
     last_scraped: Mapped[datetime | None] = mapped_column(DateTime)
     status: Mapped[DocumentationStatus] = mapped_column(default=DocumentationStatus.NOT_STARTED)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())

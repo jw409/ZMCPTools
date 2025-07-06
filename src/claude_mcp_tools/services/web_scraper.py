@@ -17,8 +17,11 @@ from urllib.parse import urljoin, urlparse
 import structlog
 from fake_useragent import UserAgent
 from patchright.sync_api import sync_playwright
+from patchright.async_api import async_playwright
 from ..database import get_session
 from ..models.documentation import ScrapedUrl
+from ..models import ScrapeJobStatus
+from ..utils.scraper_logger import create_scraper_logger
 
 logger = structlog.get_logger("web_scraper")
 
@@ -41,8 +44,17 @@ class SimpleBrowserManager:
         """Initialize browser with anti-detection features."""
         logger.info("🔧 Initializing patchright browser...", browser_type=self.browser_type)
 
-        # Start patchright playwright
-        self.playwright = await async_playwright().start()
+        try:
+            # Start patchright playwright with browser path validation
+            self.playwright = await async_playwright().start()
+            
+            # Validate browser installation
+            await self._validate_browser_installation()
+            
+        except Exception as e:
+            logger.error("Failed to initialize patchright playwright", error=str(e))
+            await self._handle_browser_installation_error(e)
+            raise
 
         # Base launch options with anti-detection
         base_options = {
@@ -110,6 +122,60 @@ class SimpleBrowserManager:
         # Set up common headers and handlers
         await self._setup_context()
         logger.info("✅ Browser initialized successfully")
+
+    async def _validate_browser_installation(self):
+        """Validate that browsers are properly installed and accessible."""
+        try:
+            # Check if chromium executable exists and is accessible
+            chromium_path = self.playwright.chromium.executable_path
+            logger.info("Browser executable found", path=chromium_path)
+            
+            # Verify the executable exists
+            if not Path(chromium_path).exists():
+                raise FileNotFoundError(f"Chromium executable not found at: {chromium_path}")
+                
+            # Verify it's executable
+            if not Path(chromium_path).is_file():
+                raise PermissionError(f"Chromium executable is not a valid file: {chromium_path}")
+                
+            logger.info("✅ Browser installation validated", executable_path=chromium_path)
+            
+        except Exception as e:
+            logger.error("Browser validation failed", error=str(e))
+            raise
+
+    async def _handle_browser_installation_error(self, error: Exception):
+        """Handle browser installation errors with helpful guidance."""
+        error_msg = str(error)
+        
+        logger.error("=== BROWSER INSTALLATION ERROR ===")
+        logger.error("Error details", error=error_msg)
+        
+        if "chromium" in error_msg.lower() or "browser" in error_msg.lower():
+            logger.error("🔧 Browser Installation Issue Detected")
+            logger.error("   This is likely because patchright browsers need to be installed.")
+            logger.error("   Run this command to install browsers:")
+            logger.error("   uv run python -m patchright install chromium")
+            logger.error("")
+            logger.error("   Or if using the ClaudeMcpTools CLI:")
+            logger.error("   claude-mcp-tools install  # Browsers are auto-installed during setup")
+            
+        elif "path" in error_msg.lower() or "not found" in error_msg.lower():
+            logger.error("🔍 Browser Path Issue Detected") 
+            logger.error("   The browser executable was not found at the expected location.")
+            logger.error("   This may happen if:")
+            logger.error("   1. Browsers were not installed: Run 'uv run python -m patchright install chromium'")
+            logger.error("   2. Installation directory changed: Check ~/.cache/ms-playwright/")
+            logger.error("   3. Permissions issue: Ensure browser executable has proper permissions")
+            
+        else:
+            logger.error("🚨 Unknown Browser Error")
+            logger.error("   Please check:")
+            logger.error("   1. Browser installation: uv run python -m patchright install chromium")
+            logger.error("   2. System requirements: https://playwright.dev/docs/intro")
+            logger.error("   3. WSL compatibility (if using WSL): Extra dependencies may be needed")
+            
+        logger.error("=== END BROWSER ERROR DETAILS ===")
 
     async def _setup_context(self):
         """Set up context with common headers and handlers."""
@@ -596,6 +662,7 @@ class DocumentationScraper(SimpleBrowserManager, NavigationMixin, InteractionMix
         super().__init__(**kwargs)
         self.scraped_urls = set()
         self.failed_urls = set()
+        self.file_logger = None  # Will be initialized when scraping starts
 
     async def scrape_documentation_source(
         self,
@@ -605,10 +672,18 @@ class DocumentationScraper(SimpleBrowserManager, NavigationMixin, InteractionMix
         selectors: dict[str, str] | None = None,
         allow_patterns: list[str] | None = None,
         ignore_patterns: list[str] | None = None,
+        include_subdomains: bool = False,
         progress_callback = None,
     ) -> dict[str, Any]:
         """Scrape documentation from a source with crawling."""
-        logger.info("🚀 Starting documentation scraping", url=base_url, depth=crawl_depth)
+        # Initialize file logger for this scraping session
+        job_id = str(uuid.uuid4())[:8]
+        self.file_logger = create_scraper_logger(job_id, base_url)
+        self.file_logger.log_job_start(crawl_depth, allow_patterns, ignore_patterns)
+        
+        logger.info("🚀 Starting documentation scraping", url=base_url, depth=crawl_depth, job_id=job_id)
+        
+        start_time = time.time()
 
         try:
             # Initialize browser if not already done
@@ -645,6 +720,7 @@ class DocumentationScraper(SimpleBrowserManager, NavigationMixin, InteractionMix
 
                 # Check allow patterns first (allowlist) - if specified, URL must match at least one
                 if allow_patterns and not any(re.search(pattern, url) for pattern in allow_patterns):
+                    self.file_logger.log_url_filtering(url, "FILTERED", "doesn't match allow patterns")
                     logger.debug("Skipping URL - doesn't match allow patterns", url=url, patterns=allow_patterns)
                     if ctx and getattr(ctx, '_background_mode', False) is False:
                         try:
@@ -655,6 +731,7 @@ class DocumentationScraper(SimpleBrowserManager, NavigationMixin, InteractionMix
 
                 # Check ignore patterns (blocklist) - applied after allow patterns
                 if ignore_patterns and any(re.search(pattern, url) for pattern in ignore_patterns):
+                    self.file_logger.log_url_filtering(url, "FILTERED", "matches ignore pattern")
                     logger.debug("Skipping URL due to ignore pattern", url=url, patterns=ignore_patterns)
                     if ctx and getattr(ctx, '_background_mode', False) is False:
                         try:
@@ -683,12 +760,20 @@ class DocumentationScraper(SimpleBrowserManager, NavigationMixin, InteractionMix
                     except Exception as callback_error:
                         logger.warning("Progress callback failed", error=str(callback_error))
                 
+                self.file_logger.log_url_filtering(url, "ALLOWED", "passed all filters")
                 entry_data = await self._scrape_single_url(url, selectors)
                 if entry_data:
                     scraped_entries.append(entry_data)
                     self.scraped_urls.add(url)
                     
                     title = entry_data.get("title", "Untitled")[:50]
+                    content_length = len(entry_data.get("content", ""))
+                    links_found = len(entry_data.get("links", []))
+                    
+                    self.file_logger.log_page_processing_complete(
+                        url, True, content_length, links_found, depth
+                    )
+                    
                     if ctx and getattr(ctx, '_background_mode', False) is False:
                         try:
                             await ctx.info(f"✅ Successfully scraped: {title}")
@@ -710,7 +795,10 @@ class DocumentationScraper(SimpleBrowserManager, NavigationMixin, InteractionMix
 
                     # Add internal links for deeper crawling if within depth limit
                     if depth < crawl_depth:
-                        internal_links = self._filter_internal_links(entry_data.get("links", []), base_url)
+                        all_discovered_links = entry_data.get("links", [])
+                        self.file_logger.log_url_discovery(url, all_discovered_links)
+                        
+                        internal_links = self._filter_internal_links(all_discovered_links, base_url, include_subdomains)
                         new_links_count = 0
                         for link in internal_links:
                             if link not in self.scraped_urls and link not in self.failed_urls:
@@ -726,6 +814,7 @@ class DocumentationScraper(SimpleBrowserManager, NavigationMixin, InteractionMix
                                 logger.debug("Context logging failed", error=str(ctx_error))
                 else:
                     self.failed_urls.add(url)
+                    self.file_logger.log_page_processing_complete(url, False, depth=depth)
                     if ctx and getattr(ctx, '_background_mode', False) is False:
                         try:
                             await ctx.error(f"❌ Failed to scrape: {url}")
@@ -734,6 +823,8 @@ class DocumentationScraper(SimpleBrowserManager, NavigationMixin, InteractionMix
 
                 # Update progress - pages processed vs current total discovered
                 pages_processed += 1
+                self.file_logger.log_job_progress(pages_processed, total_discovered, len(urls_to_scrape))
+                
                 if ctx and getattr(ctx, '_background_mode', False) is False:
                     # Use current progress vs total discovered, capped to not exceed the range 50-80
                     # (leaving room for post-processing in the parent function)
@@ -746,8 +837,14 @@ class DocumentationScraper(SimpleBrowserManager, NavigationMixin, InteractionMix
                         logger.debug("Context progress reporting failed", error=str(ctx_error))
 
                 # Add delay between requests
-                await asyncio.sleep(random.uniform(1, 3))
+                await asyncio.sleep(random.uniform(0.5, 1.5))
 
+            # Log job completion
+            duration = time.time() - start_time
+            self.file_logger.log_job_completion(
+                True, len(scraped_entries), len(self.failed_urls), duration
+            )
+            
             logger.info(
                 "✅ Documentation scraping completed",
                 total_scraped=len(scraped_entries),
@@ -764,6 +861,14 @@ class DocumentationScraper(SimpleBrowserManager, NavigationMixin, InteractionMix
             }
 
         except Exception as e:
+            # Log job failure
+            duration = time.time() - start_time
+            if self.file_logger:
+                self.file_logger.log_job_completion(
+                    False, len(scraped_entries) if 'scraped_entries' in locals() else 0, 
+                    len(self.failed_urls), duration, str(e)
+                )
+            
             logger.error("❌ Documentation scraping failed", error=str(e))
             return {
                 "success": False,
@@ -772,6 +877,10 @@ class DocumentationScraper(SimpleBrowserManager, NavigationMixin, InteractionMix
                 "entries_failed": 0,
                 "entries": [],
             }
+        finally:
+            # Clean up file logger
+            if self.file_logger:
+                self.file_logger.close()
 
     async def _scrape_single_url(self, url: str, selectors: dict[str, str] | None = None) -> dict[str, Any] | None:
         """Scrape a single URL and return structured data."""
@@ -857,16 +966,16 @@ class DocumentationScraper(SimpleBrowserManager, NavigationMixin, InteractionMix
         
         return regex_pattern
 
-    def _filter_internal_links(self, links: list[str], base_url: str) -> list[str]:
-        """Filter links to only include internal ones."""
+    def _filter_internal_links(self, links: list[str], base_url: str, include_subdomains: bool = False) -> list[str]:
+        """Filter links to only include internal ones with subdomain control."""
         base_domain = urlparse(base_url).netloc
         internal_links = []
 
         for link in links:
             try:
                 parsed = urlparse(link)
-                # Include if same domain or relative URL
-                if parsed.netloc == base_domain or not parsed.netloc:
+                # Include if same domain, subdomain (if allowed), or relative URL
+                if self._is_allowed_domain(parsed.netloc, base_domain, include_subdomains) or not parsed.netloc:
                     # Convert relative to absolute
                     if not parsed.netloc:
                         link = urljoin(base_url, link)
@@ -875,6 +984,21 @@ class DocumentationScraper(SimpleBrowserManager, NavigationMixin, InteractionMix
                 continue
 
         return list(set(internal_links))  # Remove duplicates
+    
+    def _is_allowed_domain(self, url_domain: str, base_domain: str, include_subdomains: bool) -> bool:
+        """Check if a domain is allowed based on subdomain policy."""
+        if not url_domain:
+            return False
+        
+        # Exact domain match is always allowed
+        if url_domain == base_domain:
+            return True
+        
+        # Subdomain check only if explicitly enabled
+        if include_subdomains and url_domain.endswith(f'.{base_domain}'):
+            return True
+            
+        return False
 
 
 class ThreadPoolDocumentationScraper:
@@ -888,6 +1012,7 @@ class ThreadPoolDocumentationScraper:
     def __init__(self, max_concurrent_browsers: int = 2):
         self.executor = ThreadPoolExecutor(max_workers=max_concurrent_browsers)
         self.active_jobs = {}  # Direct tracking without complex queues
+        self._file_loggers = {}  # Track file loggers per job
         
     def _convert_pattern_to_regex(self, pattern: str) -> str:
         """Convert glob pattern to regex pattern or return regex as-is.
@@ -1006,10 +1131,21 @@ class ThreadPoolDocumentationScraper:
                     session.add_all(scraped_url_records)
                     await session.commit()
                     
+                    # Log to file logger if available
+                    if source_id in self._file_loggers:
+                        self._file_loggers[source_id].log_database_operation(
+                            "save_urls", True, f"saved {len(scraped_url_records)} URLs"
+                        )
+                    
                     logger.info("💾 Saved scraped URLs to database",
                                count=len(scraped_url_records))
                 
         except Exception as e:
+            # Log database failure
+            if source_id in self._file_loggers:
+                self._file_loggers[source_id].log_database_operation(
+                    "save_urls", False, str(e)
+                )
             logger.warning("Failed to save scraped URLs to database", error=str(e))
         
     async def scrape_documentation(
@@ -1021,6 +1157,7 @@ class ThreadPoolDocumentationScraper:
         batch_size: int = 20,
         allow_patterns: list[str] | None = None,
         ignore_patterns: list[str] | None = None,
+        include_subdomains: bool = False,
     ) -> dict[str, Any]:
         """Scrape documentation using single-page navigation with unlimited link discovery.
         
@@ -1032,6 +1169,7 @@ class ThreadPoolDocumentationScraper:
             batch_size: Number of URLs to process per batch
             allow_patterns: URL patterns to include (allowlist)
             ignore_patterns: URL patterns to skip (blocklist)
+            include_subdomains: Include subdomains when filtering internal links for crawling
             
         Returns:
             Dictionary with scraping results and metadata
@@ -1039,9 +1177,14 @@ class ThreadPoolDocumentationScraper:
         logger.info("🚀 Starting ThreadPool documentation scraping", 
                    url=url, source_id=source_id, crawl_depth=crawl_depth)
         
+        # Initialize file logger for this job
+        file_logger = create_scraper_logger(source_id, url)
+        self._file_loggers[source_id] = file_logger
+        file_logger.log_job_start(crawl_depth, allow_patterns, ignore_patterns)
+        
         # Track job start
         self.active_jobs[source_id] = {
-            "status": "in_progress",
+            "status": ScrapeJobStatus.IN_PROGRESS.value,
             "url": url,
             "start_time": datetime.now(timezone.utc),
             "pages_processed": 0
@@ -1061,11 +1204,22 @@ class ThreadPoolDocumentationScraper:
                 crawl_depth,
                 batch_size,
                 allow_patterns,
-                ignore_patterns
+                ignore_patterns,
+                include_subdomains
             )
             
+            # Log job completion and cleanup
+            if source_id in self._file_loggers:
+                duration = (datetime.now(timezone.utc) - self.active_jobs[source_id]["start_time"]).total_seconds()
+                self._file_loggers[source_id].log_job_completion(
+                    True, result.get("pages_scraped", 0), 
+                    len(result.get("failed_urls", [])), duration
+                )
+                self._file_loggers[source_id].close()
+                del self._file_loggers[source_id]
+            
             # Update job tracking
-            self.active_jobs[source_id]["status"] = "completed"
+            self.active_jobs[source_id]["status"] = ScrapeJobStatus.COMPLETED.value
             self.active_jobs[source_id]["end_time"] = datetime.now(timezone.utc)
             
             logger.info("✅ ThreadPool documentation scraping completed", 
@@ -1074,8 +1228,17 @@ class ThreadPoolDocumentationScraper:
             return result
             
         except Exception as e:
+            # Log job failure and cleanup
+            if source_id in self._file_loggers:
+                duration = (datetime.now(timezone.utc) - self.active_jobs[source_id]["start_time"]).total_seconds()
+                self._file_loggers[source_id].log_job_completion(
+                    False, 0, 0, duration, str(e)
+                )
+                self._file_loggers[source_id].close()
+                del self._file_loggers[source_id]
+            
             # Update job tracking
-            self.active_jobs[source_id]["status"] = "failed"
+            self.active_jobs[source_id]["status"] = ScrapeJobStatus.FAILED.value
             self.active_jobs[source_id]["error"] = str(e)
             self.active_jobs[source_id]["end_time"] = datetime.now(timezone.utc)
             
@@ -1099,6 +1262,7 @@ class ThreadPoolDocumentationScraper:
         batch_size: int,
         allow_patterns: list[str] | None,
         ignore_patterns: list[str] | None,
+        include_subdomains: bool,
     ) -> dict[str, Any]:
         """Browser worker function that runs in separate thread with isolated event loop.
         
@@ -1284,6 +1448,12 @@ class ThreadPoolDocumentationScraper:
                                             if enhanced_ignore_patterns and should_add:
                                                 converted_ignore = [self._convert_pattern_to_regex(pattern) for pattern in enhanced_ignore_patterns]
                                                 if any(re.search(regex_pattern, link) for regex_pattern in converted_ignore):
+                                                    should_add = False
+                                            
+                                            # Check domain filtering with include_subdomains
+                                            if should_add:
+                                                internal_links = self._filter_internal_links([link], url, include_subdomains)
+                                                if not internal_links:
                                                     should_add = False
                                             
                                             if should_add:
@@ -1602,24 +1772,79 @@ class ThreadPoolDocumentationScraper:
         
         return content_data
     
-    def _filter_internal_links(self, links: list[str], base_url: str) -> list[str]:
-        """Filter links to only include internal ones."""
+    def _filter_internal_links(self, links: list[str], base_url: str, include_subdomains: bool = False) -> list[str]:
+        """Filter links to only include internal ones with subdomain control and navigation tracking."""
         base_domain = urlparse(base_url).netloc
         internal_links = []
+        current_url = base_url  # Track current URL for navigation state
+        last_good_url = base_url  # Track last successful URL for recovery
+        
+        logger.debug("🔍 Filtering internal links", 
+                    total_links=len(links), 
+                    base_domain=base_domain, 
+                    include_subdomains=include_subdomains,
+                    current_url=current_url)
         
         for link in links:
             try:
                 parsed = urlparse(link)
-                # Include if same domain or relative URL
-                if parsed.netloc == base_domain or not parsed.netloc:
+                # Include if same domain, subdomain (if allowed), or relative URL
+                if self._is_allowed_domain(parsed.netloc, base_domain, include_subdomains) or not parsed.netloc:
                     # Convert relative to absolute
                     if not parsed.netloc:
                         link = urljoin(base_url, link)
                     internal_links.append(link)
-            except Exception:
+                    
+                    # Log domain filtering decisions for debugging
+                    if parsed.netloc and parsed.netloc != base_domain:
+                        logger.debug("✅ Allowed subdomain link", 
+                                   link=link, 
+                                   domain=parsed.netloc, 
+                                   base_domain=base_domain)
+                elif parsed.netloc:
+                    logger.debug("❌ Filtered external domain", 
+                               link=link, 
+                               domain=parsed.netloc, 
+                               base_domain=base_domain)
+            except Exception as e:
+                logger.debug("⚠️ Invalid URL during filtering", 
+                           link=link, 
+                           error=str(e),
+                           last_good_url=last_good_url)
                 continue
         
-        return list(set(internal_links))  # Remove duplicates
+        unique_internal_links = list(set(internal_links))  # Remove duplicates
+        logger.debug("🎯 Internal link filtering complete", 
+                    filtered_count=len(unique_internal_links), 
+                    original_count=len(links))
+        
+        return unique_internal_links
+    
+    def _is_allowed_domain(self, url_domain: str, base_domain: str, include_subdomains: bool) -> bool:
+        """Check if a domain is allowed based on subdomain policy with enhanced navigation tracking."""
+        if not url_domain:
+            return False
+        
+        # Exact domain match is always allowed
+        if url_domain == base_domain:
+            logger.debug("✅ Exact domain match", 
+                        url_domain=url_domain, 
+                        base_domain=base_domain)
+            return True
+        
+        # Subdomain check only if explicitly enabled
+        if include_subdomains and url_domain.endswith(f'.{base_domain}'):
+            logger.debug("✅ Subdomain allowed", 
+                        url_domain=url_domain, 
+                        base_domain=base_domain, 
+                        include_subdomains=include_subdomains)
+            return True
+        
+        logger.debug("❌ Domain not allowed", 
+                    url_domain=url_domain, 
+                    base_domain=base_domain, 
+                    include_subdomains=include_subdomains)
+        return False
     
     def get_job_status(self, source_id: str) -> dict[str, Any] | None:
         """Get current status of a scraping job."""
@@ -1644,10 +1869,27 @@ class ThreadPoolDocumentationScraper:
     async def shutdown(self):
         """Gracefully shutdown the ThreadPoolExecutor."""
         logger.info("🔧 Shutting down ThreadPoolExecutor...")
+        
+        # Close any remaining file loggers
+        for source_id, file_logger in self._file_loggers.items():
+            try:
+                file_logger.close()
+            except Exception:
+                pass
+        self._file_loggers.clear()
+        
         self.executor.shutdown(wait=True)
         logger.info("✅ ThreadPoolExecutor shutdown completed")
 
 
 # Global instance for use by FastMCP tools
 thread_pool_scraper = ThreadPoolDocumentationScraper()
+
+# Set up log cleanup on module import
+import atexit
+from ..utils.scraper_logger import ScraperFileLogger
+
+# Clean up old logs at startup and register cleanup on exit
+ScraperFileLogger.cleanup_old_logs(days_to_keep=7)
+atexit.register(lambda: ScraperFileLogger.cleanup_old_logs(days_to_keep=7))
 

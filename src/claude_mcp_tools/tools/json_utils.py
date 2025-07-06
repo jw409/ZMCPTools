@@ -17,7 +17,7 @@ def parse_json_list(param_value: str | list[str] | None, param_name: str) -> Any
     if param_value is None or isinstance(param_value, list):
         return param_value
     
-    if isinstance(param_value, str) and "[" in param_value:
+    if isinstance(param_value, str) and param_value.strip().startswith("["):
         try:
             json_parsed = json.loads(param_value)
             if isinstance(json_parsed, list):
@@ -44,7 +44,7 @@ def parse_json_dict(param_value: str | dict[str, Any] | None, param_name: str) -
     if param_value is None or isinstance(param_value, dict):
         return param_value
     
-    if isinstance(param_value, str) and "{" in param_value:
+    if isinstance(param_value, str) and param_value.strip().startswith("{"):
         try:
             json_parsed = json.loads(param_value)
             if isinstance(json_parsed, dict):

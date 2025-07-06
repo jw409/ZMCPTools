@@ -8,6 +8,7 @@ from fastmcp import Context
 from pydantic import Field
 
 from ..services.documentation_service import DocumentationService
+from ..models import ScrapeJobStatus, DocumentationStatus
 from .json_utils import parse_json_list, parse_json_dict, check_parsing_error
 from .app import app
 
@@ -109,6 +110,12 @@ async def scrape_documentation(
             default=None,
         ),
     ] = None,
+    include_subdomains: Annotated[
+        bool,
+        Field(
+            description="Include subdomains when filtering internal links for crawling",
+        ),
+    ] = False,
 ) -> dict[str, Any]:
     """Scrape and index documentation from websites."""
     logger.info("DEBUG: scrape_documentation function called", source_name=source_name, url=url)
@@ -228,6 +235,7 @@ async def scrape_documentation(
             selectors=final_selectors,
             allow_patterns=final_allow_patterns,
             ignore_patterns=final_ignore_patterns,
+            include_subdomains=include_subdomains,
         )
 
         if not source_result.get("success"):
@@ -638,7 +646,7 @@ async def get_scraping_status(
             return {
                 "success": True,
                 "source_id": source_id,
-                "status": "in_progress",
+                "status": ScrapeJobStatus.IN_PROGRESS.value,
                 "message": "Documentation scraping is currently running",
                 "source_name": source.name,
                 "url": source.url,
@@ -724,7 +732,7 @@ async def watch_scraping_progress(
                 break
             await asyncio.sleep(1)  # Check every second
         
-        final_status = "completed" if not doc_service.is_scraping_running(source_id) else "still_running"
+        final_status = ScrapeJobStatus.COMPLETED.value if not doc_service.is_scraping_running(source_id) else "still_running"
         
         try:
             await ctx.info(f"⏰ Watch period ended. Status: {final_status}")

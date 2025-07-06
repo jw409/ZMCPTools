@@ -17,10 +17,14 @@ from typing import Any
 
 import structlog
 import uvloop
+import warnings
 from mcp.types import PromptMessage, TextContent
 
 # Install uvloop for 2x+ performance boost
-uvloop.install()
+# Suppress deprecation warning when running as MCP server to avoid stderr noise
+with warnings.catch_warnings():
+    warnings.filterwarnings("ignore", category=DeprecationWarning, module="uvloop")
+    uvloop.install()
 
 # Import configuration system first to set up logging
 from .config import config
@@ -1320,6 +1324,186 @@ async def get_system_health() -> dict[str, Any]:
         return {"error": f"Failed to get system health: {e}"}
 
 
+@app.resource("documentation-sources://list",
+             name="Documentation Sources List",
+             description="List all available documentation sources with metadata")
+async def get_documentation_sources_list() -> dict[str, Any]:
+    """Expose all documentation sources as a readable resource."""
+    try:
+        from .services.documentation_service import DocumentationService
+
+        sources = await DocumentationService.list_documentation_sources()
+        
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "total_sources": len(sources),
+            "sources": sources,
+        }
+
+    except Exception as e:
+        logger.error("Error listing documentation sources", error=str(e))
+        return {"error": f"Failed to list documentation sources: {e}"}
+
+
+@app.resource("documentation-sources://{source_id}",
+             name="Documentation Source Details",
+             description="Detailed information about a specific documentation source")
+async def get_documentation_source_details(source_id: str) -> dict[str, Any]:
+    """Expose specific documentation source details as a readable resource."""
+    try:
+        from .services.documentation_service import DocumentationService
+
+        source = await DocumentationService.get_documentation_source(source_id)
+        
+        if not source:
+            return {
+                "source_id": source_id,
+                "status": "not_found",
+                "error": "Documentation source not found",
+            }
+
+        # Get additional statistics
+        stats = await DocumentationService.get_documentation_stats()
+        
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source_id": source_id,
+            "source_details": source,
+            "system_stats": {
+                "total_sources": stats.get("total_sources", 0),
+                "total_entries": stats.get("total_entries", 0),
+                "total_embeddings": stats.get("total_embeddings", 0),
+            },
+        }
+
+    except Exception as e:
+        logger.error("Error getting documentation source details", source_id=source_id, error=str(e))
+        return {"error": f"Failed to get documentation source details: {e}"}
+
+
+@app.resource("documentation-sources://{source_id}/status",
+             name="Documentation Source Scraping Status",
+             description="Real-time scraping status and progress for a documentation source")
+async def get_documentation_source_status(source_id: str) -> dict[str, Any]:
+    """Expose documentation source scraping status as a readable resource."""
+    try:
+        from .services.documentation_service import DocumentationService
+
+        # Initialize service to get scraping status
+        doc_service = DocumentationService()
+        await doc_service.initialize()
+        
+        try:
+            # Get comprehensive scraping status
+            status = await doc_service.get_scraping_status(source_id)
+            
+            # Get source details for additional context
+            source_details = await DocumentationService.get_documentation_source(source_id)
+            
+            if not source_details:
+                return {
+                    "source_id": source_id,
+                    "status": "not_found",
+                    "error": "Documentation source not found",
+                }
+
+            return {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "source_id": source_id,
+                "source_name": source_details.get("name"),
+                "source_url": source_details.get("url"),
+                "last_scraped": source_details.get("last_scraped"),
+                "source_status": source_details.get("status"),
+                "scraping_status": status,
+            }
+            
+        finally:
+            await doc_service.cleanup()
+
+    except Exception as e:
+        logger.error("Error getting documentation source status", source_id=source_id, error=str(e))
+        return {"error": f"Failed to get documentation source status: {e}"}
+
+
+@app.resource("documentation-sources://{source_id}/entries",
+             name="Documentation Source Entries",
+             description="Documentation entries and content for a specific source")
+async def get_documentation_source_entries(source_id: str) -> dict[str, Any]:
+    """Expose documentation entries for a specific source as a readable resource."""
+    try:
+        from .database import execute_query
+        from .models import DocumentationEntry, DocumentationSource
+        from sqlalchemy import select, func
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from sqlalchemy.orm import selectinload
+
+        async def _get_source_entries(session: AsyncSession):
+            # First verify the source exists
+            source_stmt = select(DocumentationSource).where(
+                DocumentationSource.id == source_id
+            )
+            source_result = await session.execute(source_stmt)
+            source = source_result.scalar_one_or_none()
+            
+            if not source:
+                return {
+                    "source_id": source_id,
+                    "status": "not_found",
+                    "error": "Documentation source not found",
+                }
+
+            # Get entries for this source
+            entries_stmt = select(DocumentationEntry).where(
+                DocumentationEntry.source_id == source_id
+            ).options(
+                selectinload(DocumentationEntry.source)
+            ).order_by(
+                DocumentationEntry.last_updated.desc()
+            ).limit(100)  # Limit to prevent large responses
+            
+            entries_result = await session.execute(entries_stmt)
+            entries = entries_result.scalars().all()
+
+            # Count total entries
+            count_stmt = select(func.count(DocumentationEntry.id)).where(
+                DocumentationEntry.source_id == source_id
+            )
+            count_result = await session.execute(count_stmt)
+            total_entries = count_result.scalar() or 0
+
+            # Format entries
+            entry_list = []
+            for entry in entries:
+                entry_list.append({
+                    "id": entry.id,
+                    "title": entry.title,
+                    "url": entry.url,
+                    "content_preview": entry.content[:200] + "..." if len(entry.content) > 200 else entry.content,
+                    "content_length": len(entry.content),
+                    "section_type": entry.section_type.value,
+                    "extracted_at": entry.extracted_at.isoformat() if entry.extracted_at else None,
+                    "last_updated": entry.last_updated.isoformat() if entry.last_updated else None,
+                    "content_hash": entry.content_hash,
+                })
+
+            return {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "source_id": source_id,
+                "source_name": source.name,
+                "source_url": source.url,
+                "total_entries": total_entries,
+                "entries_returned": len(entry_list),
+                "entries_limit": 100,
+                "entries": entry_list,
+            }
+
+        return await execute_query(_get_source_entries)
+
+    except Exception as e:
+        logger.error("Error getting documentation source entries", source_id=source_id, error=str(e))
+        return {"error": f"Failed to get documentation source entries: {e}"}
+
+
 # Register all tools when the module is imported
 # Tools are automatically registered via imports at module load time
 
@@ -1555,11 +1739,51 @@ def main():
             logger.info("Starting FastMCP server...")
             
         try:
+            # Enhanced error isolation for app.run() to prevent worker crashes from breaking stdio communication
             app.run()
         except Exception as e:
-            # This catches RUNTIME crashes that happen after server startup
-            _handle_runtime_crash(e)
-            sys.exit(1)
+            # Enhanced error handling: isolate worker process errors from main stdio communication
+            error_type = type(e).__name__
+            error_msg = str(e)
+            
+            # Check if this is a worker-related or subprocess error that shouldn't break main server
+            worker_related_errors = [
+                "BrokenResourceError",  # anyio stream issues
+                "ConnectionResetError", # Network/process connection issues
+                "subprocess.CalledProcessError",  # Worker process failures
+                "TimeoutError",  # Worker timeouts
+                "OSError",  # File/system issues in workers
+            ]
+            
+            is_worker_error = any(err in error_type or err in error_msg for err in worker_related_errors)
+            
+            if is_worker_error:
+                logger.error("Worker process error detected - attempting graceful recovery", 
+                           error_type=error_type, error_msg=error_msg[:200])
+                
+                # Try to restart/recover the server instead of crashing
+                try:
+                    logger.info("Attempting server recovery after worker error...")
+                    # Give a brief moment for cleanup
+                    import time
+                    time.sleep(1)
+                    
+                    # Restart the server (this will restart the main process)
+                    logger.info("Restarting server after worker error recovery attempt...")
+                    app.run()
+                    
+                except Exception as recovery_error:
+                    logger.error("Server recovery failed", 
+                               original_error=error_msg[:200],
+                               recovery_error=str(recovery_error)[:200])
+                    _handle_runtime_crash(e)
+                    sys.exit(1)
+            else:
+                # This catches OTHER RUNTIME crashes that happen after server startup
+                logger.error("Non-worker runtime error - performing full crash handling",
+                           error_type=error_type, error_msg=error_msg[:200])
+                _handle_runtime_crash(e)
+                sys.exit(1)
         
     except KeyboardInterrupt:
         logger.info("Server shutdown requested by user")

@@ -287,6 +287,26 @@ async def logging_example(message: str, ctx: Context) -> dict[str, Any]:
 
 FastMCP provides flexible transport options for different deployment scenarios:
 
+### ⚠️ Important Configuration Notes
+
+**Deprecated Parameters**: As of recent FastMCP versions, several constructor parameters are deprecated:
+- `stateless_http`: Should be passed to `run()` method or set globally instead
+- Server configuration should be done through `fastmcp.settings` rather than constructor
+
+**Current Best Practices**:
+```python
+# ❌ Deprecated - don't do this
+app = FastMCP(stateless_http=True, host="0.0.0.0")
+
+# ✅ Recommended - do this instead  
+app = FastMCP("MyServer")
+app.run(transport="http", stateless_http=True, host="0.0.0.0")
+
+# Or configure globally
+import fastmcp
+fastmcp.settings.stateless_http = True
+```
+
 ### Transport Inference
 
 FastMCP automatically determines the connection method based on input:
@@ -379,16 +399,25 @@ client = Client(config)
 
 ### UVX Transport Considerations
 
-When running in uvx tool mode, FastMCP can use UVX Stdio transport:
+When running in uvx tool mode, FastMCP can use UVX Stdio transport for **client connections**:
+
+**Note**: UVX transport is typically used when creating a **client** that connects to a UVX-packaged server, not when **running** the server itself. For ClaudeMcpTools:
+
+- **Server Side**: Uses default stdio transport (handled by Claude Code launcher)
+- **Client Side**: Can use UVX transport when connecting to ClaudeMcpTools from other applications
 
 ```python
-# UVX-specific configuration
+# UVX-specific CLIENT configuration (for connecting TO ClaudeMcpTools)
 client = Client(
     "uvx://claude-mcp-tools",
     args=["--debug"],  # Additional uvx arguments
     env={"MCPTOOLS_DEBUG": "1"},  # Environment variables
     keep_alive=True  # Maintain connection
 )
+
+# SERVER configuration (ClaudeMcpTools itself) - uses stdio by default
+app = FastMCP("ClaudeMcpTools Orchestration Server")
+app.run()  # Uses stdio transport automatically when called by Claude Code
 ```
 
 **Key Benefits for UVX Mode:**
