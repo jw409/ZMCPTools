@@ -1036,12 +1036,10 @@ class ThreadPoolDocumentationScraper:
                             logger.info("✅ Successfully scraped page", 
                                        url=current_url, title=entry["title"][:50])
                             
-                            # Extract and queue internal links for next depth level
+                            # Queue ALL discovered links for next depth level (no filtering)
                             if depth < crawl_depth:
-                                internal_links = self._filter_internal_links(
-                                    content_data.get("links", []), url
-                                )
-                                for link in internal_links:  # No limit - URL deduplication handles efficiency
+                                discovered_links = content_data.get("links", [])
+                                for link in discovered_links:  # Process ALL links - no filtering
                                     if link not in scraped_urls:
                                         urls_to_scrape.append((link, depth + 1))
                             
@@ -1214,25 +1212,64 @@ class ThreadPoolDocumentationScraper:
             # Extract links using JavaScript evaluation to handle React/SPA apps
             content_data["links"] = []
             
-            # Use evaluate to get href values that JavaScript has set
-            extracted_hrefs = await page.evaluate("""
-                () => {
-                    const links = Array.from(document.querySelectorAll('a'));
-                    return links.map(link => ({
-                        href: link.href,
-                        text: link.textContent?.trim() || ''
-                    })).filter(link => link.href && link.href.trim());
-                }
-            """)
+            # Get ALL link elements and extract ALL attributes comprehensively
+            all_links = await page.query_selector_all("a")
+            logger.info("🔗 Extracting links comprehensively", total_links=len(all_links))
             
-            print(f"🔗 Found {len(extracted_hrefs)} valid links via evaluate")
+            all_discovered_links = []
             
-            for link_data in extracted_hrefs:
-                href = link_data['href']
-                if href and href.strip():
-                    content_data["links"].append(href)
+            for link in all_links:
+                try:
+                    # Extract ALL attributes from each link element
+                    attributes = await link.evaluate("""
+                        (element) => {
+                            const attrs = {};
+                            for (let i = 0; i < element.attributes.length; i++) {
+                                const attr = element.attributes[i];
+                                attrs[attr.name] = attr.value;
+                            }
+                            attrs.textContent = element.textContent?.trim() || '';
+                            return attrs;
+                        }
+                    """)
+                    
+                    # Check ALL attributes for potential URLs
+                    potential_urls = []
+                    
+                    # Primary href
+                    if attributes.get("href"):
+                        potential_urls.append(attributes["href"])
+                    
+                    # Data attributes that might contain URLs
+                    for attr_name, attr_value in attributes.items():
+                        if attr_value and isinstance(attr_value, str):
+                            # Look for URL-like patterns in any attribute
+                            if (attr_name.startswith('data-') and 
+                                ('/' in attr_value or 'http' in attr_value)):
+                                potential_urls.append(attr_value)
+                    
+                    # Add all discovered URLs
+                    for url in potential_urls:
+                        if url and url.strip():
+                            # Convert relative URLs to absolute
+                            if url.startswith('/'):
+                                absolute_url = urljoin(page.url, url)
+                                all_discovered_links.append(absolute_url)
+                            elif url.startswith('http'):
+                                all_discovered_links.append(url)
+                            elif url.startswith('#'):
+                                # Hash-based routing on same page
+                                absolute_url = urljoin(page.url, url)
+                                all_discovered_links.append(absolute_url)
+                
+                except Exception as e:
+                    # Skip this link if there's an error
+                    continue
             
-            print(f"🔗 Total links extracted: {len(content_data['links'])}")
+            # Remove duplicates but keep ALL discovered links (no filtering)
+            content_data["links"] = list(set(all_discovered_links))
+            logger.info("🎯 Comprehensive link extraction complete", 
+                       total_discovered=len(content_data["links"]))
             
             # Extract code examples
             code_elements = await page.query_selector_all("code, pre, .highlight, .code")
