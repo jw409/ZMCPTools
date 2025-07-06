@@ -22,7 +22,8 @@ class DocumentationSource(Base):
     crawl_depth: Mapped[int] = mapped_column(Integer, default=3)
     update_frequency: Mapped[UpdateFrequency] = mapped_column(default=UpdateFrequency.DAILY)
     selectors: Mapped[str | None] = mapped_column(Text)  # JSON object for CSS selectors
-    ignore_patterns: Mapped[str | None] = mapped_column(Text)  # JSON array of URL patterns
+    allow_patterns: Mapped[str | None] = mapped_column(Text)  # JSON array of URL patterns to include (allowlist)
+    ignore_patterns: Mapped[str | None] = mapped_column(Text)  # JSON array of URL patterns to exclude (blocklist)
     last_scraped: Mapped[datetime | None] = mapped_column(DateTime)
     status: Mapped[str] = mapped_column(String, default="active")  # active, paused, error
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
@@ -44,6 +45,19 @@ class DocumentationSource(Base):
     def set_selectors(self, selectors: dict) -> None:
         """Set selectors from a dictionary."""
         self.selectors = json.dumps(selectors) if selectors else None
+
+    def get_allow_patterns(self) -> list[str]:
+        """Get allow patterns as a list."""
+        if not self.allow_patterns:
+            return []
+        try:
+            return json.loads(self.allow_patterns)
+        except (json.JSONDecodeError, TypeError):
+            return []
+
+    def set_allow_patterns(self, patterns: list[str]) -> None:
+        """Set allow patterns from a list."""
+        self.allow_patterns = json.dumps(patterns) if patterns else None
 
     def get_ignore_patterns(self) -> list[str]:
         """Get ignore patterns as a list."""
@@ -201,3 +215,68 @@ class DocumentationChange(Base):
 
     # Relationships
     entry: Mapped["DocumentationEntry"] = relationship("DocumentationEntry", back_populates="changes")
+
+
+class ScrapedUrl(Base):
+    """Cached scraped URLs with normalized URLs to prevent duplicate scraping."""
+
+    __tablename__ = "scraped_urls"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    normalized_url: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    original_url: Mapped[str] = mapped_column(String, nullable=False)
+    source_id: Mapped[str] = mapped_column(String, ForeignKey("documentation_sources.id"), nullable=False)
+    content_hash: Mapped[str | None] = mapped_column(String)  # Hash of scraped content for change detection
+    last_scraped: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    scrape_count: Mapped[int] = mapped_column(Integer, default=1)
+    last_status_code: Mapped[int | None] = mapped_column(Integer)  # HTTP status code
+    last_error: Mapped[str | None] = mapped_column(Text)  # Last error message if any
+    skip_until: Mapped[datetime | None] = mapped_column(DateTime)  # Skip scraping until this time (for rate limiting)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), onupdate=func.now())
+
+    # Relationships
+    source: Mapped["DocumentationSource"] = relationship("DocumentationSource")
+
+    # Unique constraint to prevent duplicate normalized URLs per source
+    __table_args__ = (UniqueConstraint('normalized_url', 'source_id', name='_normalized_url_source_uc'),)
+
+    @staticmethod
+    def normalize_url(url: str) -> str:
+        """Normalize URL by removing query parameters, fragments, and session-specific parts."""
+        import urllib.parse as urlparse
+        
+        parsed = urlparse.urlparse(url)
+        
+        # Remove fragment (everything after #)
+        # Remove query parameters (everything after ?)
+        normalized = urlparse.urlunparse((
+            parsed.scheme,
+            parsed.netloc,
+            parsed.path,
+            '',  # Remove params
+            '',  # Remove query
+            ''   # Remove fragment
+        ))
+        
+        # Remove trailing slash for consistency (except for root)
+        if len(normalized) > 1 and normalized.endswith('/'):
+            normalized = normalized.rstrip('/')
+            
+        return normalized.lower()
+
+    def should_rescrape(self, force_refresh: bool = False, min_age_hours: int = 24) -> bool:
+        """Check if this URL should be rescraped based on age and other factors."""
+        if force_refresh:
+            return True
+            
+        if self.skip_until and self.skip_until > datetime.now():
+            return False
+            
+        # Check if it's been long enough since last scrape
+        if self.last_scraped:
+            from datetime import timedelta
+            age = datetime.now() - self.last_scraped
+            return age > timedelta(hours=min_age_hours)
+            
+        return True

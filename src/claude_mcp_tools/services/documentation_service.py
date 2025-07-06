@@ -24,7 +24,8 @@ from ..models import (
     UpdateFrequency,
 )
 from .vector_service import get_vector_service
-from .web_scraper import DocumentationScraper
+from .web_scraper import DocumentationScraper, thread_pool_scraper
+from .domain_browser_manager import domain_manager
 
 logger = structlog.get_logger()
 
@@ -39,7 +40,7 @@ class DocumentationService:
             orchestration_path: Path to orchestration data directory
         """
         if orchestration_path is None:
-            self.orchestration_path = Path.home() / ".claude-orchestration"
+            self.orchestration_path = Path.home() / ".mcptools"
         else:
             self.orchestration_path = Path(orchestration_path)
 
@@ -53,7 +54,7 @@ class DocumentationService:
         self.vector_db_path.mkdir(parents=True, exist_ok=True)
 
         self._vector_service = None
-        self._running_scrapers: dict[str, asyncio.Task] = {}
+        self._running_scrapers: dict[str, dict] = {}  # Track scraping jobs by source_id
         self._web_scraper: DocumentationScraper | None = None
 
     async def initialize(self) -> None:
@@ -62,10 +63,8 @@ class DocumentationService:
             # Initialize vector service (ChromaDB)
             self._vector_service = await get_vector_service(self.vector_db_path)
 
-            # Initialize web scraper
-            self._web_scraper = DocumentationScraper(headless=True)
-            scraper_user_data = self.docs_path / "browser_data"
-            await self._web_scraper.initialize(user_data_dir=scraper_user_data)
+            # Initialize domain browser manager with our base data directory
+            domain_manager.set_base_data_dir(self.docs_path)
 
             logger.info("Documentation service initialized",
                        docs_path=str(self.docs_path))
@@ -78,7 +77,7 @@ class DocumentationService:
         """Clean up documentation service resources."""
         try:
             # Stop all running scrapers
-            for scraper_id, task in self._running_scrapers.items():
+            for _scraper_id, task in self._running_scrapers.items():
                 if not task.done():
                     task.cancel()
                     try:
@@ -86,10 +85,8 @@ class DocumentationService:
                     except asyncio.CancelledError:
                         pass
 
-            # Close web scraper
-            if self._web_scraper:
-                await self._web_scraper.close()
-                self._web_scraper = None
+            # Clean up all domain browser contexts
+            await domain_manager.cleanup_all_domains(force=True)
 
             # Close vector service
             if self._vector_service:
@@ -109,6 +106,7 @@ class DocumentationService:
         crawl_depth: int = 3,
         update_frequency: str = "daily",
         selectors: dict[str, str] | None = None,
+        allow_patterns: list[str] | None = None,
         ignore_patterns: list[str] | None = None,
     ) -> dict[str, Any]:
         """Add a new documentation source for scraping.
@@ -120,7 +118,8 @@ class DocumentationService:
             crawl_depth: Maximum depth for crawling
             update_frequency: How often to update (hourly, daily, weekly)
             selectors: CSS selectors for content extraction
-            ignore_patterns: URL patterns to ignore during crawling
+            allow_patterns: URL patterns to include during crawling (allowlist)
+            ignore_patterns: URL patterns to ignore during crawling (blocklist)
             
         Returns:
             Source creation result with ID and status
@@ -141,9 +140,11 @@ class DocumentationService:
                     status="active",
                 )
 
-                # Set selectors and ignore patterns
+                # Set selectors and pattern filters
                 if selectors:
                     source.set_selectors(selectors)
+                if allow_patterns:
+                    source.set_allow_patterns(allow_patterns)
                 if ignore_patterns:
                     source.set_ignore_patterns(ignore_patterns)
 
@@ -260,6 +261,8 @@ class DocumentationService:
         source_id: str,
         force_refresh: bool = False,
         ctx = None,
+        progress_callback = None,
+        agent_id: str = None,
     ) -> dict[str, Any]:
         """Scrape documentation from a configured source.
         
@@ -294,32 +297,179 @@ class DocumentationService:
                     "last_scraped": source_data.last_scraped.isoformat(),
                 }
 
-        # Start scraping task
-        scraper_task = asyncio.create_task(
-            self._scrape_source_content(source_data, ctx),
-        )
+        # Check if domain is already being scraped
+        if domain_manager.is_domain_busy(source_data.url):
+            domain_status = domain_manager.get_domain_status()
+            
+            # Extract domain safely
+            from urllib.parse import urlparse
+            try:
+                parsed = urlparse(source_data.url)
+                domain = parsed.netloc.lower().replace(".", "_").replace(":", "_")
+            except Exception:
+                domain = "unknown_domain"
+            
+            # Find which sources are currently using this domain
+            active_sources = domain_status.get(domain, {}).get("active_sources", [])
+            
+            return {
+                "success": True,
+                "domain_busy": True,
+                "reason": "Domain already being scraped",
+                "domain": domain,
+                "active_sources": active_sources,
+                "message": f"Domain {domain} is already being scraped by sources: {', '.join(active_sources)}",
+                "suggestion": f"Check status of existing scraping jobs: {', '.join(active_sources)}",
+            }
 
-        self._running_scrapers[source_id] = scraper_task
-
+        # Mark domain as busy to prevent concurrent scraping
+        domain_manager.mark_domain_busy(source_data.url, source_id)
+        
+        # Update source status to in_progress
+        async def _update_source_status(session: AsyncSession):
+            stmt = (
+                update(DocumentationSource)
+                .where(DocumentationSource.id == source_id)
+                .values(
+                    status="in_progress",
+                    last_scraped=datetime.now(timezone.utc)
+                )
+            )
+            await session.execute(stmt)
+            await session.commit()
+        
+        await execute_query(_update_source_status)
+        
+        # Use ThreadPoolExecutor for scraping (no complex job queues!)
         try:
-            result = await scraper_task
-
-            # Update last scraped timestamp
-            await self._update_source_last_scraped(source_id)
-
-            return result
-
+            logger.info("🚀 Starting ThreadPool documentation scraping", 
+                       source_id=source_id, url=source_data.url)
+            
+            # Track the job for this source
+            self._running_scrapers[source_id] = {
+                "type": "threadpool_job",
+                "started_at": datetime.now(timezone.utc),
+                "url": source_data.url,
+                "status": "in_progress"
+            }
+            
+            # Run scraping using ThreadPoolExecutor with isolated event loops
+            scraping_result = await thread_pool_scraper.scrape_documentation(
+                url=source_data.url,
+                source_id=source_id,
+                selectors=source_data.get_selectors(),
+                crawl_depth=source_data.crawl_depth,
+                max_pages=20,  # Reasonable default limit
+                allow_patterns=source_data.get_allow_patterns(),
+                ignore_patterns=source_data.get_ignore_patterns(),
+            )
+            
+            # Process and save the scraped results
+            if scraping_result.get("success"):
+                await self._store_scraped_entries(
+                    source_id=source_id,
+                    entries_data=scraping_result.get("entries", [])
+                )
+                
+                # Update source status to completed
+                async def _complete_source_status(session: AsyncSession):
+                    stmt = (
+                        update(DocumentationSource)
+                        .where(DocumentationSource.id == source_id)
+                        .values(
+                            status="completed",
+                            last_scraped=datetime.now(timezone.utc)
+                        )
+                    )
+                    await session.execute(stmt)
+                    await session.commit()
+                
+                await execute_query(_complete_source_status)
+                
+                # Update tracking
+                self._running_scrapers[source_id]["status"] = "completed"
+                self._running_scrapers[source_id]["completed_at"] = datetime.now(timezone.utc)
+                self._running_scrapers[source_id]["pages_scraped"] = scraping_result.get("pages_scraped", 0)
+                
+                logger.info("✅ ThreadPool documentation scraping completed successfully", 
+                           source_id=source_id, pages=scraping_result.get("pages_scraped", 0))
+                
+                return {
+                    "success": True,
+                    "message": f"Documentation scraping completed successfully for {source_data.name}",
+                    "source_id": source_id,
+                    "scraping_in_progress": False,
+                    "pages_scraped": scraping_result.get("pages_scraped", 0),
+                    "entries_saved": len(scraping_result.get("entries", [])),
+                    "scraped_urls": scraping_result.get("scraped_urls", []),
+                    "failed_urls": scraping_result.get("failed_urls", []),
+                }
+            else:
+                # Handle scraping failure
+                error_message = scraping_result.get("error", "Unknown scraping error")
+                
+                # Update source status to failed
+                async def _fail_source_status(session: AsyncSession):
+                    stmt = (
+                        update(DocumentationSource)
+                        .where(DocumentationSource.id == source_id)
+                        .values(status="failed")
+                    )
+                    await session.execute(stmt)
+                    await session.commit()
+                
+                await execute_query(_fail_source_status)
+                
+                # Update tracking
+                self._running_scrapers[source_id]["status"] = "failed"
+                self._running_scrapers[source_id]["error"] = error_message
+                self._running_scrapers[source_id]["failed_at"] = datetime.now(timezone.utc)
+                
+                logger.error("❌ ThreadPool documentation scraping failed", 
+                           source_id=source_id, error=error_message)
+                
+                return {
+                    "success": False,
+                    "error": f"Scraping failed: {error_message}",
+                    "source_id": source_id,
+                }
+            
         except Exception as e:
-            logger.error("Documentation scraping failed",
+            # Handle unexpected errors
+            logger.error("❌ Unexpected error during ThreadPool scraping", 
                         source_id=source_id, error=str(e))
+            
+            # Update source status to failed
+            try:
+                async def _error_source_status(session: AsyncSession):
+                    stmt = (
+                        update(DocumentationSource)
+                        .where(DocumentationSource.id == source_id)
+                        .values(status="failed")
+                    )
+                    await session.execute(stmt)
+                    await session.commit()
+                
+                await execute_query(_error_source_status)
+            except Exception as db_error:
+                logger.error("Failed to update source status after error", 
+                           source_id=source_id, db_error=str(db_error))
+            
+            # Update tracking
+            if source_id in self._running_scrapers:
+                self._running_scrapers[source_id]["status"] = "failed"
+                self._running_scrapers[source_id]["error"] = str(e)
+                self._running_scrapers[source_id]["failed_at"] = datetime.now(timezone.utc)
+            
             return {
                 "success": False,
-                "error": str(e),
+                "error": f"Scraping execution failed: {str(e)}",
+                "source_id": source_id,
             }
+        
         finally:
-            # Clean up task reference
-            if source_id in self._running_scrapers:
-                del self._running_scrapers[source_id]
+            # Always release domain lock
+            domain_manager.release_domain(source_data.url, source_id)
 
     async def search_documentation(
         self,
@@ -846,27 +996,84 @@ class DocumentationService:
         threshold = frequency_map.get(source.update_frequency, timedelta(days=1))
         return time_since_scrape < threshold
 
-    async def _scrape_source_content(self, source: DocumentationSource, ctx=None) -> dict[str, Any]:
-        """Scrape content from a documentation source using Patchright."""
-        if not self._web_scraper:
-            # Initialize web scraper if it doesn't exist
-            try:
-                self._web_scraper = DocumentationScraper(headless=True)
-                # Use domain-based directory to avoid singleton lock issues
-                from urllib.parse import urlparse
-                domain = urlparse(source.url).netloc.replace(".", "_").replace(":", "_")
-                scraper_user_data = self.docs_path / f"browser_data_{domain}"
-                await self._web_scraper.initialize(user_data_dir=scraper_user_data)
-                logger.info("Web scraper initialized in _scrape_source_content")
-            except Exception as e:
-                logger.error("Failed to initialize web scraper", error=str(e))
-                return {
-                    "success": False,
-                    "error": f"Failed to initialize web scraper: {str(e)}",
-                    "entries_scraped": 0,
-                    "entries_updated": 0,
-                    "errors": [],
-                }
+    def is_scraping_running(self, source_id: str) -> bool:
+        """Check if scraping is currently running for a source."""
+        if source_id not in self._running_scrapers:
+            return False
+            
+        scraper_info = self._running_scrapers[source_id]
+        
+        # Handle ThreadPoolExecutor jobs
+        if isinstance(scraper_info, dict):
+            return scraper_info.get("status") == "in_progress"
+            
+        return False
+
+    async def _scrape_source_content_with_cleanup(self, source: DocumentationSource, source_id: str, ctx=None, progress_callback=None, agent_id: str = None) -> dict[str, Any]:
+        """Scrape content with automatic cleanup of task tracking and agent termination."""
+        try:
+            # Mark context as background mode to prevent spam in main chat
+            if ctx:
+                ctx._background_mode = True
+                logger.debug("Context marked as background mode to prevent main chat spam")
+            
+            result = await self._scrape_source_content(source, ctx, progress_callback)
+            
+            # Update last scraped timestamp on success
+            if result.get("success"):
+                await self._update_source_last_scraped(source_id)
+                
+            return result
+            
+        except Exception as e:
+            logger.error("Documentation scraping failed", source_id=source_id, error=str(e))
+            
+            # Call progress callback for error
+            if progress_callback:
+                try:
+                    await progress_callback({
+                        "type": "error",
+                        "source_id": source_id,
+                        "error": str(e),
+                        "fatal": True
+                    })
+                except Exception as callback_error:
+                    logger.warning("Progress callback failed during error", error=str(callback_error))
+            
+            return {
+                "success": False,
+                "error": str(e),
+            }
+        finally:
+            # Clean up task reference
+            if source_id in self._running_scrapers:
+                del self._running_scrapers[source_id]
+            
+            # Auto-terminate agent if provided
+            if agent_id:
+                try:
+                    from .agent_service import AgentService
+                    agent_service = AgentService()
+                    await agent_service.terminate_agent(agent_id, "Scraping completed - auto cleanup")
+                    logger.info("Auto-terminated agent after scraping completion", agent_id=agent_id)
+                except Exception as cleanup_error:
+                    logger.warning("Failed to auto-terminate agent", agent_id=agent_id, error=str(cleanup_error))
+
+    async def _scrape_source_content(self, source: DocumentationSource, ctx=None, progress_callback=None) -> dict[str, Any]:
+        """Scrape content from a documentation source using domain-managed browser."""
+        try:
+            # Get domain-managed scraper for this source
+            scraper, is_new = await domain_manager.get_scraper_for_domain(source.url, source.id)
+            logger.info("Got domain scraper", source_id=source.id, domain_scraper_new=is_new)
+        except Exception as e:
+            logger.error("Failed to get domain scraper", source_id=source.id, error=str(e))
+            return {
+                "success": False,
+                "error": f"Failed to get domain scraper: {str(e)}",
+                "entries_scraped": 0,
+                "entries_updated": 0,
+                "errors": [],
+            }
 
         try:
             logger.info("🚀 Starting source scraping", 
@@ -875,22 +1082,31 @@ class DocumentationService:
                        url=source.url)
 
             if ctx:
-                await ctx.report_progress(40, 100)
+                try:
+                    await ctx.report_progress(40, 100)
+                except Exception as ctx_error:
+                    logger.warning("Context progress reporting failed", error=str(ctx_error))
 
             # Get scraping configuration
             selectors = source.get_selectors()
+            allow_patterns = source.get_allow_patterns()
             ignore_patterns = source.get_ignore_patterns()
 
             if ctx:
-                await ctx.report_progress(45, 100)
+                try:
+                    await ctx.report_progress(45, 100)
+                except Exception as ctx_error:
+                    logger.warning("Context progress reporting failed", error=str(ctx_error))
 
-            # Scrape the documentation
-            scrape_result = await self._web_scraper.scrape_documentation_source(
+            # Scrape the documentation using domain-managed scraper
+            scrape_result = await scraper.scrape_documentation_source(
+                ctx=ctx,
                 base_url=source.url,
                 crawl_depth=source.crawl_depth,
                 selectors=selectors if selectors else None,
+                allow_patterns=allow_patterns if allow_patterns else None,
                 ignore_patterns=ignore_patterns if ignore_patterns else None,
-                ctx=ctx,
+                progress_callback=progress_callback,
             )
 
             if not scrape_result.get("success"):
@@ -906,12 +1122,18 @@ class DocumentationService:
             entries_data = scrape_result.get("entries", [])
             
             if ctx:
-                await ctx.report_progress(85, 100)
+                try:
+                    await ctx.report_progress(85, 100)
+                except Exception as ctx_error:
+                    logger.warning("Context progress reporting failed", error=str(ctx_error))
                 
             storage_result = await self._store_scraped_entries(source.id, entries_data)
 
             if ctx:
-                await ctx.report_progress(95, 100)
+                try:
+                    await ctx.report_progress(95, 100)
+                except Exception as ctx_error:
+                    logger.warning("Context progress reporting failed", error=str(ctx_error))
 
             logger.info("✅ Source scraping completed", 
                        source_id=source.id,
@@ -937,6 +1159,15 @@ class DocumentationService:
                 "entries_updated": 0,
                 "errors": [str(e)],
             }
+        finally:
+            # Release domain scraper for this source
+            try:
+                await domain_manager.release_scraper_for_source(source.url, source.id)
+                logger.info("Released domain scraper for source", source_id=source.id)
+            except Exception as cleanup_error:
+                logger.warning("Failed to release domain scraper", 
+                             source_id=source.id, 
+                             error=str(cleanup_error))
 
     async def _store_scraped_entries(self, source_id: str, entries_data: list[dict[str, Any]]) -> dict[str, Any]:
         """Store scraped entries in the database with deduplication."""

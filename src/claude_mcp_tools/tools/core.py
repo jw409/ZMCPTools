@@ -1,5 +1,6 @@
 """Core orchestration tools for multi-agent coordination."""
 
+from fastmcp import Context
 from datetime import datetime, timezone
 from typing import Any
 
@@ -14,6 +15,7 @@ logger = structlog.get_logger("tools.core")
 
 @app.tool(tags={"orchestration", "multi-agent", "coordination", "architect", "objective-planning"})
 async def orchestrate_objective(
+    ctx: Context,
     objective: str,
     repository_path: str,
     foundation_session_id: str = "",
@@ -45,6 +47,7 @@ async def orchestrate_objective(
         architect_info = {}
         if auto_spawn_architect:
             architect_result = await spawn_architect_agent(
+                ctx=ctx,
                 objective=objective,
                 repository_path=repository_path,
                 room_name=room_name,
@@ -145,6 +148,7 @@ async def spawn_architect_agent(
     objective: str,
     repository_path: str,
     room_name: str,
+    ctx: Context,
     foundation_session_id: str = "",
 ) -> dict[str, Any]:
     """Spawn an architect agent to analyze and coordinate the objective."""
@@ -183,6 +187,7 @@ async def spawn_architect_agent(
             capabilities=["analysis", "coordination", "spawning", "monitoring"],
             foundation_session_id=foundation_session_id,
             coordination_room=room_name,
+            ctx=ctx,
         )
 
     except Exception as e:

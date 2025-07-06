@@ -512,13 +512,4 @@ async def balance_workload(repository_path: str) -> dict[str, Any]:
         return {"error": {"code": "WORKLOAD_BALANCE_FAILED", "message": str(e)}}
 
 
-@app.tool(tags={"orchestration", "workload-management", "monitoring", "analytics"})
-async def get_agent_workload(repository_path: str, agent_id: str | None = None) -> dict[str, Any]:
-    """Get workload information for agents."""
-    try:
-        # This method doesn't exist in TaskService, returning placeholder
-        return {"error": {"code": "METHOD_NOT_IMPLEMENTED", "message": "Agent workload tracking not yet implemented"}}
-
-    except Exception as e:
-        logger.error("Error getting agent workload", error=str(e))
-        return {"error": {"code": "WORKLOAD_INFO_FAILED", "message": str(e)}}
+# get_agent_workload tool removed - was unimplemented placeholder

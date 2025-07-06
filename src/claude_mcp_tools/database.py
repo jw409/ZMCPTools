@@ -1,20 +1,323 @@
 """Database session management and initialization for SQLAlchemy ORM."""
 
 import asyncio
+import shutil
+import sys
 from collections.abc import AsyncGenerator
+from datetime import datetime
 from pathlib import Path
 
 import structlog
+from alembic import command
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine, AsyncEngine
 
 from .models import Base
 
 logger = structlog.get_logger()
 
 # Global engine and session factory
-engine = None
-AsyncSessionLocal = None
+engine: AsyncEngine | None = None
+AsyncSessionLocal: async_sessionmaker[AsyncSession] | None = None
+
+
+def create_backup(db_path: Path) -> Path | None:
+    """Create a timestamped backup of the database.
+    
+    Args:
+        db_path: Path to the database file to backup
+        
+    Returns:
+        Path to the backup file, or None if backup failed
+    """
+    try:
+        if not db_path.exists() or db_path.stat().st_size == 0:
+            logger.info("No existing database to backup")
+            return None
+            
+        timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
+        backup_path = db_path.with_suffix(f".backup.{timestamp}.db")
+        
+        logger.info("Creating database backup...", backup_path=str(backup_path))
+        shutil.copy2(db_path, backup_path)
+        
+        # Verify backup
+        if backup_path.exists() and backup_path.stat().st_size == db_path.stat().st_size:
+            logger.info("Database backup created successfully", size_mb=backup_path.stat().st_size / 1024 / 1024)
+            return backup_path
+        else:
+            logger.error("Backup verification failed")
+            return None
+            
+    except Exception as e:
+        logger.error("Failed to create database backup", error=str(e))
+        return None
+
+
+def restore_from_backup(db_path: Path, backup_path: Path) -> bool:
+    """Restore database from backup.
+    
+    Args:
+        db_path: Path to the current database file
+        backup_path: Path to the backup file
+        
+    Returns:
+        True if restoration successful, False otherwise
+    """
+    try:
+        if not backup_path.exists():
+            logger.error("Backup file not found", backup_path=str(backup_path))
+            return False
+            
+        logger.info("Restoring database from backup...", backup_path=str(backup_path))
+        
+        # Remove current database
+        if db_path.exists():
+            db_path.unlink()
+            
+        # Restore from backup
+        shutil.copy2(backup_path, db_path)
+        
+        # Verify restoration
+        if db_path.exists() and db_path.stat().st_size == backup_path.stat().st_size:
+            logger.info("Database restored successfully from backup")
+            return True
+        else:
+            logger.error("Database restoration verification failed")
+            return False
+            
+    except Exception as e:
+        logger.error("Failed to restore database from backup", error=str(e))
+        return False
+
+
+def preview_migration_changes(alembic_cfg: Config) -> list[str]:
+    """Preview what changes the migration will make.
+    
+    Args:
+        alembic_cfg: Alembic configuration
+        
+    Returns:
+        List of change descriptions
+    """
+    try:
+        # This is a simplified preview - in a full implementation you'd
+        # use alembic's autogenerate to get detailed change information
+        script_dir = ScriptDirectory.from_config(alembic_cfg)
+        
+        # Get current and head revisions
+        try:
+            current_rev = command.current(alembic_cfg)
+            head_rev = script_dir.get_current_head()
+            
+            if current_rev == head_rev:
+                return ["Database is already up to date"]
+            elif current_rev is None:
+                return ["Will initialize migration tracking and apply latest schema"]
+            else:
+                return ["Will apply pending migration updates"]
+                
+        except Exception:
+            return ["Will initialize new database schema"]
+            
+    except Exception as e:
+        logger.error("Failed to preview migration changes", error=str(e))
+        return ["Could not preview changes - migration will proceed"]
+
+
+def handle_migration_error(error: Exception, backup_path: Path | None) -> str:
+    """Handle migration errors with user choice.
+    
+    Args:
+        error: The migration error that occurred
+        backup_path: Path to backup file (if any)
+        
+    Returns:
+        User's choice: "retry", "fallback", "restore", or "abort"
+    """
+    logger.error("Migration failed", error=str(error))
+    
+    print("\n" + "="*60)
+    print("🚨 DATABASE MIGRATION FAILED")
+    print("="*60)
+    print(f"Error: {error}")
+    print()
+    
+    options = []
+    if backup_path and backup_path.exists():
+        options.extend([
+            "1. Restore from backup and use existing schema",
+            "2. Continue with fallback method (old create_all)",
+            "3. Retry migration",
+            "4. Abort startup"
+        ])
+        choices = {"1": "restore", "2": "fallback", "3": "retry", "4": "abort"}
+    else:
+        options.extend([
+            "1. Continue with fallback method (old create_all)", 
+            "2. Retry migration",
+            "3. Abort startup"
+        ])
+        choices = {"1": "fallback", "2": "retry", "3": "abort"}
+    
+    print("Choose an option:")
+    for option in options:
+        print(f"  {option}")
+    print()
+    
+    while True:
+        try:
+            choice = input("Enter your choice (number): ").strip()
+            if choice in choices:
+                selected = choices[choice]
+                print(f"Selected: {selected}")
+                return selected
+            else:
+                print("Invalid choice. Please try again.")
+        except (EOFError, KeyboardInterrupt):
+            print("\nAbort selected")
+            return "abort"
+
+
+async def run_migrations(db_path: Path | None = None) -> None:
+    """Run Alembic migrations with enhanced safety and user control.
+    
+    Args:
+        db_path: Path to SQLite database file. If None, uses default location.
+    """
+    if db_path is None:
+        db_path = Path.home() / ".mcptools" / "data" / "orchestration.db"
+    
+    # Ensure directory exists
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Step 1: Create backup if database exists
+    backup_path = None
+    database_exists = db_path.exists() and db_path.stat().st_size > 0
+    
+    if database_exists:
+        backup_path = create_backup(db_path)
+        if backup_path:
+            logger.info("✅ Database backup created", backup_file=backup_path.name)
+        else:
+            logger.warning("⚠️ Could not create backup, proceeding without backup")
+    
+    # Retry loop for migration attempts
+    max_retries = 3
+    retry_count = 0
+    
+    while retry_count < max_retries:
+        try:
+            # Get the alembic.ini path relative to this file
+            package_root = Path(__file__).parent.parent.parent
+            alembic_cfg_path = package_root / "alembic.ini"
+            
+            if not alembic_cfg_path.exists():
+                logger.warning("Alembic configuration not found, using fallback method", 
+                             path=str(alembic_cfg_path))
+                await _fallback_create_all()
+                return
+            
+            # Configure Alembic
+            alembic_cfg = Config(str(alembic_cfg_path))
+            database_url = f"sqlite+aiosqlite:///{db_path}"
+            alembic_cfg.set_main_option("sqlalchemy.url", database_url)
+            
+            # Step 2: Preview changes
+            if database_exists:
+                changes = preview_migration_changes(alembic_cfg)
+                logger.info("Migration preview:", changes=changes)
+                for change in changes:
+                    logger.info(f"  📋 {change}")
+            
+            # Step 3: Run migrations with error handling
+            def setup_and_run_migrations():
+                try:
+                    if database_exists:
+                        # For existing databases without migrations, stamp them at current version
+                        try:
+                            current_rev = command.current(alembic_cfg)
+                            if not current_rev:
+                                logger.info("📌 Stamping existing database at current migration version")
+                                command.stamp(alembic_cfg, "head")
+                        except Exception:
+                            logger.info("📌 Initializing migration tracking for existing database")
+                            command.stamp(alembic_cfg, "head")
+                    
+                    # Run the actual migration
+                    logger.info("🔄 Applying database migrations...")
+                    command.upgrade(alembic_cfg, "head")
+                    return True
+                    
+                except Exception as e:
+                    raise e
+            
+            # Use thread pool to run sync Alembic commands
+            import concurrent.futures
+            
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(setup_and_run_migrations)
+                success = future.result(timeout=60)  # 60 second timeout
+                
+            if success:
+                logger.info("✅ Database migrations completed successfully")
+                return
+                
+        except Exception as e:
+            retry_count += 1
+            
+            # Handle migration error with user choice
+            if retry_count < max_retries:
+                choice = handle_migration_error(e, backup_path)
+                
+                if choice == "retry":
+                    logger.info("🔄 Retrying migration...")
+                    continue
+                elif choice == "restore":
+                    if backup_path and restore_from_backup(db_path, backup_path):
+                        logger.info("✅ Database restored from backup")
+                        return
+                    else:
+                        logger.error("❌ Failed to restore from backup, using fallback")
+                        await _fallback_create_all()
+                        return
+                elif choice == "fallback":
+                    logger.info("🔄 Using fallback method")
+                    await _fallback_create_all()
+                    return
+                elif choice == "abort":
+                    logger.error("❌ Migration aborted by user")
+                    sys.exit(1)
+            else:
+                # Max retries reached
+                logger.error(f"❌ Migration failed after {max_retries} attempts")
+                choice = handle_migration_error(e, backup_path)
+                
+                if choice == "restore" and backup_path:
+                    if restore_from_backup(db_path, backup_path):
+                        logger.info("✅ Database restored from backup")
+                        return
+                    else:
+                        logger.error("❌ Failed to restore from backup")
+                elif choice == "abort":
+                    logger.error("❌ Migration aborted by user")
+                    sys.exit(1)
+                
+                # Default to fallback
+                logger.info("🔄 Using fallback method")
+                await _fallback_create_all()
+                return
+
+
+async def _fallback_create_all() -> None:
+    """Fallback method using the old create_all approach."""
+    logger.info("Using fallback database initialization method")
+    if engine:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("✅ Database initialized with fallback method")
 
 
 async def init_database(db_path: Path | None = None) -> None:
@@ -26,8 +329,8 @@ async def init_database(db_path: Path | None = None) -> None:
     global engine, AsyncSessionLocal
 
     if db_path is None:
-        # Default to .claude/zmcptools directory in user's home
-        db_path = Path.home() / ".claude" / "zmcptools" / "orchestration.db"
+        # Default to .mcptools/data directory in user's home
+        db_path = Path.home() / ".mcptools" / "data" / "orchestration.db"
 
     # Ensure directory exists
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -58,11 +361,10 @@ async def init_database(db_path: Path | None = None) -> None:
         expire_on_commit=False,
     )
 
-    # Create all tables
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # Run database migrations to ensure schema is up to date
+    await run_migrations(db_path)
 
-    logger.info("Database initialized", db_path=str(db_path))
+    logger.info("Database initialized with migrations", db_path=str(db_path))
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
@@ -73,6 +375,7 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
     """
     if AsyncSessionLocal is None:
         await init_database()
+    assert AsyncSessionLocal is not None, "AsyncSessionLocal must be initialized before use"
 
     async with AsyncSessionLocal() as session:
         try:
@@ -105,6 +408,8 @@ class DatabaseSession:
         """Enter the context manager and return a session."""
         if AsyncSessionLocal is None:
             await init_database()
+            
+        assert AsyncSessionLocal is not None, "AsyncSessionLocal must be initialized before use"
 
         self.session = AsyncSessionLocal()
         return self.session
@@ -117,9 +422,47 @@ class DatabaseSession:
             await self.session.close()
 
 
-# Convenience function for simple queries
+# Fast context manager for sub-agents
+class DatabaseSessionFast:
+    """Context manager for database sessions with lightweight initialization for sub-agents."""
+
+    def __init__(self):
+        self.session: AsyncSession | None = None
+
+    async def __aenter__(self) -> AsyncSession:
+        """Enter the context manager and return a session with fast initialization."""
+        global AsyncSessionLocal
+        
+        if AsyncSessionLocal is None:
+            # Check if database is already ready
+            if await is_database_ready():
+                # Use lightweight initialization (skip migrations)
+                await init_engine_only()
+                logger.debug("Using lightweight database initialization for sub-agent")
+            else:
+                # Database not ready - fall back to full initialization
+                await init_database()
+                logger.debug("Database not ready - using full initialization")
+                
+        assert AsyncSessionLocal is not None, "AsyncSessionLocal must be initialized before use"
+
+        self.session = AsyncSessionLocal()
+        return self.session
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Exit the context manager and cleanup session."""
+        if self.session:
+            if exc_type:
+                await self.session.rollback()
+            await self.session.close()
+
+
+# Convenience function for simple queries with smart initialization
 async def execute_query(query_func, *args, **kwargs):
     """Execute a query function with automatic session management.
+    
+    This function automatically detects if it's running in a sub-agent context
+    and uses optimized database initialization when appropriate.
     
     Args:
         query_func: Async function that takes a session as first parameter
@@ -129,7 +472,74 @@ async def execute_query(query_func, *args, **kwargs):
     Returns:
         Result of query_func
     """
-    async with DatabaseSession() as session:
+    # Smart detection: if we're in a sub-agent (not the main MCP server process)
+    # and the database is already ready, use fast initialization
+    if _is_sub_agent_context() and await is_database_ready():
+        async with DatabaseSessionFast() as session:
+            return await query_func(session, *args, **kwargs)
+    else:
+        # Use full initialization for MCP server or when database needs setup
+        async with DatabaseSession() as session:
+            return await query_func(session, *args, **kwargs)
+
+
+def _is_sub_agent_context() -> bool:
+    """Detect if we're running in a sub-agent context rather than the main MCP server.
+    
+    Returns:
+        bool: True if this appears to be a sub-agent process, False if main server
+    """
+    import os
+    import sys
+    
+    # Check if we're running as a spawned Claude CLI process
+    # Claude CLI processes will have 'claude' in their command line
+    try:
+        # Get the command line that started this process
+        with open(f'/proc/{os.getpid()}/cmdline', 'rb') as f:
+            cmdline = f.read().decode('utf-8', errors='ignore')
+            
+        # If command line contains 'claude' and not 'orchestration_server', 
+        # we're likely in a sub-agent
+        if 'claude' in cmdline and 'orchestration_server' not in cmdline:
+            return True
+            
+    except (FileNotFoundError, PermissionError, OSError):
+        # /proc filesystem not available (non-Linux) or permission issues
+        # Fall back to checking sys.argv
+        try:
+            argv_str = ' '.join(sys.argv)
+            if 'claude' in argv_str and 'orchestration_server' not in argv_str:
+                return True
+        except Exception:
+            pass
+    
+    # Check environment variables that might indicate sub-agent context
+    # MCP servers typically run with specific environment settings
+    if os.environ.get('MCP_TIMEOUT'):
+        # If MCP_TIMEOUT is set and we're not the main server, likely a sub-agent
+        return 'orchestration_server' not in ' '.join(sys.argv)
+    
+    # Default to main server context (safer - uses full initialization)
+    return False
+
+
+# Fast version for sub-agents
+async def execute_query_fast(query_func, *args, **kwargs):
+    """Execute a query function with optimized session management for sub-agents.
+    
+    This function uses the fast session factory that skips database initialization
+    when the database is already ready, improving performance for sub-agents.
+    
+    Args:
+        query_func: Async function that takes a session as first parameter
+        *args: Arguments to pass to query_func
+        **kwargs: Keyword arguments to pass to query_func
+        
+    Returns:
+        Result of query_func
+    """
+    async with DatabaseSessionFast() as session:
         return await query_func(session, *args, **kwargs)
 
 
@@ -226,3 +636,141 @@ async def execute_batch_operations(operations: list[dict], batch_size: int = 50)
         "batches": len(batches),
         "batch_size": batch_size,
     }
+
+
+async def is_database_ready(db_path: Path | None = None) -> bool:
+    """Quick check if database exists and has current schema.
+    
+    This function performs a lightweight check to see if the database
+    is already initialized and ready for use, avoiding the need for
+    full migration checks in sub-agents.
+    
+    Args:
+        db_path: Path to SQLite database file. If None, uses default location.
+        
+    Returns:
+        bool: True if database is ready to use, False if needs full initialization
+    """
+    try:
+        if db_path is None:
+            db_path = Path.home() / ".mcptools" / "data" / "orchestration.db"
+        
+        # Check if database file exists and has content
+        if not db_path.exists() or db_path.stat().st_size == 0:
+            logger.debug("Database file missing or empty", db_path=str(db_path))
+            return False
+        
+        # Quick schema validation - check if core tables exist
+        # Using synchronous sqlite3 for this quick check to avoid async overhead
+        import sqlite3
+        
+        with sqlite3.connect(str(db_path), timeout=5) as conn:
+            cursor = conn.cursor()
+            
+            # Check if alembic version table exists (indicates migrations were run)
+            cursor.execute("""
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name='alembic_version'
+            """)
+            if not cursor.fetchone():
+                logger.debug("No alembic_version table found - database needs initialization")
+                return False
+            
+            # Check if core tables exist (basic schema validation)
+            core_tables = ['agents', 'communication_rooms', 'shared_memory_entries']
+            for table in core_tables:
+                cursor.execute("""
+                    SELECT name FROM sqlite_master 
+                    WHERE type='table' AND name=?
+                """, (table,))
+                if not cursor.fetchone():
+                    logger.debug("Core table missing", table=table)
+                    return False
+            
+            logger.debug("Database appears ready", db_path=str(db_path))
+            return True
+            
+    except Exception as e:
+        logger.debug("Database readiness check failed", error=str(e), db_path=str(db_path))
+        return False
+
+
+async def init_engine_only(db_path: Path | None = None) -> None:
+    """Initialize database engine and session factory without running migrations.
+    
+    This is a lightweight initialization for sub-agents that assumes
+    the database is already properly initialized with current schema.
+    
+    Args:
+        db_path: Path to SQLite database file. If None, uses default location.
+    """
+    global engine, AsyncSessionLocal
+    
+    if db_path is None:
+        db_path = Path.home() / ".mcptools" / "data" / "orchestration.db"
+    
+    # Ensure directory exists
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Create async engine with same optimized settings as full init
+    database_url = f"sqlite+aiosqlite:///{db_path}"
+    engine = create_async_engine(
+        database_url,
+        echo=False,
+        future=True,
+        # Same optimized pool settings
+        pool_size=20,
+        max_overflow=30,
+        pool_timeout=30,
+        pool_recycle=3600,
+        pool_pre_ping=True,
+        connect_args={
+            "check_same_thread": False,
+            "timeout": 20,
+        },
+    )
+    
+    # Create session factory
+    AsyncSessionLocal = async_sessionmaker(
+        engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
+    
+    logger.info("Database engine initialized (lightweight mode)", db_path=str(db_path))
+
+
+async def get_session_fast() -> AsyncGenerator[AsyncSession, None]:
+    """Get an async database session with minimal initialization for sub-agents.
+    
+    This function optimizes database access for sub-agents by skipping
+    migration checks when the database is already properly initialized.
+    Falls back to full initialization if the database is not ready.
+    
+    Yields:
+        AsyncSession: Database session
+    """
+    global AsyncSessionLocal
+    
+    if AsyncSessionLocal is None:
+        # Check if database is already ready
+        if await is_database_ready():
+            # Use lightweight initialization (skip migrations)
+            await init_engine_only()
+            logger.debug("Using lightweight database initialization for sub-agent")
+        else:
+            # Database not ready - fall back to full initialization
+            await init_database()
+            logger.debug("Database not ready - using full initialization")
+    
+    # Same session management as get_session()
+    assert AsyncSessionLocal is not None, "AsyncSessionLocal must be initialized before use"
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+        except SQLAlchemyError as e:
+            await session.rollback()
+            logger.error("Database session error", error=str(e))
+            raise
+        finally:
+            await session.close()

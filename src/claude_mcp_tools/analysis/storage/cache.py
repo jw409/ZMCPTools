@@ -25,9 +25,9 @@ class CacheManager:
         """Initialize cache manager.
         
         Args:
-            cache_root: Root cache directory (defaults to ~/.claude/zmcptools/cache)
+            cache_root: Root cache directory (defaults to ~/.mcptools/data/cache)
         """
-        self.cache_root = cache_root or (Path.home() / ".claude" / "zmcptools" / "cache")
+        self.cache_root = cache_root or (Path.home() / ".mcptools" / "data" / "cache")
         self.analysis_cache = self.cache_root / "analysis"
         self.prompt_cache = self.cache_root / "prompts"
         self.result_cache = self.cache_root / "results"

@@ -67,19 +67,55 @@ cd ClaudeMcpTools
 uv tool install .
 ```
 
-### Method 2: One-Command Setup with Auto-Configuration
+### Method 2: Enhanced Interactive Installation
 
+**Auto Mode (Default - maintains existing behavior):**
 ```bash
-# Install and auto-configure everything
-claude-mcp-tools install --auto
+# Quick auto-setup with sensible defaults
+claude-mcp-tools install
+
+# Auto-setup with specific options
+claude-mcp-tools install --minimal --global-only
+claude-mcp-tools install --allow-all --no-hooks
 ```
 
+**Interactive Mode (Advanced configuration):**
+```bash
+# Interactive setup with full configuration options
+claude-mcp-tools install --interactive
+```
+
+**Available Installation Options:**
+- **Installation Location**: `~/.claude/mcptools/` (default) or `~/.mcptools/` or custom path
+- **Installation Type**: Full setup, Global-only, Project-only, or Custom components
+- **Permission Level**: Allow-all (default), Selective categories, or Minimal tools
+- **Hook Installation**: Project hooks, Global hooks, Both, or Skip
+- **Tool Categories**: Agents, Analysis, Documentation, Tasks, Communication, Memory, Files
+
 **This will:**
-- ✅ Install ClaudeMcpTools globally
+- ✅ Install ClaudeMcpTools globally with configurable location
 - ✅ Set up MCP server launchers  
-- ✅ Configure Claude Code integration
-- ✅ Set up project permissions with enhanced CLAUDE.md integration
+- ✅ Configure Claude Code integration with 64k token limits via settings.json
+- ✅ Set up modular permissions based on your choices
+- ✅ Create sample hooks for automation (optional)
+- ✅ Enhanced CLAUDE.md integration with architect guidance
 - ✅ Enable 65+ enhanced tools with architect-led orchestration
+
+## 📋 Prerequisites
+
+ClaudeMcpTools requires the following tools to be installed:
+
+### Required
+- **[uv](https://astral.sh/uv/)** - Python package manager: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+- **[Claude CLI](https://docs.anthropic.com/en/docs/claude-code)** - Anthropic's Claude Code CLI
+
+### Optional (for hooks)
+- **jq** - JSON processor for hook functionality:
+  - **Ubuntu/Debian**: `sudo apt install jq`
+  - **macOS**: `brew install jq`
+  - **Other systems**: See [jq installation guide](https://stedolan.github.io/jq/download/)
+
+**Note**: The installation process will check for these prerequisites and provide installation instructions if any are missing.
 
 ## 🎯 Architect-Led Orchestration
 
@@ -152,8 +188,10 @@ claude-mcp-tools orchestration  # Full orchestration (recommended)
 claude-mcp-tools dashboard      # Web dashboard interface
 
 # Install/setup
-claude-mcp-tools install --auto # Auto-configure everything
-claude-mcp-tools uninstall      # Clean removal
+claude-mcp-tools install                    # Auto-setup (default)
+claude-mcp-tools install --interactive      # Interactive configuration
+claude-mcp-tools install --minimal --global-only  # Minimal global-only
+claude-mcp-tools uninstall                  # Clean removal
 ```
 
 ### 🎛️ Web Dashboard
@@ -232,11 +270,19 @@ alias mcp-dashboard="claude-mcp-tools dashboard"
 
 ## ⚙️ Configuration
 
-### Automated Setup (Easiest)
+### Enhanced Installation Options
 
 ```bash
-# Global installation with auto-configuration
-claude-mcp-tools install --auto
+# Auto-setup with sensible defaults (recommended)
+claude-mcp-tools install
+
+# Interactive setup with full configuration choices
+claude-mcp-tools install --interactive
+
+# Quick setups for specific use cases
+claude-mcp-tools install --minimal --global-only     # Minimal global installation
+claude-mcp-tools install --allow-all --project-only  # Full project setup only
+claude-mcp-tools install --yes --no-hooks           # Silent install without hooks
 
 # Configure MCP servers interactively
 claude-mcp-tools configure
@@ -244,6 +290,14 @@ claude-mcp-tools configure
 # Set up permissions (project or global)
 claude-mcp-tools permissions
 ```
+
+**🎯 Interactive Installation Features:**
+- **Smart Location Choice**: `~/.claude/mcptools/` vs `~/.mcptools/` vs custom path
+- **Modular Permissions**: Choose specific tool categories (agents, docs, analysis, etc.)
+- **Hook Management**: Optional automation hooks for pre-commit, post-save actions
+- **Environment Configuration**: Automatic Claude Code 64k token limit setup
+- **Installation Summary**: Clear overview before proceeding
+- **Non-Interactive Flags**: Full CLI control for automation scripts
 
 ### Manual MCP Server Configuration
 
@@ -534,6 +588,7 @@ orchestrate_objective(
 
 # Architect spawns: Dev Server Agent (starts server) + Playwright Agent (tests against it)
 ```
+
 
 ## 🔍 Troubleshooting
 

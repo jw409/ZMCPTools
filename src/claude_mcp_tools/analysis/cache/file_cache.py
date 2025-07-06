@@ -7,6 +7,7 @@ for real-time analysis updates and cache invalidation.
 import asyncio
 import hashlib
 import json
+from json import JSONDecodeError
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -33,7 +34,7 @@ class FileAnalysisCache:
         # File monitoring
         self.file_hashes: dict[str, str] = {}
         self.cached_files: set[str] = set()
-        self.observer: Observer | None = None
+        self.observer: Any | None = None
 
         # Cache statistics
         self.cache_stats = {
@@ -265,7 +266,7 @@ class FileAnalysisCache:
 
             return True
 
-        except (OSError, json.JSONEncodeError) as e:
+        except (OSError, Exception) as e:
             logger.error("Failed to cache analysis",
                         file_path=file_path, error=str(e))
             return False

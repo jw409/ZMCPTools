@@ -1,8 +1,9 @@
-"""Shared memory and logging tools for cross-agent learning and error tracking."""
+"""Unified memory and logging tools for cross-agent learning and collaboration."""
 
 from typing import Annotated, Any
 
 import structlog
+from fastmcp import Context
 from pydantic import Field
 
 from ..services.error_logging_service import ErrorLoggingService
@@ -13,87 +14,123 @@ from .app import app
 logger = structlog.get_logger("tools.memory")
 
 
-@app.tool(tags={"shared-memory", "learning", "insights", "knowledge-sharing"})
-async def store_memory_entry(
+@app.tool(tags={"memory", "learning", "collaboration", "knowledge-sharing"})
+async def store_memory(
     repository_path: Annotated[str, Field(
         description="Path to the repository for context",
     )],
     agent_id: Annotated[str, Field(
-        description="ID of the agent storing the memory entry",
+        description="ID of the agent storing the memory",
     )],
     entry_type: Annotated[str, Field(
         description="Type of memory entry",
-        pattern=r"^(insight|pattern|solution|error|learning|decision)$",
+        pattern=r"^(insight|pattern|solution|error|learning|decision|discovery|result|bug|feature|architecture|performance|optimization)$",
     )],
     title: Annotated[str, Field(
-        description="Title for the memory entry",
+        description="Brief, descriptive title for the memory entry",
         min_length=1,
         max_length=200,
     )],
     content: Annotated[str, Field(
-        description="Content of the memory entry",
+        description="Detailed content of the memory - what you learned, discovered, or want other agents to know",
         min_length=1,
         max_length=5000,
     )],
+    category: Annotated[str | None, Field(
+        description="Category of the memory",
+        pattern=r"^(code|design|testing|deployment|maintenance|documentation|architecture|performance)$",
+        default=None,
+    )] = None,
     tags: Annotated[str | list[str] | None, Field(
-        description="Tags for categorizing the memory entry. Can be JSON array: ['database', 'bug-fix', 'performance']",
+        description="Tags for easy searching. Can be JSON array: ['database', 'bug-fix', 'performance', 'react']",
         default=None,
     )] = None,
-    metadata: Annotated[str | dict[str, Any] | None, Field(
-        description='Additional metadata for the memory entry. Can be JSON object: {"category": "database", "priority": "high"}',
+    misc_data: Annotated[str | dict[str, Any] | None, Field(
+        description='Additional structured data. Can be JSON object: {"priority": "high", "framework": "react"}',
         default=None,
     )] = None,
+    context: Annotated[str | dict[str, Any] | None, Field(
+        description='Context about when/why this memory was created. Can be JSON object: {"task": "user-auth", "files": ["auth.py"]}',
+        default=None,
+    )] = None,
+    confidence: Annotated[float, Field(
+        description="How confident are you in this memory (0.0-1.0)",
+        ge=0.0,
+        le=1.0,
+    )] = 0.8,
 ) -> dict[str, Any]:
-    """Store insights or learning entries in shared memory."""
+    """Store knowledge in shared memory for other agents to learn from.
+    
+    Use this to save important discoveries, insights, patterns, solutions, or any knowledge
+    that would help other agents working on this project. Think of it as the team's shared brain.
+    
+    Examples:
+    - "Found that React components in this codebase use hooks pattern" 
+    - "Database connection issues fixed by updating connection pool settings"
+    - "Performance improved 50% by caching API responses in Redis"
+    - "Bug in user authentication caused by missing session validation"
+    """
     try:
-        # Parse list and dict parameters if provided as JSON strings
+        # Parse parameters if provided as JSON strings
         parsed_tags = parse_json_list(tags, "tags")
         if check_parsing_error(parsed_tags):
             return parsed_tags
         final_tags: list[str] | None = parsed_tags
 
-        parsed_metadata = parse_json_dict(metadata, "metadata")
-        if check_parsing_error(parsed_metadata):
-            return parsed_metadata
-        final_metadata: dict[str, Any] | None = parsed_metadata
+        parsed_misc_data = parse_json_dict(misc_data, "misc_data")
+        if check_parsing_error(parsed_misc_data):
+            return parsed_misc_data
+        final_misc_data: dict[str, Any] | None = parsed_misc_data
 
-        result = await SharedMemoryService.store_memory_entry(
+        parsed_context = parse_json_dict(context, "context")
+        if check_parsing_error(parsed_context):
+            return parsed_context
+        final_context: dict[str, Any] | None = parsed_context
+
+        result = await SharedMemoryService.store_memory(
             repository_path=repository_path,
             agent_id=agent_id,
             entry_type=entry_type,
             title=title,
             content=content,
+            category=category,
             tags=final_tags,
-            metadata=final_metadata,
-            relevance_score=1.0,  # Default relevance score
+            misc_data=final_misc_data,
+            context=final_context,
+            confidence=confidence,
         )
         return result
 
     except Exception as e:
-        logger.error("Error storing memory entry", agent_id=agent_id, error=str(e))
+        logger.error("Error storing memory", agent_id=agent_id, error=str(e))
         return {"error": {"code": "STORE_MEMORY_FAILED", "message": str(e)}}
 
 
-@app.tool(tags={"shared-memory", "search", "insights", "knowledge-retrieval"})
-async def query_shared_memory(
+@app.tool(tags={"memory", "search", "learning", "knowledge-retrieval"})
+async def search_memory(
+    ctx: Context,
     repository_path: Annotated[str, Field(
         description="Path to the repository for context",
     )],
     query_text: Annotated[str, Field(
-        description="Search query for finding relevant memory entries",
+        description="What are you looking for? Describe it naturally - will search titles and content",
         min_length=1,
         max_length=500,
     )],
     entry_types: Annotated[str | list[str] | None, Field(
-        description="Filter by entry types. Can be JSON array: ['tool_call', 'insight', 'discovery']",
+        description="Filter by memory types. Can be JSON array: ['insight', 'pattern', 'solution', 'bug', 'performance']",
+        default=None,
+    )] = None,
+    categories: Annotated[str | list[str] | None, Field(
+        description="Filter by categories. Can be JSON array: ['architecture', 'performance', 'testing', 'code']",
         default=None,
     )] = None,
     tags: Annotated[str | list[str] | None, Field(
-        description="Filter by tags. Can be JSON array: ['database', 'bug-fix', 'performance']",
+        description="Filter by tags. Can be JSON array: ['database', 'react', 'authentication', 'api']",
         default=None,
     )] = None,
     agent_filter: Annotated[str | None, Field(
-        description="Filter by agent ID",
+        description="Only show memories from this specific agent",
         default=None,
     )] = None,
     limit: Annotated[int, Field(
@@ -101,13 +138,23 @@ async def query_shared_memory(
         ge=1,
         le=100,
     )] = 10,
-    min_score: Annotated[float, Field(
-        description="Minimum relevance score for results",
+    min_confidence: Annotated[float, Field(
+        description="Minimum confidence level (0.0-1.0)",
         ge=0.0,
         le=1.0,
-    )] = 0.1,
+    )] = 0.3,
 ) -> dict[str, Any]:
-    """Search shared memory for relevant insights and solutions."""
+    """Search the shared memory for relevant knowledge from other agents.
+    
+    Use this BEFORE starting work to learn from what other agents have already discovered.
+    Search for patterns, solutions, known issues, best practices, or any relevant knowledge.
+    
+    Examples:
+    - "authentication problems" - find auth-related issues and solutions
+    - "performance optimization" - learn about speed improvements  
+    - "database connection" - see how others handled DB issues
+    - "react component patterns" - learn coding patterns used in this project
+    """
     try:
         # Parse list parameters if provided as JSON strings
         parsed_entry_types = parse_json_list(entry_types, "entry_types")
@@ -115,157 +162,32 @@ async def query_shared_memory(
             return parsed_entry_types
         final_entry_types: list[str] | None = parsed_entry_types
 
-        parsed_tags = parse_json_list(tags, "tags")
-        if check_parsing_error(parsed_tags):
-            return parsed_tags
-        final_tags: list[str] | None = parsed_tags
-
-        result = await SharedMemoryService.query_memory(
-            repository_path=repository_path,
-            query_text=query_text,
-            entry_types=final_entry_types,
-            tags=final_tags,
-            agent_id=agent_filter,
-            limit=limit,
-            min_relevance=min_score,
-        )
-        return result
-
-    except Exception as e:
-        logger.error("Error querying shared memory", query=query_text, error=str(e))
-        return {"error": {"code": "QUERY_MEMORY_FAILED", "message": str(e)}}
-
-
-@app.tool(tags={"shared-memory", "insights", "patterns", "agent-learning"})
-async def store_agent_insight(
-    repository_path: Annotated[str, Field(
-        description="Path to the repository for context",
-    )],
-    agent_id: Annotated[str, Field(
-        description="ID of the agent storing the insight",
-    )],
-    insight_type: Annotated[str, Field(
-        description="Type of insight",
-        pattern=r"^(pattern|optimization|bug|feature|architecture|performance)$",
-    )],
-    category: Annotated[str, Field(
-        description="Category of the insight",
-        pattern=r"^(code|design|testing|deployment|maintenance|documentation)$",
-    )],
-    title: Annotated[str, Field(
-        description="Title for the insight",
-        min_length=1,
-        max_length=200,
-    )],
-    description: Annotated[str, Field(
-        description="Detailed description of the insight",
-        min_length=1,
-        max_length=2000,
-    )],
-    context: Annotated[dict[str, Any] | str | None, Field(
-        description='Additional context for the insight. Provide as object: {"framework": "react", "version": "18"}',
-        default=None,
-    )] = None,
-    confidence: Annotated[float, Field(
-        description="Confidence level in the insight",
-        ge=0.0,
-        le=1.0,
-    )] = 0.8,
-) -> dict[str, Any]:
-    """Store agent insights about patterns and discoveries."""
-    try:
-        # Handle context parameter - convert string to dict if needed
-        import json
-        context_data = None
-        if context:
-            if isinstance(context, dict):
-                context_data = context
-            elif isinstance(context, str):
-                try:
-                    context_data = json.loads(context)
-                except json.JSONDecodeError:
-                    context_data = {"raw_context": context}
-        
-        result = await SharedMemoryService.store_insight(
-            repository_path=repository_path,
-            agent_id=agent_id,
-            insight_type=insight_type,
-            category=category,
-            title=title,
-            description=description,
-            context=context_data,
-            confidence=confidence,
-        )
-        return result
-
-    except Exception as e:
-        logger.error("Error storing agent insight", agent_id=agent_id, error=str(e))
-        return {"error": {"code": "STORE_INSIGHT_FAILED", "message": str(e)}}
-
-
-@app.tool(tags={"shared-memory", "insights", "knowledge-discovery", "agent-learning"})
-async def get_agent_insights(
-    repository_path: Annotated[str, Field(
-        description="Path to the repository for context",
-    )],
-    agent_id: Annotated[str | None, Field(
-        description="Filter by specific agent ID",
-        default=None,
-    )] = None,
-    categories: Annotated[str | list[str] | None, Field(
-        description="Filter by insight categories. Can be JSON array: ['architecture', 'performance', 'testing']",
-        default=None,
-    )] = None,
-    insight_types: Annotated[str | list[str] | None, Field(
-        description="Filter by insight types. Can be JSON array: ['pattern', 'approach', 'solution']",
-        default=None,
-    )] = None,
-    limit: Annotated[int, Field(
-        description="Maximum number of insights to return",
-        ge=1,
-        le=100,
-    )] = 20,
-    min_confidence: Annotated[float, Field(
-        description="Minimum confidence level for insights",
-        ge=0.0,
-        le=1.0,
-    )] = 0.5,
-) -> dict[str, Any]:
-    """Retrieve insights from agents with filtering."""
-    try:
-        # Parse list parameters if provided as JSON strings
         parsed_categories = parse_json_list(categories, "categories")
         if check_parsing_error(parsed_categories):
             return parsed_categories
         final_categories: list[str] | None = parsed_categories
 
-        parsed_insight_types = parse_json_list(insight_types, "insight_types")
-        if check_parsing_error(parsed_insight_types):
-            return parsed_insight_types
-        final_insight_types: list[str] | None = parsed_insight_types
+        parsed_tags = parse_json_list(tags, "tags")
+        if check_parsing_error(parsed_tags):
+            return parsed_tags
+        final_tags: list[str] | None = parsed_tags
 
-        result = await SharedMemoryService.get_insights(
+        result = await SharedMemoryService.search_memory(
             repository_path=repository_path,
+            query_text=query_text,
+            entry_types=final_entry_types,
             categories=final_categories,
-            insight_types=final_insight_types,
+            tags=final_tags,
+            agent_filter=agent_filter,
             limit=limit,
             min_confidence=min_confidence,
+            requesting_agent_id=getattr(ctx, 'agent_id', None),
         )
-        
-        # Client-side filtering by agent_id if provided
-        if result.get("insights") and agent_id:
-            filtered_insights = []
-            for insight in result["insights"]:
-                if insight.get("agent_id") == agent_id:
-                    filtered_insights.append(insight)
-            result["insights"] = filtered_insights
-            result["count"] = len(filtered_insights)
-            result["filters"]["agent_id"] = agent_id
         return result
 
     except Exception as e:
-        logger.error("Error getting agent insights", error=str(e))
-        return {"error": {"code": "GET_INSIGHTS_FAILED", "message": str(e)}}
+        logger.error("Error searching memory", query=query_text, error=str(e))
+        return {"error": {"code": "SEARCH_MEMORY_FAILED", "message": str(e)}}
 
 
 @app.tool(tags={"logging", "tool-calls", "debugging", "performance"})
@@ -299,7 +221,7 @@ async def log_tool_call(
         default=None,
     )] = None,
 ) -> dict[str, Any]:
-    """Log tool calls with parameters and results."""
+    """Log tool calls with parameters and results for caching and optimization."""
     try:
         # Parse parameters and result if they are strings
         import json
@@ -331,7 +253,7 @@ async def log_tool_call(
             "result": parsed_result,
             "status": status,
             "execution_time_ms": execution_time_ms,
-            "note": "Tool call logging stored in memory (placeholder)"
+            "note": "Tool call logging for caching and optimization (placeholder)"
         }
         return result_data
 
@@ -340,7 +262,7 @@ async def log_tool_call(
         return {"error": {"code": "LOG_TOOL_CALL_FAILED", "message": str(e)}}
 
 
-@app.tool(tags={"logging", "tool-calls", "history", "analytics"})
+@app.tool(tags={"logging", "tool-calls", "history", "analytics", "caching"})
 async def get_tool_call_history(
     repository_path: Annotated[str, Field(
         description="Path to the repository for context",
@@ -363,7 +285,7 @@ async def get_tool_call_history(
         le=1000,
     )] = 100,
 ) -> dict[str, Any]:
-    """Retrieve tool call history with filtering."""
+    """Retrieve tool call history for caching and optimization."""
     try:
         # Parse list parameters if provided as JSON strings
         parsed_tool_names = parse_json_list(tool_names, "tool_names")
@@ -388,13 +310,18 @@ async def get_tool_call_history(
                 "status_filter": final_status_filter,
                 "limit": limit
             },
-            "note": "Tool call history retrieval (placeholder implementation)"
+            "note": "Tool call history for caching optimization (placeholder implementation)"
         }
         return result
 
     except Exception as e:
         logger.error("Error getting tool call history", error=str(e))
         return {"error": {"code": "GET_TOOL_HISTORY_FAILED", "message": str(e)}}
+
+
+# Legacy tools have been removed - use store_memory and search_memory instead
+
+
 
 
 @app.tool(tags={"error-logging", "debugging", "troubleshooting", "monitoring"})
@@ -570,57 +497,6 @@ async def resolve_error(
         return {"error": {"code": "RESOLVE_ERROR_FAILED", "message": str(e)}}
 
 
-@app.tool(tags={"shared-memory", "learning", "knowledge-discovery", "insights"})
-async def get_learning_entries(
-    repository_path: Annotated[str, Field(
-        description="Path to the repository for context",
-    )],
-    categories: Annotated[str | list[str] | None, Field(
-        description="Filter by learning categories. Can be JSON array: ['architecture', 'performance', 'testing']",
-        default=None,
-    )] = None,
-    agent_filter: Annotated[str | None, Field(
-        description="Filter by agent ID",
-        default=None,
-    )] = None,
-    limit: Annotated[int, Field(
-        description="Maximum number of learning entries to return",
-        ge=1,
-        le=100,
-    )] = 25,
-    min_confidence: Annotated[float, Field(
-        description="Minimum confidence level for entries",
-        ge=0.0,
-        le=1.0,
-    )] = 0.3,
-) -> dict[str, Any]:
-    """Retrieve learning entries from shared memory."""
-    try:
-        # Parse list parameters if provided as JSON strings
-        parsed_categories = parse_json_list(categories, "categories")
-        if check_parsing_error(parsed_categories):
-            return parsed_categories
-        final_categories: list[str] | None = parsed_categories
-
-        result = await ErrorLoggingService.get_learning_entries(
-            repository_path=repository_path,
-            categories=final_categories,
-            limit=limit,
-            min_success_rate=min_confidence,
-        )
-        
-        # Note: agent_filter parameter is declared but ErrorLoggingService doesn't support agent filtering
-        # This would require implementing agent-based filtering in the service or doing client-side filtering
-        if result.get("learning_entries") and agent_filter:
-            # Client-side filtering would need access to agent information in learning entries
-            # For now, just add the filter to the result metadata
-            result["filters"]["agent_filter"] = agent_filter
-            result["note"] = f"Agent filter '{agent_filter}' requested but not implemented in service"
-        return result
-
-    except Exception as e:
-        logger.error("Error getting learning entries", error=str(e))
-        return {"error": {"code": "GET_LEARNING_FAILED", "message": str(e)}}
 
 
 @app.tool(tags={"error-logging", "pattern-analysis", "system-improvement", "analytics"})

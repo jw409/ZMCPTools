@@ -1,6 +1,6 @@
 """Documentation intelligence tools for context-aware development."""
 
-import json
+import asyncio
 from typing import Annotated, Any
 
 import structlog
@@ -61,10 +61,17 @@ async def scrape_documentation(
             default=None,
         ),
     ] = None,
-    ignore_patterns: Annotated[
-        list[str] | None,
+    allow_patterns: Annotated[
+        str | list[str] | None,
         Field(
-            description="URL patterns to skip during crawling",
+            description="URL patterns to include during crawling (allowlist). Can be JSON array: [\"**/docs/**\", \"**/api/**\"]. If specified, only URLs matching these patterns will be crawled.",
+            default=None,
+        ),
+    ] = None,
+    ignore_patterns: Annotated[
+        str | list[str] | None,
+        Field(
+            description="URL patterns to skip during crawling (blocklist). Can be JSON array: [\"**/blog/**\", \"**/community/**\"]. Applied after allow_patterns.",
             default=None,
         ),
     ] = None,
@@ -80,34 +87,136 @@ async def scrape_documentation(
             description="Immediately scrape after creating/updating the source",
         ),
     ] = True,
+    # Additional convenience parameters for backward compatibility
+    project_path: Annotated[
+        str | None,
+        Field(
+            description="Project path (used to generate source_name if not provided)",
+            default=None,
+        ),
+    ] = None,
+    content_selector: Annotated[
+        str | None,
+        Field(
+            description="Single CSS selector for content (will be used as 'content' in selectors)",
+            default=None,
+        ),
+    ] = None,
+    max_pages: Annotated[
+        str | int | None,
+        Field(
+            description="Maximum number of pages to scrape (compatibility parameter). Can be string or integer.",
+            default=None,
+        ),
+    ] = None,
 ) -> dict[str, Any]:
     """Scrape and index documentation from websites."""
     try:
-        # Initialize progress and logging
-        await ctx.info(f"🚀 Starting documentation scraping for {source_name} at {url}")
-        await ctx.report_progress(0, 100)
+        # Handle compatibility parameters
+        if project_path and not source_name:
+            # Generate source name from project path
+            import os
+            source_name = os.path.basename(project_path.rstrip('/'))
+            try:
+                await ctx.info(f"🔄 Generated source_name from project_path: {source_name}")
+            except Exception as ctx_error:
+                logger.warning("Context logging failed", error=str(ctx_error))
+        
+        if content_selector and not selectors:
+            # Use content_selector as the main selector
+            selectors = {"content": content_selector}
+            try:
+                await ctx.info(f"🔄 Using content_selector as main selector: {content_selector}")
+            except Exception as ctx_error:
+                logger.warning("Context logging failed", error=str(ctx_error))
+        
+        if max_pages:
+            # Parse max_pages (can be string or int)
+            try:
+                if isinstance(max_pages, str):
+                    max_pages = int(max_pages)
+                if max_pages <= 0 or max_pages > 1000:
+                    raise ValueError(f"max_pages must be between 1 and 1000, got {max_pages}")
+                try:
+                    await ctx.info(f"🔄 Max pages limit set to: {max_pages}")
+                except Exception as ctx_error:
+                    logger.warning("Context logging failed", error=str(ctx_error))
+            except (ValueError, TypeError) as e:
+                try:
+                    await ctx.error(f"❌ Invalid max_pages value: {max_pages}")
+                except Exception as ctx_error:
+                    logger.warning("Context error logging failed", error=str(ctx_error))
+                return {"error": {"code": "INVALID_MAX_PAGES", "message": f"max_pages must be a valid integer between 1 and 1000: {str(e)}"}}
 
-        # Parse selectors if provided as JSON string
-        await ctx.info("📝 Parsing selectors and configuration...")
+        # Initialize progress and logging
+        try:
+            await ctx.info(f"🚀 Starting documentation scraping for {source_name} at {url}")
+        except Exception as ctx_error:
+            logger.warning("Context logging failed", error=str(ctx_error))
+        try:
+            await ctx.report_progress(0, 100)
+        except Exception as ctx_error:
+            logger.warning("Context progress reporting failed", error=str(ctx_error))
+
+        # Parse selectors, allow_patterns, and ignore_patterns if provided as JSON strings
+        try:
+            await ctx.info("📝 Parsing selectors and pattern configuration...")
+        except Exception as ctx_error:
+            logger.warning("Context logging failed", error=str(ctx_error))
+        
         parsed_selectors = parse_json_dict(selectors, "selectors")
         if check_parsing_error(parsed_selectors):
-            await ctx.error(f"❌ Failed to parse selectors: {parsed_selectors}")
+            try:
+                await ctx.error(f"❌ Failed to parse selectors: {parsed_selectors}")
+            except Exception as ctx_error:
+                logger.warning("Context error logging failed", error=str(ctx_error))
             return parsed_selectors
         final_selectors: dict[str, str] | None = parsed_selectors
+
+        parsed_allow_patterns = parse_json_list(allow_patterns, "allow_patterns")
+        if check_parsing_error(parsed_allow_patterns):
+            try:
+                await ctx.error(f"❌ Failed to parse allow_patterns: {parsed_allow_patterns}")
+            except Exception as ctx_error:
+                logger.warning("Context error logging failed", error=str(ctx_error))
+            return parsed_allow_patterns
+        final_allow_patterns: list[str] | None = parsed_allow_patterns
+
+        parsed_ignore_patterns = parse_json_list(ignore_patterns, "ignore_patterns")
+        if check_parsing_error(parsed_ignore_patterns):
+            try:
+                await ctx.error(f"❌ Failed to parse ignore_patterns: {parsed_ignore_patterns}")
+            except Exception as ctx_error:
+                logger.warning("Context error logging failed", error=str(ctx_error))
+            return parsed_ignore_patterns
+        final_ignore_patterns: list[str] | None = parsed_ignore_patterns
 
         # If it's a simple string without JSON brackets, treat it as a single selector
         if isinstance(selectors, str) and "{" not in selectors:
             final_selectors = {"content": selectors}
-            await ctx.info(f"🔧 Using simple selector: {selectors}")
+            try:
+                await ctx.info(f"🔧 Using simple selector: {selectors}")
+            except Exception as ctx_error:
+                logger.warning("Context logging failed", error=str(ctx_error))
 
-        await ctx.report_progress(10, 100)
+        try:
+            await ctx.report_progress(10, 100)
+        except Exception as ctx_error:
+            logger.warning("Context progress reporting failed", error=str(ctx_error))
 
-        await ctx.info("🏗️ Initializing documentation service...")
+        try:
+            await ctx.info("🏗️ Initializing documentation service...")
+        except Exception as ctx_error:
+            logger.warning("Context logging failed", error=str(ctx_error))
         doc_service = DocumentationService()
+        await doc_service.initialize()
 
         # First, add/update the documentation source
-        await ctx.info("📦 Adding/updating documentation source...")
-        await ctx.report_progress(20, 100)
+        try:
+            await ctx.info("📦 Adding/updating documentation source...")
+            await ctx.report_progress(20, 100)
+        except Exception as ctx_error:
+            logger.warning("Context logging failed", error=str(ctx_error))
 
         source_result = await doc_service.add_documentation_source(
             name=source_name,
@@ -116,20 +225,30 @@ async def scrape_documentation(
             crawl_depth=crawl_depth,
             update_frequency=update_frequency,
             selectors=final_selectors,
-            ignore_patterns=ignore_patterns,
+            allow_patterns=final_allow_patterns,
+            ignore_patterns=final_ignore_patterns,
         )
 
         if not source_result.get("success"):
-            await ctx.error(f"❌ Failed to create documentation source: {source_result.get('error', 'Unknown error')}")
+            try:
+                await ctx.error(f"❌ Failed to create documentation source: {source_result.get('error', 'Unknown error')}")
+            except Exception as ctx_error:
+                logger.warning("Context error logging failed", error=str(ctx_error))
             return {"error": {"code": "SOURCE_CREATION_FAILED", "message": source_result.get("error", "Unknown error")}}
 
         source_id = source_result["source_id"]
-        await ctx.info(f"✅ Documentation source created with ID: {source_id}")
+        try:
+            await ctx.info(f"✅ Documentation source created with ID: {source_id}")
+        except Exception as ctx_error:
+            logger.warning("Context logging failed", error=str(ctx_error))
 
         # Conditionally scrape the documentation
         if scrape_immediately:
-            await ctx.info(f"🕷️ Starting immediate scraping with depth {crawl_depth}...")
-            await ctx.report_progress(30, 100)
+            try:
+                await ctx.info(f"🕷️ Starting background scraping with depth {crawl_depth}...")
+                await ctx.report_progress(30, 100)
+            except Exception as ctx_error:
+                logger.warning("Context logging failed", error=str(ctx_error))
 
             result = await doc_service.scrape_documentation(
                 source_id=source_id,
@@ -137,18 +256,39 @@ async def scrape_documentation(
                 ctx=ctx,
             )
 
-            await ctx.report_progress(100, 100)
+            try:
+                await ctx.report_progress(100, 100)
+            except Exception as ctx_error:
+                logger.warning("Context progress reporting failed", error=str(ctx_error))
             
             if result.get("success"):
-                pages_scraped = result.get("entries_scraped", 0)
-                await ctx.info(f"🎉 Documentation scraping completed! Scraped {pages_scraped} pages from {source_name}")
+                try:
+                    await ctx.info(f"🎉 Documentation scraping started! Source ID: {source_id}")
+                    await ctx.info(f"📊 {source_name} is being scraped in the background")
+                except Exception as ctx_error:
+                    logger.warning("Context logging failed", error=str(ctx_error))
+                
+                return {
+                    "success": True,
+                    "message": "Documentation scraping started in background",
+                    "source_id": source_id,
+                    "source_name": source_name,
+                    "url": url,
+                    "scraping_in_progress": result.get("scraping_in_progress", True),
+                }
             else:
-                await ctx.error(f"❌ Documentation scraping failed: {result.get('error', 'Unknown error')}")
+                try:
+                    await ctx.error(f"❌ Documentation scraping failed: {result.get('error', 'Unknown error')}")
+                except Exception as ctx_error:
+                    logger.warning("Context error logging failed", error=str(ctx_error))
 
-            return result
+                return result
         else:
-            await ctx.info("📋 Documentation source created successfully, scraping skipped")
-            await ctx.report_progress(100, 100)
+            try:
+                await ctx.info("📋 Documentation source created successfully, scraping skipped")
+                await ctx.report_progress(100, 100)
+            except Exception as ctx_error:
+                logger.warning("Context logging failed", error=str(ctx_error))
 
             return {
                 "success": True,
@@ -158,10 +298,34 @@ async def scrape_documentation(
                 "url": url,
             }
 
+    except ValueError as e:
+        try:
+            await ctx.error(f"📝 Parameter validation error: {str(e)}")
+        except Exception as ctx_error:
+            logger.warning("Context error logging failed", error=str(ctx_error))
+        logger.error("Parameter validation error in scrape_documentation", source=source_name, url=url, error=str(e))
+        return {"error": {"code": "INVALID_PARAMETERS", "message": f"Parameter validation failed: {str(e)}"}}
+    except ConnectionError as e:
+        try:
+            await ctx.error(f"🌐 Network connection error: {str(e)}")
+        except Exception as ctx_error:
+            logger.warning("Context error logging failed", error=str(ctx_error))
+        logger.error("Network error in scrape_documentation", source=source_name, url=url, error=str(e))
+        return {"error": {"code": "NETWORK_ERROR", "message": f"Failed to connect to {url}: {str(e)}"}}
+    except TimeoutError as e:
+        try:
+            await ctx.error(f"⏰ Request timeout error: {str(e)}")
+        except Exception as ctx_error:
+            logger.warning("Context error logging failed", error=str(ctx_error))
+        logger.error("Timeout error in scrape_documentation", source=source_name, url=url, error=str(e))
+        return {"error": {"code": "TIMEOUT_ERROR", "message": f"Request timed out for {url}: {str(e)}"}}
     except Exception as e:
-        await ctx.error(f"💥 Critical error in documentation scraping: {str(e)}")
-        logger.error("Error scraping documentation", source=source_name, url=url, error=str(e))
-        return {"error": {"code": "SCRAPE_DOCUMENTATION_FAILED", "message": str(e)}}
+        try:
+            await ctx.error(f"💥 Critical error in documentation scraping: {str(e)}")
+        except Exception as ctx_error:
+            logger.warning("Context error logging failed", error=str(ctx_error))
+        logger.error("Unexpected error in scrape_documentation", source=source_name, url=url, error=str(e), exc_info=True)
+        return {"error": {"code": "SCRAPE_DOCUMENTATION_FAILED", "message": f"Unexpected error: {str(e)}", "type": type(e).__name__}}
 
 
 @app.tool(tags={"documentation", "updates", "refresh", "maintenance"})
@@ -178,15 +342,19 @@ async def update_documentation(
     """Update previously scraped documentation sources."""
     try:
         doc_service = DocumentationService()
+        await doc_service.initialize()
         result = await doc_service.update_documentation(
             source_name=source_name,
             force_refresh=force_refresh,
         )
         return result
 
+    except ValueError as e:
+        logger.error("Parameter validation error in update_documentation", source=source_name, error=str(e))
+        return {"error": {"code": "INVALID_PARAMETERS", "message": f"Parameter validation failed: {str(e)}"}}
     except Exception as e:
-        logger.error("Error updating documentation", source=source_name, error=str(e))
-        return {"error": {"code": "UPDATE_DOCUMENTATION_FAILED", "message": str(e)}}
+        logger.error("Error updating documentation", source=source_name, error=str(e), exc_info=True)
+        return {"error": {"code": "UPDATE_DOCUMENTATION_FAILED", "message": f"Unexpected error: {str(e)}", "type": type(e).__name__}}
 
 
 @app.tool(tags={"documentation", "search", "semantic", "ai-powered"})
@@ -229,6 +397,7 @@ async def search_documentation(
         final_content_types: list[str] | None = parsed_content_types
 
         doc_service = DocumentationService()
+        await doc_service.initialize()
         result = await doc_service.search_documentation(
             query=query,
             source_names=final_source_names,
@@ -281,6 +450,7 @@ async def analyze_documentation_changes(
         final_change_types: list[str] | None = parsed_change_types
 
         doc_service = DocumentationService()
+        await doc_service.initialize()
         
         # Calculate days_back from since_timestamp if provided
         days_back = 7  # Default
@@ -393,6 +563,7 @@ async def link_docs_to_code(
         final_file_patterns: list[str] | None = parsed_file_patterns
 
         doc_service = DocumentationService()
+        await doc_service.initialize()
         result = await doc_service.link_docs_to_code(
             project_path=repository_path,
             documentation_sources=final_documentation_sources,
@@ -404,3 +575,121 @@ async def link_docs_to_code(
     except Exception as e:
         logger.error("Error linking docs to code", repository=repository_path, error=str(e))
         return {"error": {"code": "LINK_DOCS_TO_CODE_FAILED", "message": str(e)}}
+
+
+@app.tool(tags={"documentation", "status", "monitoring", "scraping"})
+async def get_scraping_status(
+    source_id: Annotated[str, Field(
+        description="ID of the documentation source to check",
+    )],
+) -> dict[str, Any]:
+    """Check the status of documentation scraping for a source."""
+    try:
+        doc_service = DocumentationService()
+        await doc_service.initialize()
+        
+        # Check if scraping is in progress
+        is_running = doc_service.is_scraping_running(source_id)
+        
+        if is_running:
+            return {
+                "success": True,
+                "source_id": source_id,
+                "status": "scraping_in_progress",
+                "message": "Documentation scraping is currently running",
+            }
+        else:
+            # Check if source exists and get last scraped info
+            # This would require a method to get source info
+            return {
+                "success": True,
+                "source_id": source_id,
+                "status": "completed_or_not_started",
+                "message": "No active scraping for this source",
+            }
+            
+    except Exception as e:
+        logger.error("Error checking scraping status", source_id=source_id, error=str(e))
+        return {"error": {"code": "STATUS_CHECK_FAILED", "message": str(e)}}
+
+
+@app.tool(tags={"documentation", "monitoring", "progress", "streaming"})
+async def watch_scraping_progress(
+    ctx: Context,
+    source_id: Annotated[str, Field(
+        description="ID of the documentation source to monitor",
+    )],
+    timeout_seconds: Annotated[int, Field(
+        description="How long to watch for progress updates (max 60 seconds)",
+        ge=5,
+        le=60,
+    )] = 30,
+) -> dict[str, Any]:
+    """Watch scraping progress for a limited time, then return status and events."""
+    try:
+        doc_service = DocumentationService()
+        await doc_service.initialize()
+        
+        # Check if scraping is running
+        if not doc_service.is_scraping_running(source_id):
+            return {
+                "success": True,
+                "source_id": source_id,
+                "status": "not_running",
+                "message": "No active scraping for this source",
+                "events": [],
+            }
+        
+        import time
+        start_time = time.time()
+        events = []
+        
+        try:
+            await ctx.info(f"👀 Watching scraping progress for {timeout_seconds}s...")
+        except Exception:
+            pass
+        
+        # Progress callback to collect events
+        collected_events = []
+        
+        async def progress_collector(event):
+            collected_events.append({
+                "timestamp": time.time(),
+                "event": event
+            })
+            # Log to context
+            try:
+                if event.get("type") == "page_start":
+                    await ctx.info(f"📄 Starting page {event.get('page_number', '?')}: {event.get('url', '')[:60]}...")
+                elif event.get("type") == "page_success":
+                    await ctx.info(f"✅ Scraped: {event.get('title', 'Untitled')[:40]}")
+                elif event.get("type") == "error":
+                    await ctx.error(f"❌ Error: {event.get('error', 'Unknown error')}")
+            except Exception:
+                pass
+        
+        # Wait and collect events for the specified timeout
+        while time.time() - start_time < timeout_seconds:
+            if not doc_service.is_scraping_running(source_id):
+                break
+            await asyncio.sleep(1)  # Check every second
+        
+        final_status = "completed" if not doc_service.is_scraping_running(source_id) else "still_running"
+        
+        try:
+            await ctx.info(f"⏰ Watch period ended. Status: {final_status}")
+        except Exception:
+            pass
+        
+        return {
+            "success": True,
+            "source_id": source_id,
+            "status": final_status,
+            "watched_for_seconds": int(time.time() - start_time),
+            "events": collected_events,
+            "message": f"Watched for {int(time.time() - start_time)}s, scraping is {final_status}",
+        }
+        
+    except Exception as e:
+        logger.error("Error watching scraping progress", source_id=source_id, error=str(e))
+        return {"error": {"code": "WATCH_PROGRESS_FAILED", "message": str(e)}}

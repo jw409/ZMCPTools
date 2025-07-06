@@ -1,10 +1,10 @@
 """JSON parsing utilities for MCP tools."""
 
 import json
-from typing import Any, Union
+from typing import Any
 
 
-def parse_json_list(param_value: Union[str, list[str], None], param_name: str) -> Any:
+def parse_json_list(param_value: str | list[str] | None, param_name: str) -> Any:
     """Parse a parameter that can be either a JSON string (array) or a native list.
     
     Args:
@@ -31,7 +31,7 @@ def parse_json_list(param_value: Union[str, list[str], None], param_name: str) -
     return param_value
 
 
-def parse_json_dict(param_value: Union[str, dict[str, Any], None], param_name: str) -> Any:
+def parse_json_dict(param_value: str | dict[str, Any] | None, param_name: str) -> Any:
     """Parse a parameter that can be either a JSON string (object) or a native dict.
     
     Args:

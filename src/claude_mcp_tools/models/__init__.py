@@ -59,9 +59,10 @@ from .documentation import (
     DocumentationEmbedding,
     DocumentationEntry,
     DocumentationSource,
+    ScrapedUrl,
 )
 from .error_logging import ErrorLog, ErrorPattern, LearningEntry
-from .shared_memory import AgentInsight, SharedMemoryEntry, ToolCallLog
+from .shared_memory import AgentInsight, Memory, SharedMemoryEntry, ToolCallLog
 from .task import Task, TaskDependency
 
 __all__ = [
@@ -85,7 +86,9 @@ __all__ = [
     "FileAnalysis",
     "FileWatcher",
     "LearningEntry",
+    "Memory",
     "RoomMembership",
+    "ScrapedUrl",
     "SectionType",
     "SharedMemoryEntry",
     "SourceType",

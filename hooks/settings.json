@@ -1,0 +1,143 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "mcp__claude-mcp-orchestration__store_memory",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./hooks/memory-monitor.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__claude-mcp-orchestration__search_memory",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./hooks/memory-monitor.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__claude-mcp-orchestration__spawn_agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./hooks/agent-monitor.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__claude-mcp-orchestration__spawn_agents_batch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./hooks/agent-monitor.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__claude-mcp-orchestration__orchestrate_objective",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./hooks/agent-monitor.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__claude-mcp-orchestration__terminate_agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./hooks/agent-monitor.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__claude-mcp-orchestration__list_agents",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./hooks/agent-monitor.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__claude-mcp-orchestration__get_agent_status",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./hooks/agent-monitor.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__claude-mcp-orchestration__scrape_documentation",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./hooks/docs-monitor.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__claude-mcp-orchestration__search_documentation",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./hooks/docs-monitor.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__claude-mcp-orchestration__update_documentation",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./hooks/docs-monitor.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__claude-mcp-orchestration__analyze_documentation_changes",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./hooks/docs-monitor.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__claude-mcp-orchestration__link_docs_to_code",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./hooks/docs-monitor.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__claude-mcp-orchestration__*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./hooks/mcp-monitor.sh"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./hooks/compact-replan.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

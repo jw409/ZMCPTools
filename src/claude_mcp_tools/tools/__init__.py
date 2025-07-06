@@ -9,6 +9,15 @@ Tools are automatically registered with the FastMCP app when imported.
 from . import agents, analysis, communication, core, documentation, memory, tasks
 
 __all__ = [
+    # Module imports (for tool registration)
+    "agents",
+    "analysis", 
+    "communication",
+    "core",
+    "documentation",
+    "memory",
+    "tasks",
+    
     # Core orchestration
     "orchestrate_objective",
     "get_system_status",
@@ -32,7 +41,6 @@ __all__ = [
     "auto_assign_tasks",
     "auto_assign_tasks_parallel",
     "balance_workload",
-    "get_agent_workload",
 
     # Communication
     "join_room",
@@ -49,26 +57,26 @@ __all__ = [
     "analyze_documentation_changes",
     "link_docs_to_code",
 
-    # Memory & Learning
-    "store_memory_entry",
-    "query_shared_memory",
-    "store_agent_insight",
-    "get_agent_insights",
+    # Memory & Learning (unified tools)
+    "store_memory",
+    "search_memory",
     "log_tool_call",
-    "get_tool_call_history",
+    "get_tool_call_history", 
     "log_error",
     "get_recent_errors",
     "resolve_error",
-    "get_learning_entries",
     "get_error_patterns",
 
     # Analysis
     "analyze_project_structure",
     "generate_project_summary",
-    "detect_dead_code",
     "analyze_file_symbols",
-    "easy_replace_all",
     "cleanup_orphaned_projects",
     "update_treesummary_incremental",
     "watch_project_changes",
+
+    # File Operations
+    "list_files",
+    "find_files", 
+    "easy_replace",
 ]

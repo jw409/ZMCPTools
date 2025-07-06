@@ -2,7 +2,7 @@
 
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 from sqlalchemy import select
@@ -13,20 +13,17 @@ from ..models import DocumentationEmbedding, DocumentationEntry
 
 logger = structlog.get_logger()
 
-try:
-    import chromadb
-    from transformers import AutoModel, AutoTokenizer
-    import numpy as np
-    VECTOR_DEPS_AVAILABLE = True
-except ImportError:
-    VECTOR_DEPS_AVAILABLE = False
-    logger.warning("ChromaDB and/or transformers not available - vector search disabled")
+import chromadb
+from chromadb.utils import embedding_functions
+
+if TYPE_CHECKING:
+    from chromadb import Collection, Client
 
 
 class VectorService:
     """Service for vector embeddings and semantic search."""
 
-    def __init__(self, vector_db_path: Path):
+    def __init__(self, vector_db_path: Path) -> None:
         """Initialize vector service.
         
         Args:
@@ -35,37 +32,28 @@ class VectorService:
         self.vector_db_path = vector_db_path
         self.vector_db_path.mkdir(parents=True, exist_ok=True)
 
-        self._chroma_client = None
-        self._collection = None
-        self._embedding_model = None
-        self._tokenizer = None
-        self._model_name = "sentence-transformers/all-MiniLM-L6-v2"
+        self._chroma_client: Client | None = None
+        self._collection: Collection | None = None
+        self._embedding_function = embedding_functions.DefaultEmbeddingFunction()
 
     async def initialize(self) -> None:
         """Initialize ChromaDB client and embedding model."""
-        if not VECTOR_DEPS_AVAILABLE:
-            logger.warning("Vector dependencies not available - skipping initialization")
-            return
-
         try:
             # Initialize ChromaDB client
             self._chroma_client = chromadb.PersistentClient(
                 path=str(self.vector_db_path),
             )
 
-            # Get or create collection
+            # Get or create collection with embedding function
             self._collection = self._chroma_client.get_or_create_collection(
                 name="documentation_embeddings",
+                embedding_function=self._embedding_function,
                 metadata={"description": "Documentation content embeddings"},
             )
 
-            # Initialize embedding model
-            self._tokenizer = AutoTokenizer.from_pretrained(self._model_name)
-            self._embedding_model = AutoModel.from_pretrained(self._model_name)
-
             logger.info("Vector service initialized",
                        db_path=str(self.vector_db_path),
-                       model=self._model_name)
+                       embedding_function="ChromaDB Default")
 
         except Exception as e:
             logger.error("Failed to initialize vector service", error=str(e))
@@ -83,7 +71,7 @@ class VectorService:
         if not self._is_available():
             return {"success": False, "error": "Vector service not available"}
 
-        async def _create_embeddings(session: AsyncSession):
+        async def _create_embeddings(session: AsyncSession) -> dict[str, Any]:
             # Get the entry
             stmt = select(DocumentationEntry).where(DocumentationEntry.id == entry_id)
             result = await session.execute(stmt)
@@ -99,24 +87,11 @@ class VectorService:
 
             for i, chunk in enumerate(chunks):
                 try:
-                    # Generate embedding
-                    embedding = self._encode_text(chunk).tolist()
-
-                    # Store in database
+                    # Store in ChromaDB (embeddings generated automatically)
+                    self._ensure_initialized()
                     embedding_id = str(uuid.uuid4())
-                    embedding_record = DocumentationEmbedding(
-                        id=embedding_id,
-                        entry_id=entry_id,
-                        chunk_index=i,
-                        chunk_text=chunk,
-                    )
-                    embedding_record.set_embedding(embedding)
-
-                    session.add(embedding_record)
-
-                    # Store in ChromaDB
+                    
                     self._collection.add(
-                        embeddings=[embedding],
                         documents=[chunk],
                         ids=[embedding_id],
                         metadatas=[{
@@ -133,8 +108,6 @@ class VectorService:
                 except Exception as e:
                     logger.error("Failed to create embedding for chunk",
                                 entry_id=entry_id, chunk_index=i, error=str(e))
-
-            await session.commit()
 
             return {
                 "success": True,
@@ -167,17 +140,14 @@ class VectorService:
             return []
 
         try:
-            # Generate query embedding
-            query_embedding = self._encode_text(query).tolist()
-
             # Build where clause for filtering
             where_clause = {}
             if source_ids:
                 where_clause["source_id"] = {"$in": source_ids}
 
-            # Search in ChromaDB
+            # Search in ChromaDB (query embedding generated automatically)
             results = self._collection.query(
-                query_embeddings=[query_embedding],
+                query_texts=[query],
                 n_results=limit,
                 where=where_clause if where_clause else None,
             )
@@ -185,7 +155,7 @@ class VectorService:
             # Format results
             similar_content = []
             if results and results["documents"]:
-                for i, (doc, metadata, distance) in enumerate(zip(
+                for _i, (doc, metadata, distance) in enumerate(zip(
                     results["documents"][0],
                     results["metadatas"][0],
                     results["distances"][0], strict=False,
@@ -240,7 +210,7 @@ class VectorService:
         if not self._is_available():
             return {"success": False, "error": "Vector service not available"}
 
-        async def _delete_embeddings(session: AsyncSession):
+        async def _delete_embeddings(session: AsyncSession) -> dict[str, Any]:
             # Get embedding IDs from database
             stmt = select(DocumentationEmbedding.id).where(
                 DocumentationEmbedding.entry_id == entry_id,
@@ -253,6 +223,7 @@ class VectorService:
 
             # Delete from ChromaDB
             try:
+                self._ensure_initialized()
                 self._collection.delete(ids=embedding_ids)
             except Exception as e:
                 logger.warning("Failed to delete from ChromaDB", error=str(e))
@@ -278,7 +249,7 @@ class VectorService:
         Returns:
             Statistics about embeddings
         """
-        async def _get_stats(session: AsyncSession):
+        async def _get_stats(session: AsyncSession) -> dict[str, Any]:
             from sqlalchemy import func
 
             # Count total embeddings
@@ -309,10 +280,17 @@ class VectorService:
 
         return await execute_query(_get_stats)
 
+    def _ensure_initialized(self) -> None:
+        """Ensure service is initialized with proper type guards."""
+        if (self._collection is None or 
+            self._chroma_client is None or 
+            self._embedding_model is None or 
+            self._tokenizer is None):
+            raise RuntimeError("Vector service not initialized - call initialize() first")
+
     def _is_available(self) -> bool:
         """Check if vector service is available."""
-        return (VECTOR_DEPS_AVAILABLE and
-                self._chroma_client is not None and
+        return (self._chroma_client is not None and
                 self._collection is not None and
                 self._embedding_model is not None and
                 self._tokenizer is not None)
@@ -364,25 +342,6 @@ class VectorService:
 
         return chunks
 
-    def _encode_text(self, text: str) -> np.ndarray:
-        """Encode text using the transformer model.
-        
-        Args:
-            text: Text to encode
-            
-        Returns:
-            Embedding vector as numpy array
-        """
-        # Tokenize the text
-        inputs = self._tokenizer(text, return_tensors="np", truncation=True, padding=True, max_length=512)
-        
-        # Get model output (CPU-only)
-        outputs = self._embedding_model(**inputs)
-        
-        # Use mean pooling to get sentence embedding
-        embeddings = outputs.last_hidden_state.mean(axis=1)
-        
-        return embeddings.squeeze()
 
 
 # Global vector service instance
@@ -402,7 +361,7 @@ async def get_vector_service(vector_db_path: Path | None = None) -> VectorServic
 
     if _vector_service is None:
         if vector_db_path is None:
-            vector_db_path = Path.home() / ".claude-orchestration" / "documentation" / "vectors"
+            vector_db_path = Path.home() / ".mcptools" / "data" / "documentation" / "vectors"
 
         _vector_service = VectorService(vector_db_path)
         await _vector_service.initialize()

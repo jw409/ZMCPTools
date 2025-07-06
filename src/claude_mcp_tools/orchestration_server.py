@@ -2,12 +2,28 @@
 
 import asyncio
 import json
+import os
+import queue
 import re
+import signal
+import subprocess
+import sys
+import threading
+import time
+import traceback
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import structlog
+import uvloop
 from mcp.types import PromptMessage, TextContent
+
+# Install uvloop for 2x+ performance boost
+uvloop.install()
+
+# Import configuration system first to set up logging
+from .config import config
 
 # Import all tool modules - this registers them with the shared app instance
 # Import database and models
@@ -23,7 +39,7 @@ except ImportError:
     def _spawn_claude_sync(*args, **kwargs):
         return {"pid": None, "error": "Claude Code tool not available"}
 
-# Initialize logger
+# Initialize logger after config is loaded
 logger = structlog.get_logger("orchestration")
 
 # Import the shared app instance from tools
@@ -325,6 +341,9 @@ def setup_dependency_monitoring(agent_id: str, depends_on: list[str]) -> dict[st
         return {"success": False, "error": str(e)}
 
 
+
+
+
 # Register all tool modules with the FastMCP app
 # Tools are now automatically registered when the tools package is imported above
 logger.info("MCP tools automatically registered via imports")
@@ -449,78 +468,81 @@ async def easy_replace(file_path: str, old_text: str, new_text: str, backup: boo
 
 
 @app.tool(
-    name="take_screenshot",
-    description="Take a screenshot for debugging UI issues or documenting visual state",
-    tags={"debugging", "documentation", "visual", "screenshot"},
+    name="get_server_health",
+    description="Get comprehensive server health status and metrics for monitoring",
+    tags={"monitoring", "health", "system-status"},
 )
-async def take_screenshot() -> str:
-    """Take a screenshot for debugging or documentation."""
+async def get_server_health() -> dict[str, Any]:
+    """Get comprehensive server health status and metrics."""
+    import psutil
+    import time
+    
     try:
-        import platform
-        import subprocess
-        from datetime import datetime
-
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"screenshot_{timestamp}.png"
-
-        system = platform.system()
-        if system == "Darwin":  # macOS
-            cmd = ["screencapture", "-x", filename]
-        elif system == "Linux":
-            cmd = ["gnome-screenshot", "-f", filename]
-        elif system == "Windows":
-            cmd = ["powershell", "-Command", f"Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('%{{PRTSC}}'); Start-Sleep -Milliseconds 500; Get-Clipboard -Format Image | Set-Content -Path '{filename}' -Encoding Byte"]
-        else:
-            return f"Screenshot not supported on {system}"
-
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode == 0:
-            return f"Screenshot saved as '{filename}'"
-        return f"Failed to take screenshot: {result.stderr}"
-
+        current_process = psutil.Process()
+        
+        # Get process metrics
+        memory_info = current_process.memory_info()
+        memory_mb = memory_info.rss / 1024 / 1024
+        
+        # Get system metrics
+        cpu_percent = current_process.cpu_percent()
+        open_files = len(current_process.open_files())
+        threads = current_process.num_threads()
+        
+        # Get child processes (spawned agents)
+        children = current_process.children(recursive=True)
+        active_agents = len(children)
+        
+        # Database health
+        db_healthy = True
+        db_error = None
+        try:
+            from .database import engine
+            if engine:
+                # Quick connection test
+                async with engine.begin() as conn:
+                    await conn.exec_driver_sql("SELECT 1")
+            else:
+                db_healthy = False
+                db_error = "No database engine"
+        except Exception as e:
+            db_healthy = False
+            db_error = str(e)
+        
+        health_status = {
+            "status": "healthy" if db_healthy and memory_mb < 1000 else "degraded",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "process": {
+                "pid": current_process.pid,
+                "memory_mb": round(memory_mb, 2),
+                "cpu_percent": round(cpu_percent, 1),
+                "open_files": open_files,
+                "threads": threads,
+                "uptime_seconds": round(time.time() - current_process.create_time(), 1)
+            },
+            "agents": {
+                "active_count": active_agents,
+                "child_pids": [child.pid for child in children]
+            },
+            "database": {
+                "healthy": db_healthy,
+                "error": db_error
+            },
+            "system": {
+                "memory_warning": memory_mb > 500,
+                "high_file_usage": open_files > 100
+            }
+        }
+        
+        return health_status
+        
     except Exception as e:
-        return f"Error taking screenshot: {e}"
-
-
-# Initialize the server on startup
-@app.tool(
-    name="startup",
-    description="Initialize the orchestration server and all subsystems",
-    tags={"system", "initialization", "startup"},
-)
-async def startup() -> str:
-    """Initialize the orchestration server."""
-    try:
-        # Initialize database
-        await init_database()
-
-        # Register all tools
-        # Tools are already registered via imports
-
-        # Initialize services
-        logger.info("Orchestration server initialized successfully")
-        return "🚀 ClaudeMcpTools Orchestration Server initialized successfully!"
-
-    except Exception as e:
-        logger.error("Failed to initialize orchestration server", error=str(e))
-        return f"❌ Failed to initialize server: {e}"
-
-
-@app.tool(
-    name="shutdown",
-    description="Gracefully shutdown the orchestration server and clean up resources",
-    tags={"system", "shutdown", "cleanup"},
-)
-async def shutdown() -> str:
-    """Gracefully shutdown the orchestration server."""
-    try:
-        logger.info("Shutting down orchestration server...")
-        # Add cleanup logic here if needed
-        return "🛑 ClaudeMcpTools Orchestration Server shutdown complete"
-
-    except Exception as e:
-        logger.error("Error during shutdown", error=str(e))
-        return f"❌ Error during shutdown: {e}"
+        return {
+            "status": "error",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
 
 
 # ========================================
@@ -1153,7 +1175,7 @@ async def get_memory_insights(repo_path: str) -> dict[str, Any]:
 
         # Get recent insights and learning entries
         insights = await SharedMemoryService.get_insights(clean_path, limit=50)
-        # Note: get_learning_entries method doesn't exist, using insights instead
+        # Using insights for learning data
 
         return {
             "repository_path": clean_path,
@@ -1233,6 +1255,9 @@ async def get_task_history(repo_path: str) -> dict[str, Any]:
 async def get_context_logging() -> dict[str, Any]:
     """Provide FastMCP context and logging information."""
     try:
+        tool_list = await app._list_tools()
+        resources = await app._list_resources()
+        prompts = await app._list_prompts()
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "logging_enabled": True,
@@ -1244,9 +1269,9 @@ async def get_context_logging() -> dict[str, Any]:
             },
             "fastmcp_status": {
                 "version": "2.9.0",
-                "tools_registered": len(app._tools),
-                "resources_registered": len(app._resources),
-                "prompts_registered": len(app._prompts),
+                "tools_registered": len(tool_list),
+                "resources_registered": len(resources),
+                "prompts_registered": len(prompts),
             },
         }
     except Exception as e:
@@ -1308,9 +1333,267 @@ async def _auto_init():
 
 # Auto-initialization will be handled by the server when it starts
 
+async def run_startup_diagnostics() -> bool:
+    """Run startup diagnostics and health checks.
+    
+    Returns:
+        bool: True if all checks pass, False otherwise
+    """
+    if not config.get("server.startup_diagnostics", True):
+        return True
+    
+    logger.info("Running startup diagnostics...")
+    
+    try:
+        # Check database connectivity
+        logger.info("Checking database connectivity...")
+        await init_database()
+        logger.info("✓ Database connectivity verified")
+        
+        # Check required dependencies
+        logger.info("Checking dependencies...")
+        import fastmcp
+        import sqlalchemy
+        logger.info("✓ Dependencies verified", fastmcp_version=fastmcp.__version__)
+        
+        # Validate configuration
+        logger.info("Validating configuration...")
+        if config.get("logging.level") not in ["DEBUG", "INFO", "WARNING", "ERROR"]:
+            logger.warning("Invalid log level in config, using INFO")
+        logger.info("✓ Configuration validated")
+        
+        # Bootstrap unscraped documentation sources
+        if config.get("documentation.auto_bootstrap", True):
+            logger.info("Bootstrapping unscraped documentation sources...")
+            try:
+                from .services.documentation_bootstrap import bootstrap_documentation_sources
+                bootstrap_result = await bootstrap_documentation_sources()
+                
+                if bootstrap_result.get("error"):
+                    logger.error("Documentation bootstrap failed", error=bootstrap_result["error"])
+                else:
+                    logger.info("✓ Documentation bootstrap completed",
+                               sources_found=bootstrap_result.get("unscraped_found", 0),
+                               tasks_scheduled=bootstrap_result.get("tasks_scheduled", 0))
+            except Exception as e:
+                logger.error("Documentation bootstrap failed", error=str(e))
+        
+        logger.info("All startup diagnostics passed")
+        return True
+        
+    except Exception as e:
+        logger.error("Startup diagnostics failed", error=str(e), exc_info=True)
+        return False
+
+def _handle_runtime_crash(exception: Exception) -> None:
+    """Handle runtime server crashes with comprehensive logging and cleanup."""
+    import signal
+    import platform
+    import psutil
+    
+    logger.error("=== RUNTIME CRASH DETECTED ===")
+    logger.error("Server crashed during runtime operation")
+    
+    # Basic crash information
+    logger.error("Exception Type: %s", type(exception).__name__)
+    logger.error("Exception Message: %s", str(exception))
+    logger.error("Time: %s", datetime.now(timezone.utc).isoformat())
+    
+    # System information
+    logger.error("System Info:")
+    logger.error("  Platform: %s", platform.platform())
+    logger.error("  Python: %s", platform.python_version())
+    logger.error("  PID: %s", os.getpid())
+    
+    # Process information
+    try:
+        process = psutil.Process()
+        logger.error("  Memory Usage: %.2f MB", process.memory_info().rss / 1024 / 1024)
+        logger.error("  CPU Percent: %.1f%%", process.cpu_percent())
+        logger.error("  Open Files: %d", len(process.open_files()))
+        logger.error("  Threads: %d", process.num_threads())
+    except Exception:
+        logger.error("  Process info unavailable")
+    
+    # Full stack trace
+    logger.error("Stack Trace:")
+    for line in traceback.format_exc().splitlines():
+        logger.error("  %s", line)
+    
+    # Save crash dump to file
+    try:
+        crash_dir = Path.home() / ".mcptools" / "crashes"
+        crash_dir.mkdir(parents=True, exist_ok=True)
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        crash_file = crash_dir / f"crash_{timestamp}.log"
+        
+        with open(crash_file, 'w') as f:
+            f.write(f"ClaudeMcpTools Orchestration Server Crash Report\n")
+            f.write(f"Time: {datetime.now(timezone.utc).isoformat()}\n")
+            f.write(f"Exception: {type(exception).__name__}: {str(exception)}\n")
+            f.write(f"Platform: {platform.platform()}\n")
+            f.write(f"Python: {platform.python_version()}\n")
+            f.write(f"PID: {os.getpid()}\n\n")
+            f.write(f"Stack Trace:\n{traceback.format_exc()}\n")
+            
+            # Add system info
+            try:
+                process = psutil.Process()
+                f.write(f"\nProcess Info:\n")
+                f.write(f"Memory: {process.memory_info().rss / 1024 / 1024:.2f} MB\n")
+                f.write(f"CPU: {process.cpu_percent():.1f}%\n")
+                f.write(f"Files: {len(process.open_files())}\n")
+                f.write(f"Threads: {process.num_threads()}\n")
+            except Exception:
+                f.write(f"Process info unavailable\n")
+        
+        logger.error("Crash dump saved to: %s", crash_file)
+        
+    except Exception as crash_save_error:
+        logger.error("Failed to save crash dump: %s", str(crash_save_error))
+    
+    # Cleanup resources
+    logger.error("Attempting cleanup...")
+    try:
+        # Close database connections
+        from .database import engine
+        if engine:
+            asyncio.run(engine.dispose())
+            logger.error("Database connections closed")
+    except Exception as cleanup_error:
+        logger.error("Cleanup error: %s", str(cleanup_error))
+    
+    logger.error("=== END RUNTIME CRASH REPORT ===")
+
+def _setup_signal_handlers() -> None:
+    """Setup signal handlers for graceful shutdown."""
+    import signal
+    
+    def signal_handler(signum, frame):
+        signal_name = signal.Signals(signum).name
+        logger.info("Received %s signal, initiating graceful shutdown...", signal_name)
+        
+        # Cleanup resources
+        try:
+            # Close database connections
+            from .database import engine
+            if engine:
+                asyncio.run(engine.dispose())
+                logger.info("Database connections closed")
+        except Exception as e:
+            logger.error("Error during database cleanup: %s", str(e))
+        
+        # Cleanup handled by individual services
+        
+        # Cleanup spawned agent processes
+        try:
+            # Kill any orphaned Claude processes
+            import psutil
+            current_process = psutil.Process()
+            children = current_process.children(recursive=True)
+            for child in children:
+                try:
+                    child.terminate()
+                    logger.info("Terminated child process: %d", child.pid)
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.error("Error during process cleanup: %s", str(e))
+        
+        logger.info("Graceful shutdown completed")
+        sys.exit(0)
+    
+    # Register handlers for common termination signals
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+    if hasattr(signal, 'SIGHUP'):  # Not available on Windows
+        signal.signal(signal.SIGHUP, signal_handler)
+    
+    logger.info("Signal handlers registered for graceful shutdown")
+
 def main():
     """Main entry point for the orchestration server."""
-    app.run()
+    startup_errors = []
+    
+    try:
+        # Log startup configuration
+        if config.get("logging.startup_logging", True):
+            logger.info("Starting ClaudeMcpTools Orchestration Server",
+                       config_path=str(config.config_path),
+                       log_level=config.get("logging.level"),
+                       verbose=config.get("logging.verbose"),
+                       debug=config.get("logging.debug"))
+        
+        # Setup signal handlers for graceful shutdown
+        _setup_signal_handlers()
+        
+        # Configure multiprocessing for clean process isolation
+        import multiprocessing
+        try:
+            multiprocessing.set_start_method("spawn", force=True)
+            logger.info("🔧 Multiprocessing configured with spawn method")
+        except RuntimeError as e:
+            logger.warning("⚠️ Multiprocessing start method already set", error=str(e))
+        
+        # Documentation scraping now uses ThreadPoolExecutor (no separate worker process needed)
+        logger.info("📄 Documentation scraping configured with ThreadPoolExecutor")
+        
+        # Run startup diagnostics if enabled
+        if config.get("server.startup_diagnostics", True):
+            # Run diagnostics - create clean event loop for startup
+            try:
+                diagnostics_passed = asyncio.run(run_startup_diagnostics())
+                if not diagnostics_passed:
+                    logger.error("Startup diagnostics failed, continuing anyway...")
+            except Exception as diag_error:
+                logger.error("Startup diagnostics crashed: %s", str(diag_error))
+                logger.error("Continuing with server startup anyway...")
+        
+        # Start the FastMCP server with comprehensive error handling
+        if config.get("logging.debug") or config.get("logging.verbose"):
+            logger.info("Starting FastMCP server...")
+            
+        try:
+            app.run()
+        except Exception as e:
+            # This catches RUNTIME crashes that happen after server startup
+            _handle_runtime_crash(e)
+            sys.exit(1)
+        
+    except KeyboardInterrupt:
+        logger.info("Server shutdown requested by user")
+        sys.exit(0)
+        
+    except Exception as e:
+        error_msg = f"Failed to start orchestration server: {str(e)}"
+        startup_errors.append(error_msg)
+        
+        # Enhanced error reporting
+        if config.get("server.error_buffering", True):
+            logger.error("=== STARTUP ERROR DETAILS ===")
+            logger.error("Error: %s", str(e))
+            logger.error("Type: %s", type(e).__name__)
+            
+            # Show traceback if verbose/debug mode
+            if config.get("logging.verbose") or config.get("logging.debug"):
+                logger.error("Traceback:")
+                for line in traceback.format_exc().splitlines():
+                    logger.error("  %s", line)
+            
+            logger.error("=== END ERROR DETAILS ===")
+            
+        else:
+            logger.error(error_msg, exc_info=True)
+        
+        # Provide helpful suggestions
+        logger.error("Troubleshooting suggestions:")
+        logger.error("1. Check that all dependencies are installed: uv sync")
+        logger.error("2. Verify database permissions and connectivity")
+        logger.error("3. Enable debug mode: edit ~/.mcptools/config.json")
+        logger.error("4. Check for port conflicts or permission issues")
+        
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

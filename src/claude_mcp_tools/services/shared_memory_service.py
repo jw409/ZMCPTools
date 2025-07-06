@@ -1,4 +1,4 @@
-"""Shared memory service for cross-agent collaboration."""
+"""Unified memory service for cross-agent collaboration."""
 
 import uuid
 from datetime import datetime, timedelta
@@ -9,14 +9,215 @@ from sqlalchemy import and_, desc, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import execute_query
-from ..models import AgentInsight, SharedMemoryEntry, ToolCallLog
+from ..models import Memory, ToolCallLog
 
 logger = structlog.get_logger()
 
 
 class SharedMemoryService:
-    """Service for shared memory operations across agents."""
+    """Service for unified memory operations across agents."""
 
+    @staticmethod
+    async def store_memory(
+        repository_path: str,
+        agent_id: str,
+        entry_type: str,
+        title: str,
+        content: str,
+        category: str | None = None,
+        tags: list[str] | None = None,
+        misc_data: dict[str, Any] | None = None,
+        context: dict[str, Any] | None = None,
+        confidence: float = 0.8,
+        relevance_score: float = 1.0,
+    ) -> dict[str, Any]:
+        """Store a memory entry for cross-agent access and learning.
+        
+        Args:
+            repository_path: Repository path for scoping
+            agent_id: ID of the agent storing the memory
+            entry_type: Type of memory (insight, pattern, solution, error, learning, decision, discovery, result)
+            title: Brief title for the memory
+            content: Main content of the memory
+            category: Optional category (architecture, performance, testing, deployment, maintenance, documentation, code, design)
+            tags: Optional tags for categorization
+            misc_data: Optional miscellaneous data
+            context: Optional context information
+            confidence: Confidence in the memory (0.0-1.0)
+            relevance_score: Relevance score (0.0-1.0)
+            
+        Returns:
+            Dictionary with memory_id and storage result
+        """
+        async def _store_memory(session: AsyncSession):
+            memory_id = str(uuid.uuid4())
+
+            memory = Memory(
+                id=memory_id,
+                repository_path=repository_path,
+                agent_id=agent_id,
+                entry_type=entry_type,
+                category=category,
+                title=title,
+                content=content,
+                confidence=confidence,
+                relevance_score=relevance_score,
+            )
+
+            if tags:
+                memory.set_tags(tags)
+            if misc_data:
+                memory.set_misc_data(misc_data)
+            if context:
+                memory.set_context(context)
+
+            session.add(memory)
+            await session.commit()
+
+            logger.info("Memory stored",
+                       memory_id=memory_id,
+                       repository_path=repository_path,
+                       agent_id=agent_id,
+                       entry_type=entry_type,
+                       category=category,
+                       title=title)
+
+            return {
+                "memory_id": memory_id,
+                "stored_at": memory.created_at.isoformat(),
+                "confidence": confidence,
+                "relevance_score": relevance_score,
+            }
+
+        return await execute_query(_store_memory)
+
+    @staticmethod
+    async def search_memory(
+        repository_path: str,
+        query_text: str | None = None,
+        entry_types: list[str] | None = None,
+        categories: list[str] | None = None,
+        tags: list[str] | None = None,
+        agent_filter: str | None = None,
+        limit: int = 20,
+        min_confidence: float = 0.3,
+        min_relevance: float = 0.3,
+        requesting_agent_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Search memory entries with comprehensive filtering.
+        
+        Args:
+            repository_path: Repository path to query
+            query_text: Text to search in title and content
+            entry_types: Filter by entry types
+            categories: Filter by categories
+            tags: Filter by tags
+            agent_filter: Filter by specific agent ID
+            limit: Maximum results to return
+            min_confidence: Minimum confidence score
+            min_relevance: Minimum relevance score
+            requesting_agent_id: ID of agent making the request (for access tracking)
+            
+        Returns:
+            Dictionary with matching memories
+        """
+        async def _search_memory(session: AsyncSession):
+            # Build query
+            stmt = select(Memory).where(
+                and_(
+                    Memory.repository_path == repository_path,
+                    Memory.confidence >= min_confidence,
+                    Memory.relevance_score >= min_relevance,
+                ),
+            )
+
+            # Add filters
+            if entry_types:
+                stmt = stmt.where(Memory.entry_type.in_(entry_types))
+
+            if categories:
+                stmt = stmt.where(Memory.category.in_(categories))
+
+            if agent_filter:
+                stmt = stmt.where(Memory.agent_id == agent_filter)
+
+            if query_text:
+                search_pattern = f"%{query_text}%"
+                stmt = stmt.where(
+                    or_(
+                        Memory.title.ilike(search_pattern),
+                        Memory.content.ilike(search_pattern),
+                    ),
+                )
+
+            if tags:
+                # Search for any of the provided tags
+                for tag in tags:
+                    tag_pattern = f'%"{tag}"%'
+                    stmt = stmt.where(Memory.tags.ilike(tag_pattern))
+
+            # Order by relevance, usefulness, confidence, and recency
+            stmt = stmt.order_by(
+                desc(Memory.usefulness_score),
+                desc(Memory.relevance_score),
+                desc(Memory.confidence),
+                desc(Memory.created_at),
+            ).limit(limit)
+
+            result = await session.execute(stmt)
+            memories = result.scalars().all()
+
+            # Update access counts
+            if requesting_agent_id:
+                for memory in memories:
+                    memory.increment_access()
+                await session.commit()
+
+            memory_list = []
+            for memory in memories:
+                memory_dict = {
+                    "memory_id": memory.id,
+                    "agent_id": memory.agent_id,
+                    "entry_type": memory.entry_type,
+                    "category": memory.category,
+                    "title": memory.title,
+                    "content": memory.content,
+                    "tags": memory.get_tags(),
+                    "misc_data": memory.get_misc_data(),
+                    "context": memory.get_context(),
+                    "confidence": memory.confidence,
+                    "relevance_score": memory.relevance_score,
+                    "usefulness_score": memory.usefulness_score,
+                    "created_at": memory.created_at.isoformat(),
+                    "accessed_count": memory.accessed_count,
+                    "referenced_count": memory.referenced_count,
+                    "last_accessed": memory.last_accessed.isoformat() if memory.last_accessed else None,
+                }
+                memory_list.append(memory_dict)
+
+            logger.info("Memory search executed",
+                       repository_path=repository_path,
+                       query_text=query_text,
+                       results_count=len(memory_list),
+                       requesting_agent_id=requesting_agent_id)
+
+            return {
+                "memories": memory_list,
+                "count": len(memory_list),
+                "query": {
+                    "text": query_text,
+                    "entry_types": entry_types,
+                    "categories": categories,
+                    "tags": tags,
+                    "agent_filter": agent_filter,
+                    "min_confidence": min_confidence,
+                    "min_relevance": min_relevance,
+                },
+            }
+
+        return await execute_query(_search_memory)
+
+    # Legacy methods for backward compatibility - redirect to new unified methods
     @staticmethod
     async def store_memory_entry(
         repository_path: str,
@@ -25,59 +226,20 @@ class SharedMemoryService:
         title: str,
         content: str,
         tags: list[str] | None = None,
-        metadata: dict[str, Any] | None = None,
+        misc_data: dict[str, Any] | None = None,
         relevance_score: float = 1.0,
     ) -> dict[str, Any]:
-        """Store a memory entry for cross-agent access.
-        
-        Args:
-            repository_path: Repository path for scoping
-            agent_id: ID of the agent storing the entry
-            entry_type: Type of entry (tool_call, insight, discovery, result)
-            title: Brief title for the entry
-            content: Main content of the entry
-            tags: Optional tags for categorization
-            metadata: Optional metadata
-            relevance_score: Relevance score (0.0-1.0)
-            
-        Returns:
-            Dictionary with entry_id and storage result
-        """
-        async def _store_entry(session: AsyncSession):
-            entry_id = str(uuid.uuid4())
-
-            entry = SharedMemoryEntry(
-                id=entry_id,
-                repository_path=repository_path,
-                agent_id=agent_id,
-                entry_type=entry_type,
-                title=title,
-                content=content,
-                relevance_score=relevance_score,
-            )
-
-            if tags:
-                entry.set_tags(tags)
-            if metadata:
-                entry.set_metadata(metadata)
-
-            session.add(entry)
-            await session.commit()
-
-            logger.info("Memory entry stored",
-                       entry_id=entry_id,
-                       repository_path=repository_path,
-                       agent_id=agent_id,
-                       entry_type=entry_type,
-                       title=title)
-
-            return {
-                "entry_id": entry_id,
-                "stored_at": entry.created_at.isoformat(),
-                "relevance_score": relevance_score,
-            }
-
-        return await execute_query(_store_entry)
+        """Legacy method - redirects to store_memory."""
+        return await SharedMemoryService.store_memory(
+            repository_path=repository_path,
+            agent_id=agent_id,
+            entry_type=entry_type,
+            title=title,
+            content=content,
+            tags=tags,
+            misc_data=misc_data,
+            relevance_score=relevance_score,
+        )
 
     @staticmethod
     async def query_memory(
@@ -89,98 +251,19 @@ class SharedMemoryService:
         min_relevance: float = 0.3,
         agent_id: str | None = None,
     ) -> dict[str, Any]:
-        """Query shared memory entries.
-        
-        Args:
-            repository_path: Repository path to query
-            query_text: Text to search in title and content
-            entry_types: Filter by entry types
-            tags: Filter by tags
-            limit: Maximum results to return
-            min_relevance: Minimum relevance score
-            agent_id: Optional agent ID for tracking access
-            
-        Returns:
-            Dictionary with matching entries
-        """
-        async def _query_memory(session: AsyncSession):
-            # Build query
-            stmt = select(SharedMemoryEntry).where(
-                and_(
-                    SharedMemoryEntry.repository_path == repository_path,
-                    SharedMemoryEntry.relevance_score >= min_relevance,
-                ),
-            )
-
-            # Add filters
-            if entry_types:
-                stmt = stmt.where(SharedMemoryEntry.entry_type.in_(entry_types))
-
-            if query_text:
-                search_pattern = f"%{query_text}%"
-                stmt = stmt.where(
-                    or_(
-                        SharedMemoryEntry.title.ilike(search_pattern),
-                        SharedMemoryEntry.content.ilike(search_pattern),
-                    ),
-                )
-
-            if tags:
-                # Search for any of the provided tags
-                for tag in tags:
-                    tag_pattern = f'%"{tag}"%'
-                    stmt = stmt.where(SharedMemoryEntry.tags.ilike(tag_pattern))
-
-            # Order by relevance and recency
-            stmt = stmt.order_by(
-                desc(SharedMemoryEntry.relevance_score),
-                desc(SharedMemoryEntry.created_at),
-            ).limit(limit)
-
-            result = await session.execute(stmt)
-            entries = result.scalars().all()
-
-            # Update access counts
-            if agent_id:
-                for entry in entries:
-                    entry.increment_access()
-                await session.commit()
-
-            entry_list = []
-            for entry in entries:
-                entry_dict = {
-                    "entry_id": entry.id,
-                    "agent_id": entry.agent_id,
-                    "entry_type": entry.entry_type,
-                    "title": entry.title,
-                    "content": entry.content,
-                    "tags": entry.get_tags(),
-                    "metadata": entry.get_metadata(),
-                    "relevance_score": entry.relevance_score,
-                    "created_at": entry.created_at.isoformat(),
-                    "accessed_count": entry.accessed_count,
-                    "last_accessed": entry.last_accessed.isoformat() if entry.last_accessed else None,
-                }
-                entry_list.append(entry_dict)
-
-            logger.info("Memory query executed",
-                       repository_path=repository_path,
-                       query_text=query_text,
-                       results_count=len(entry_list),
-                       agent_id=agent_id)
-
-            return {
-                "entries": entry_list,
-                "count": len(entry_list),
-                "query": {
-                    "text": query_text,
-                    "entry_types": entry_types,
-                    "tags": tags,
-                    "min_relevance": min_relevance,
-                },
-            }
-
-        return await execute_query(_query_memory)
+        """Legacy method - redirects to search_memory."""
+        result = await SharedMemoryService.search_memory(
+            repository_path=repository_path,
+            query_text=query_text,
+            entry_types=entry_types,
+            tags=tags,
+            limit=limit,
+            min_relevance=min_relevance,
+            requesting_agent_id=agent_id,
+        )
+        # Transform response to match legacy format
+        result["entries"] = result.pop("memories", [])
+        return result
 
     @staticmethod
     async def store_insight(
@@ -193,56 +276,20 @@ class SharedMemoryService:
         context: dict[str, Any] | None = None,
         confidence: float = 0.8,
     ) -> dict[str, Any]:
-        """Store an agent insight for cross-agent learning.
-        
-        Args:
-            repository_path: Repository path for scoping
-            agent_id: ID of the agent storing the insight
-            insight_type: Type of insight (pattern, approach, solution, pitfall)
-            category: Category (architecture, performance, testing, etc.)
-            title: Brief title for the insight
-            description: Detailed description
-            context: Optional context information
-            confidence: Confidence in the insight (0.0-1.0)
-            
-        Returns:
-            Dictionary with insight_id and storage result
-        """
-        async def _store_insight(session: AsyncSession):
-            insight_id = str(uuid.uuid4())
-
-            insight = AgentInsight(
-                id=insight_id,
-                repository_path=repository_path,
-                agent_id=agent_id,
-                insight_type=insight_type,
-                category=category,
-                title=title,
-                description=description,
-                confidence=confidence,
-            )
-
-            if context:
-                insight.set_context(context)
-
-            session.add(insight)
-            await session.commit()
-
-            logger.info("Agent insight stored",
-                       insight_id=insight_id,
-                       repository_path=repository_path,
-                       agent_id=agent_id,
-                       insight_type=insight_type,
-                       category=category,
-                       title=title)
-
-            return {
-                "insight_id": insight_id,
-                "stored_at": insight.created_at.isoformat(),
-                "confidence": confidence,
-            }
-
-        return await execute_query(_store_insight)
+        """Legacy method - redirects to store_memory."""
+        result = await SharedMemoryService.store_memory(
+            repository_path=repository_path,
+            agent_id=agent_id,
+            entry_type=insight_type,
+            title=title,
+            content=description,
+            category=category,
+            context=context,
+            confidence=confidence,
+        )
+        # Transform response to match legacy format
+        result["insight_id"] = result.pop("memory_id", result.get("memory_id"))
+        return result
 
     @staticmethod
     async def get_insights(
@@ -252,78 +299,17 @@ class SharedMemoryService:
         min_confidence: float = 0.5,
         limit: int = 20,
     ) -> dict[str, Any]:
-        """Get agent insights for learning.
-        
-        Args:
-            repository_path: Repository path to query
-            categories: Filter by categories
-            insight_types: Filter by insight types
-            min_confidence: Minimum confidence threshold
-            limit: Maximum results to return
-            
-        Returns:
-            Dictionary with matching insights
-        """
-        async def _get_insights(session: AsyncSession):
-            # Build query
-            stmt = select(AgentInsight).where(
-                and_(
-                    AgentInsight.repository_path == repository_path,
-                    AgentInsight.confidence >= min_confidence,
-                ),
-            )
-
-            # Add filters
-            if categories:
-                stmt = stmt.where(AgentInsight.category.in_(categories))
-
-            if insight_types:
-                stmt = stmt.where(AgentInsight.insight_type.in_(insight_types))
-
-            # Order by usefulness and confidence
-            stmt = stmt.order_by(
-                desc(AgentInsight.usefulness_score),
-                desc(AgentInsight.confidence),
-                desc(AgentInsight.created_at),
-            ).limit(limit)
-
-            result = await session.execute(stmt)
-            insights = result.scalars().all()
-
-            insight_list = []
-            for insight in insights:
-                insight_dict = {
-                    "insight_id": insight.id,
-                    "agent_id": insight.agent_id,
-                    "insight_type": insight.insight_type,
-                    "category": insight.category,
-                    "title": insight.title,
-                    "description": insight.description,
-                    "context": insight.get_context(),
-                    "confidence": insight.confidence,
-                    "usefulness_score": insight.usefulness_score,
-                    "created_at": insight.created_at.isoformat(),
-                    "referenced_count": insight.referenced_count,
-                }
-                insight_list.append(insight_dict)
-
-            logger.info("Insights retrieved",
-                       repository_path=repository_path,
-                       categories=categories,
-                       insight_types=insight_types,
-                       results_count=len(insight_list))
-
-            return {
-                "insights": insight_list,
-                "count": len(insight_list),
-                "filters": {
-                    "categories": categories,
-                    "insight_types": insight_types,
-                    "min_confidence": min_confidence,
-                },
-            }
-
-        return await execute_query(_get_insights)
+        """Legacy method - redirects to search_memory."""
+        result = await SharedMemoryService.search_memory(
+            repository_path=repository_path,
+            entry_types=insight_types,
+            categories=categories,
+            limit=limit,
+            min_confidence=min_confidence,
+        )
+        # Transform response to match legacy format
+        result["insights"] = result.pop("memories", [])
+        return result
 
     @staticmethod
     async def log_tool_call(

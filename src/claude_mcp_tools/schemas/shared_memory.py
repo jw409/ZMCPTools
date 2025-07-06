@@ -1,4 +1,4 @@
-"""Pydantic schemas for shared memory and logging MCP tools."""
+"""Pydantic schemas for unified memory and logging MCP tools."""
 
 from typing import Annotated, Any
 
@@ -7,65 +7,82 @@ from pydantic import Field
 from . import BaseToolSchema
 
 
-class StoreMemoryEntrySchema(BaseToolSchema):
-    """Schema for store_memory_entry tool parameters."""
+class StoreMemorySchema(BaseToolSchema):
+    """Schema for unified store_memory tool parameters."""
 
     repository_path: Annotated[str, Field(
         description="Path to the repository for context",
     )]
 
     agent_id: Annotated[str, Field(
-        description="ID of the agent storing the memory entry",
+        description="ID of the agent storing the memory",
     )]
 
     entry_type: Annotated[str, Field(
         description="Type of memory entry",
-        pattern=r"^(insight|pattern|solution|error|learning|decision)$",
+        pattern=r"^(insight|pattern|solution|error|learning|decision|discovery|result|bug|feature|architecture|performance|optimization)$",
     )]
 
     title: Annotated[str, Field(
-        description="Title for the memory entry",
+        description="Brief, descriptive title for the memory entry",
         min_length=1,
         max_length=200,
     )]
 
     content: Annotated[str, Field(
-        description="Content of the memory entry",
+        description="Detailed content of the memory - what you learned, discovered, or want other agents to know",
         min_length=1,
         max_length=5000,
     )]
 
+    category: Annotated[str | None, Field(
+        description="Category of the memory",
+        pattern=r"^(code|design|testing|deployment|maintenance|documentation|architecture|performance)$",
+        default=None,
+    )]
+
     tags: Annotated[list[str] | None, Field(
-        description="Tags for categorizing the memory entry",
+        description="Tags for easy searching",
         default=None,
     )]
 
-    metadata: Annotated[dict[str, Any] | None, Field(
-        description='Additional metadata for the memory entry. Provide as object: {"category": "database", "priority": "high"}',
+    misc_data: Annotated[dict[str, Any] | None, Field(
+        description='Additional structured data',
         default=None,
     )]
 
-    importance: Annotated[str, Field(
-        description="Importance level of the memory entry",
-        pattern=r"^(low|medium|high|critical)$",
-    )] = "medium"
+    context: Annotated[dict[str, Any] | None, Field(
+        description='Context about when/why this memory was created',
+        default=None,
+    )]
+
+    confidence: Annotated[float, Field(
+        description="How confident are you in this memory (0.0-1.0)",
+        ge=0.0,
+        le=1.0,
+    )] = 0.8
 
 
-class QuerySharedMemorySchema(BaseToolSchema):
-    """Schema for query_shared_memory tool parameters."""
+class SearchMemorySchema(BaseToolSchema):
+    """Schema for unified search_memory tool parameters."""
 
     repository_path: Annotated[str, Field(
         description="Path to the repository for context",
     )]
 
     query_text: Annotated[str, Field(
-        description="Search query for finding relevant memory entries",
+        description="What are you looking for? Describe it naturally - will search titles and content",
         min_length=1,
         max_length=500,
     )]
 
     entry_types: Annotated[list[str] | None, Field(
-        description="Filter by entry types",
+        description="Filter by memory types",
+        default=None,
+    )]
+
+    categories: Annotated[list[str] | None, Field(
+        description="Filter by categories",
         default=None,
     )]
 
@@ -75,7 +92,7 @@ class QuerySharedMemorySchema(BaseToolSchema):
     )]
 
     agent_filter: Annotated[str | None, Field(
-        description="Filter by agent ID",
+        description="Only show memories from this specific agent",
         default=None,
     )]
 
@@ -85,91 +102,29 @@ class QuerySharedMemorySchema(BaseToolSchema):
         le=100,
     )] = 10
 
-    min_score: Annotated[float, Field(
-        description="Minimum relevance score for results",
-        ge=0.0,
-        le=1.0,
-    )] = 0.1
-
-
-class StoreAgentInsightSchema(BaseToolSchema):
-    """Schema for store_agent_insight tool parameters."""
-
-    repository_path: Annotated[str, Field(
-        description="Path to the repository for context",
-    )]
-
-    agent_id: Annotated[str, Field(
-        description="ID of the agent storing the insight",
-    )]
-
-    insight_type: Annotated[str, Field(
-        description="Type of insight",
-        pattern=r"^(pattern|optimization|bug|feature|architecture|performance)$",
-    )]
-
-    category: Annotated[str, Field(
-        description="Category of the insight",
-        pattern=r"^(code|design|testing|deployment|maintenance|documentation)$",
-    )]
-
-    title: Annotated[str, Field(
-        description="Title for the insight",
-        min_length=1,
-        max_length=200,
-    )]
-
-    description: Annotated[str, Field(
-        description="Detailed description of the insight",
-        min_length=1,
-        max_length=2000,
-    )]
-
-    context: Annotated[dict[str, Any] | str | None, Field(
-        description='Additional context for the insight. Provide as object: {"framework": "react", "version": "18"}',
-        default=None,
-    )]
-
-    confidence: Annotated[float, Field(
-        description="Confidence level in the insight",
-        ge=0.0,
-        le=1.0,
-    )] = 0.8
-
-
-class GetAgentInsightsSchema(BaseToolSchema):
-    """Schema for get_agent_insights tool parameters."""
-
-    repository_path: Annotated[str, Field(
-        description="Path to the repository for context",
-    )]
-
-    agent_id: Annotated[str | None, Field(
-        description="Filter by specific agent ID",
-        default=None,
-    )]
-
-    categories: Annotated[list[str] | None, Field(
-        description="Filter by insight categories",
-        default=None,
-    )]
-
-    insight_types: Annotated[list[str] | None, Field(
-        description="Filter by insight types",
-        default=None,
-    )]
-
-    limit: Annotated[int, Field(
-        description="Maximum number of insights to return",
-        ge=1,
-        le=100,
-    )] = 20
-
     min_confidence: Annotated[float, Field(
-        description="Minimum confidence level for insights",
+        description="Minimum confidence level (0.0-1.0)",
         ge=0.0,
         le=1.0,
-    )] = 0.5
+    )] = 0.3
+
+
+# Legacy schemas for backward compatibility
+class StoreMemoryEntrySchema(StoreMemorySchema):
+    """Legacy schema - redirects to StoreMemorySchema."""
+    pass
+
+class QuerySharedMemorySchema(SearchMemorySchema):
+    """Legacy schema - redirects to SearchMemorySchema."""  
+    pass
+
+class StoreAgentInsightSchema(StoreMemorySchema):
+    """Legacy schema - redirects to StoreMemorySchema."""
+    pass
+
+class GetAgentInsightsSchema(SearchMemorySchema):
+    """Legacy schema - redirects to SearchMemorySchema."""
+    pass
 
 
 class LogToolCallSchema(BaseToolSchema):
@@ -323,35 +278,6 @@ class GetRecentErrorsSchema(BaseToolSchema):
         le=500,
     )] = 50
 
-
-class GetLearningEntriesSchema(BaseToolSchema):
-    """Schema for get_learning_entries tool parameters."""
-
-    repository_path: Annotated[str, Field(
-        description="Path to the repository for context",
-    )]
-
-    categories: Annotated[list[str] | None, Field(
-        description="Filter by learning categories",
-        default=None,
-    )]
-
-    agent_filter: Annotated[str | None, Field(
-        description="Filter by agent ID",
-        default=None,
-    )]
-
-    limit: Annotated[int, Field(
-        description="Maximum number of learning entries to return",
-        ge=1,
-        le=100,
-    )] = 25
-
-    min_confidence: Annotated[float, Field(
-        description="Minimum confidence level for entries",
-        ge=0.0,
-        le=1.0,
-    )] = 0.3
 
 
 class ResolveErrorSchema(BaseToolSchema):

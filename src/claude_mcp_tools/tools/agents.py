@@ -1,12 +1,11 @@
 """Agent orchestration tools as standalone functions."""
 
 import asyncio
-import os
 from datetime import datetime, timezone
 from typing import Annotated, Any
-import json
 
 import structlog
+from fastmcp import Context
 from pydantic import Field
 
 from ..models import AgentStatus
@@ -31,17 +30,28 @@ except ImportError:
     setup_dependency_monitoring = lambda _x, _y: {"success": True}
 
 # Import spawn function from separate module to avoid circular imports
+_spawn_claude_sync = None
+
+def get_agent_tool_profile(agent_type: str) -> dict[str, Any]:
+    """Get agent tool profile with safe fallback."""
+    try:
+        from ..claude_spawner import get_agent_tool_profile as _profile_func
+        return _profile_func(agent_type)
+    except (ImportError, AttributeError):
+        return {"allowed_tools": None, "description": "Unknown agent type"}
+
 try:
-    from ..claude_spawner import spawn_claude_sync
+    from ..claude_spawner import spawn_claude_sync as _spawn_claude_sync
 except ImportError:
-    spawn_claude_sync = None
+    pass
 
 
 @app.tool(tags={"spawning", "agent-creation", "coordination", "task-execution"})
 async def spawn_agent(
+    ctx: Context,
     agent_type: Annotated[str, Field(
         description="Type of agent to spawn",
-        pattern=r"^(implementer|reviewer|tester|documentation|analyzer|coordinator|backend|frontend|fullstack|devops|architect)$",
+        pattern=r"^(general-agent|research-agent|bug-fixing-agent|implementation-agent|testing-agent|coordination-agent|documentation-agent|analysis-agent|implementer|reviewer|tester|documentation|analyzer|coordinator|backend|frontend|fullstack|devops|architect|master)$",
     )],
     repository_path: Annotated[str, Field(
         description="Path to the repository for agent work",
@@ -51,16 +61,16 @@ async def spawn_agent(
         min_length=1,
         max_length=2000,
     )],
-    capabilities: Annotated[str | list[str], Field(
+    capabilities: Annotated[str | list[str] | None, Field(
         description="List of specific capabilities the agent should have. Can be JSON array: ['backend', 'frontend']",
-    )] = [],
+    )] = None,
     configuration: Annotated[str | dict[str, Any] | None, Field(
         description="Agent-specific configuration (JSON object or string)",
         default=None,
     )] = None,
-    depends_on: Annotated[str | list[str], Field(
+    depends_on: Annotated[str | list[str] | None, Field(
         description="List of agent IDs this agent depends on. Can be JSON array: ['agent1', 'agent2']",
-    )] = [],
+    )] = None,
     foundation_session_id: Annotated[str | None, Field(
         description="Foundation session ID for shared context (cost optimization)",
         default=None,
@@ -77,6 +87,7 @@ async def spawn_agent(
             return parsed_depends_on
             
         return await _spawn_single_agent(
+            ctx=ctx,
             agent_type=agent_type,
             repository_path=repository_path,
             task_description=task_description,
@@ -91,6 +102,7 @@ async def spawn_agent(
 
 @app.tool(tags={"spawning", "batch-operations", "parallel-processing", "agent-creation", "coordination"})
 async def spawn_agents_batch(
+    ctx: Context,
     repository_path: Annotated[str, Field(
         description="Path to the repository for agent work",
     )],
@@ -117,16 +129,15 @@ async def spawn_agents_batch(
 ) -> dict[str, Any]:
     """Spawn multiple specialized agents in parallel for improved performance when creating teams of agents for complex projects."""
     try:
-        # Parse agents configuration
-        if isinstance(agents, str):
-            try:
-                agents_config = parse_ai_json(agents)
-                if not isinstance(agents_config, list):
-                    raise ValueError("Agents configuration must be a list")
-            except ValueError as e:
-                return {"error": {"code": "INVALID_AGENTS_CONFIG", "message": str(e)}}
-        else:
-            agents_config = agents
+        # Parse agents configuration using json_utils
+        parsed_agents = parse_json_list(agents, "agents")
+        if check_parsing_error(parsed_agents):
+            return parsed_agents
+            
+        agents_config = parsed_agents
+        
+        if not isinstance(agents_config, list):
+            return {"error": {"code": "INVALID_AGENTS_CONFIG", "message": "Agents configuration must be a list"}}
 
         if not agents_config:
             return {"error": {"code": "EMPTY_AGENTS_LIST", "message": "No agents specified"}}
@@ -148,7 +159,7 @@ async def spawn_agents_batch(
             # Spawn agents one by one
             for agent_config in agents_config:
                 try:
-                    result = await _spawn_single_agent(
+                    result = await _spawn_single_agent(ctx, 
                         agent_type=agent_config["agent_type"],
                         repository_path=repository_path,
                         task_description=agent_config["task_description"],
@@ -171,9 +182,9 @@ async def spawn_agents_batch(
                 # Respect max_concurrent within each wave
                 semaphore = asyncio.Semaphore(min(max_concurrent, len(wave)))
                 
-                async def spawn_with_limit(agent_config):
-                    async with semaphore:
-                        return await _spawn_single_agent(
+                async def spawn_with_limit(agent_config, sem=semaphore):
+                    async with sem:
+                        return await _spawn_single_agent(ctx, 
                             agent_type=agent_config["agent_type"],
                             repository_path=repository_path,
                             task_description=agent_config["task_description"],
@@ -193,9 +204,9 @@ async def spawn_agents_batch(
             # Spawn agents in parallel with max_concurrent limit
             semaphore = asyncio.Semaphore(max_concurrent)
             
-            async def spawn_with_limit(agent_config):
+            async def spawn_with_parallel_limit(agent_config):
                 async with semaphore:
-                    return await _spawn_single_agent(
+                    return await _spawn_single_agent(ctx, 
                         agent_type=agent_config["agent_type"],
                         repository_path=repository_path,
                         task_description=agent_config["task_description"],
@@ -207,7 +218,7 @@ async def spawn_agents_batch(
                         coordination_room=coordination_room or "",
                     )
             
-            tasks = [spawn_with_limit(config) for config in agents_config]
+            tasks = [spawn_with_parallel_limit(config) for config in agents_config]
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Process results
@@ -257,8 +268,8 @@ async def list_agents(
     repository_path: Annotated[str, Field(
         description="Path to the repository to filter agents by",
     )],
-    status_filter: Annotated[list[str] | None, Field(
-        description="Filter agents by status (pending, running, completed, failed)",
+    status_filter: Annotated[str | list[str] | None, Field(
+        description="Filter agents by status. Can be JSON array: ['pending', 'running', 'completed', 'failed']",
         default=None,
     )] = None,
     agent_type_filter: Annotated[str | None, Field(
@@ -276,11 +287,16 @@ async def list_agents(
 ) -> dict[str, Any]:
     """List and filter active agents by repository, status, or type to monitor current agent workforce and availability."""
     try:
+        # Parse status_filter using json_utils
+        parsed_status_filter = parse_json_list(status_filter, "status_filter")
+        if check_parsing_error(parsed_status_filter):
+            return parsed_status_filter
+        
         # Convert status_filter to AgentStatus enums if provided
         status_enum_filter = None
-        if status_filter:
+        if parsed_status_filter:
             try:
-                status_enum_filter = [AgentStatus(status) for status in status_filter]
+                status_enum_filter = [AgentStatus(status) for status in parsed_status_filter]
             except ValueError as e:
                 return {"error": {"code": "INVALID_STATUS_FILTER", "message": f"Invalid status: {e}"}}
 
@@ -324,7 +340,7 @@ async def list_agents(
                 "by_type": type_counts,
             },
             "filters_applied": {
-                "status_filter": status_filter,
+                "status_filter": parsed_status_filter,
                 "agent_type_filter": agent_type_filter,
                 "include_completed": include_completed,
                 "limit": limit,
@@ -391,18 +407,25 @@ async def terminate_agent(agent_id: str, reason: str = "Manual termination") -> 
 
 
 async def _spawn_single_agent(
+    ctx: Context,
     agent_type: str,
     repository_path: str,
     task_description: str = "",
-    capabilities: list[str] = [],
+    capabilities: list[str] | None = None,
     initial_context: str = "",
     configuration: str | dict[str, Any] | None = None,
-    depends_on: list[str] = [],
+    depends_on: list[str] | None = None,
     foundation_session_id: str = "",
     auto_execute: bool = True,
     coordination_room: str = "",
 ) -> dict[str, Any]:
     """Internal function to spawn a single agent - extracted for parallel execution."""
+    # Initialize mutable defaults
+    if capabilities is None:
+        capabilities = []
+    if depends_on is None:
+        depends_on = []
+        
     try:
         # Parse configuration using AI-tolerant parser
         try:
@@ -438,8 +461,8 @@ async def _spawn_single_agent(
 
         if auto_execute:
             # Check if spawn function is available
-            if spawn_claude_sync is None:
-                logger.error("spawn_claude_sync is None - import failed")
+            if _spawn_claude_sync is None:
+                logger.error("_spawn_claude_sync is None - import failed")
                 return {"error": {"code": "SPAWN_FUNCTION_UNAVAILABLE", "message": "spawn_claude_sync function not available due to import failure"}}
             # Use provided coordination room or create agent-specific one
             room_name = coordination_room or f"{agent_type}-{agent_id[:8]}"
@@ -464,6 +487,14 @@ async def _spawn_single_agent(
                     repository_path=repository_path,
                 )
 
+            # Get agent's available MCP tools for the prompt
+            profile = get_agent_tool_profile(agent_type)
+            if profile["allowed_tools"]:
+                mcp_tools = [tool for tool in profile["allowed_tools"] if tool.startswith("mcp__")]
+                mcp_tools_list = "\n".join([f"- {tool}" for tool in mcp_tools])
+            else:
+                mcp_tools_list = "- ALL MCP tools available (full access)"
+
             # Construct Claude prompt for the agent
             claude_prompt = f"""You are a {agent_type.upper()} AGENT in the ClaudeMcpTools multi-agent orchestration system.
 
@@ -473,9 +504,31 @@ async def _spawn_single_agent(
 - Repository: {repository_path}
 - Coordination Room: {room_name}
 
+🧠 SHARED TEAM MEMORY:
+CRITICAL: Use the team's shared memory system to learn from other agents and share your discoveries!
+
+🔍 BEFORE YOU START - Search Memory:
+1. **Always search first**: Use search_memory() to find relevant knowledge from other agents
+2. **Learn from others**: Look for patterns, solutions, known issues, best practices
+3. **Avoid duplicating work**: Check if similar tasks have been completed before
+
+Example searches:
+- search_memory(repository_path=".", query_text="authentication problems")
+- search_memory(repository_path=".", query_text="performance optimization") 
+- search_memory(repository_path=".", query_text="database connection issues")
+
+💾 DURING WORK - Store Memory:
+1. **Share discoveries**: Use store_memory() to save important insights for other agents
+2. **Document solutions**: Store how you solved problems so others can learn
+3. **Save patterns**: Record useful code patterns, configurations, or approaches
+
+Example storage:
+- store_memory(repository_path=".", agent_id="{agent_id}", entry_type="solution", title="Fixed auth timeout", content="Updated session timeout to 30min, prevents login issues")
+
 🛠️ TOOLS AVAILABLE:
-You have access to ALL Claude tools including: Task, Bash, Edit, Write, Read, Glob, Grep, LS, MultiEdit, WebFetch, WebSearch, and more.
-Use these tools to complete your task! Start by using LS to see the current directory.
+- **Memory Tools**: search_memory, store_memory (USE THESE FREQUENTLY!)
+- **Native Claude**: Task, Bash, Edit, Write, Read, Glob, Grep, LS, MultiEdit, WebFetch, WebSearch
+- **MCP Tools**: {len(profile["allowed_tools"]) if profile["allowed_tools"] else "ALL"} specialized tools available
 
 🎯 YOUR TASK:
 {task_description}
@@ -490,47 +543,129 @@ IMPORTANT: You MUST use tools to complete this task. Don't just think about it -
 
 🏗️ COORDINATION WORKFLOW:
 1. **JOIN ROOM**: Use join_room() to join "{room_name}"
-2. **ANNOUNCE**: Send message announcing your presence and task
-3. **COORDINATE**: Monitor chat for task assignments and updates from architect
-4. **EXECUTE**: Work on your specific task using all available MCP tools
-5. **REPORT**: Send progress updates and announce completion
-6. **COLLABORATE**: Help other agents and respond to coordination requests
+2. **SEARCH MEMORY**: Look for relevant knowledge: search_memory(repository_path=".", query_text="[your task topic]")
+3. **ANNOUNCE**: Send message announcing your presence and task
+4. **EXECUTE**: Work on your specific task, storing discoveries as you go
+5. **STORE KNOWLEDGE**: Save important findings: store_memory() for patterns, solutions, insights
+6. **REPORT**: Send progress updates and announce completion
+7. **COLLABORATE**: Help other agents and respond to coordination requests
 
 💬 CHAT COMMANDS FOR COORDINATION:
-- join_room(room_name="{room_name}", agent_name="{agent_name}", agent_id="your_id")
+- join_room(room_name="{room_name}", agent_name="{agent_name}", agent_id="{agent_id}")
 - send_message(room_name="{room_name}", agent_name="{agent_name}", message="your message")
-- get_messages(room_name="{room_name}", agent_id="your_id")
-- wait_for_messages(room_name="{room_name}", agent_id="your_id")
+- get_messages(room_name="{room_name}", agent_id="{agent_id}")
+- wait_for_messages(room_name="{room_name}", agent_id="{agent_id}")
+
+🔧 MCP TOOL COMMANDS:
+You have access to the following MCP tools (use the full mcp__ prefix when calling them):
+{mcp_tools_list}
 
 🚀 START BY:
 1. Joining the coordination room
-2. Announcing: "🤖 {agent_type.upper()} AGENT online! Task: {task_description[:100]}..."
-3. {f"Waiting for dependencies to complete: {', '.join(depends_on)}" if depends_on else "Beginning task execution immediately"}
+2. **SEARCHING MEMORY for relevant knowledge** about your task
+3. Announcing: "🤖 {agent_type.upper()} AGENT online! Task: {task_description[:100]}..."
+4. {f"Waiting for dependencies to complete: {', '.join(depends_on)}" if depends_on else "Beginning task execution immediately"}
 
-Begin coordination and task execution now!"""
+📝 MANDATORY REQUIREMENTS:
+- **ALWAYS join the room first** using: mcp__claude-mcp-orchestration__join_room
+- **ALWAYS search memory before starting work** using: mcp__claude-mcp-orchestration__search_memory
+- **ALWAYS store important discoveries** using: mcp__claude-mcp-orchestration__store_memory
+- **Log all major steps** to the room with descriptive messages
+- **Report progress updates** every few actions: "🔄 Progress: [current step]"
+- **MUST report final results** with: "✅ COMPLETED: [summary of what was accomplished]"
+- **Include any files created/modified** in final report
+- **Tag other agents** if coordination needed: @agent-id or @agent-type
+
+🔄 ENHANCED WORKFLOW PATTERN:
+1. JOIN ROOM → 2. SEARCH MEMORY → 3. ANNOUNCE START → 4. EXECUTE & STORE DISCOVERIES → 5. REPORT RESULTS
+
+Remember: You're part of a TEAM. Use the shared memory to learn from others and help them learn from you!
+
+Begin coordination and task execution now!""".format(mcp_tools_list=mcp_tools_list)
 
             try:
-                claude_result = spawn_claude_sync(
-                    workFolder=repository_path,
-                    prompt=claude_prompt,
-                    session_id=foundation_session_id if foundation_session_id else None,
-                    model="sonnet",
-                )
-
-                # Validate spawn result
-                if not claude_result.get("success", False):
-                    error_msg = claude_result.get("error", "Unknown spawn error")
-                    logger.error("Claude CLI spawn failed", 
+                # Use server logging for debugging, Context for client communication only
+                logger.info("Starting agent spawn",
+                           agent_id=agent_id,
+                           agent_type=agent_type,
+                           repository_path=repository_path,
+                           foundation_session_id=foundation_session_id)
+                
+                # Get tool profile
+                from ..claude_spawner import spawn_claude_with_profile
+                profile = get_agent_tool_profile(agent_type)
+                tool_count = len(profile["allowed_tools"]) if profile["allowed_tools"] else "ALL"
+                
+                logger.info("Using agent tool profile",
+                           agent_id=agent_id,
+                           agent_type=agent_type,
+                           profile_description=profile["description"],
+                           tool_count=tool_count)
+                
+                # Send client notification only - no debugging info
+                try:
+                    await ctx.info(f"🚀 Spawning {agent_type} agent")
+                except Exception as ctx_error:
+                    # Context logging failure shouldn't crash the server
+                    logger.warning("Context logging failed", error=str(ctx_error))
+                
+                # Wrap synchronous spawn call with proper error isolation
+                try:
+                    claude_result = spawn_claude_with_profile(
+                        workFolder=repository_path,
+                        prompt=claude_prompt,
+                        agent_type=agent_type,
+                        session_id=foundation_session_id if foundation_session_id else None,
+                        model="sonnet",
+                    )
+                    
+                    # Log spawn result to server logs only
+                    logger.debug("Claude spawn completed", 
                                agent_id=agent_id,
-                               error=error_msg)
-                    raise RuntimeError(f"Claude CLI spawn failed: {error_msg}")
+                               success=claude_result.get("success"),
+                               pid=claude_result.get("pid"))
+                    
+                    # Validate spawn result
+                    if not claude_result.get("success", False):
+                        error_msg = claude_result.get("error", "Unknown spawn error")
+                        logger.error("Claude CLI spawn failed", 
+                                   agent_id=agent_id,
+                                   error=error_msg)
+                        raise RuntimeError(f"Claude CLI spawn failed: {error_msg}")
+                    
+                    # Validate process before using
+                    process = claude_result.get("process")
+                    if not process:
+                        logger.error("No process object returned from spawn", 
+                                   agent_id=agent_id,
+                                   claude_result=claude_result)
+                        raise RuntimeError("No process object returned from spawn")
+                    
+                    # Check if process is still running (not immediately dead)
+                    if process.poll() is not None:
+                        logger.error("Process died immediately after spawn", 
+                                   agent_id=agent_id,
+                                   returncode=process.returncode)
+                        raise RuntimeError(f"Process died immediately with code {process.returncode}")
 
-                claude_pid = claude_result.get("pid")
-                if not claude_pid:
-                    logger.error("Claude CLI spawn succeeded but no PID returned", 
+                    claude_pid = claude_result.get("pid")
+                    if not claude_pid:
+                        logger.error("Claude CLI spawn succeeded but no PID returned", 
+                                   agent_id=agent_id,
+                                   claude_result=claude_result)
+                        raise RuntimeError("Claude CLI spawn succeeded but no PID returned")
+                        
+                except Exception as spawn_error:
+                    # Handle spawn errors without crashing async context
+                    error_msg = f"Spawn operation failed: {type(spawn_error).__name__}: {str(spawn_error)}"
+                    logger.error("Synchronous spawn call failed", 
                                agent_id=agent_id,
-                               claude_result=claude_result)
-                    raise RuntimeError("Claude CLI spawn succeeded but no PID returned")
+                               agent_type=agent_type,
+                               error=error_msg,
+                               error_type=type(spawn_error).__name__)
+                    
+                    # Re-raise as a controlled exception
+                    raise RuntimeError(error_msg) from spawn_error
 
                 logger.info("Claude CLI spawned successfully for agent",
                           agent_id=agent_id,
@@ -556,11 +691,21 @@ Begin coordination and task execution now!"""
                     "spawn_success": True,
                 })
 
-                await AgentService.update_agent_status(
-                    agent_id=agent_id,
-                    status=AgentStatus.ACTIVE if not depends_on else AgentStatus.IDLE,
-                    agent_data=updated_config,
-                )
+                # Update agent status with error isolation
+                try:
+                    await AgentService.update_agent_status(
+                        agent_id=agent_id,
+                        status=AgentStatus.ACTIVE if not depends_on else AgentStatus.IDLE,
+                        agent_data=updated_config,
+                    )
+                    logger.debug("Agent status updated successfully", agent_id=agent_id)
+                except Exception as status_error:
+                    logger.error("Failed to update agent status", 
+                               agent_id=agent_id,
+                               error=str(status_error),
+                               error_type=type(status_error).__name__)
+                    # Don't fail the entire spawn for database issues
+                    pass
                 
                 # Store the Claude CLI PID for monitoring with validation
                 try:
@@ -582,12 +727,21 @@ Begin coordination and task execution now!"""
                            task=task_description[:100])
 
             except Exception as e:
+                # Use server logging for debugging, Context for client error notification only
                 logger.error("Failed to spawn Claude instance",
                            agent_id=agent_id,
                            agent_type=agent_type,
                            error=str(e),
                            error_type=type(e).__name__,
-                           repository_path=repository_path)
+                           repository_path=repository_path,
+                           exc_info=True)
+                
+                # Send simple error to client
+                try:
+                    await ctx.error(f"💥 Failed to spawn {agent_type} agent")
+                except Exception as ctx_error:
+                    # Context error logging failure shouldn't crash the server
+                    logger.warning("Context error logging failed", error=str(ctx_error))
                 
                 # Update agent status to indicate spawn failure
                 execution_info = {
@@ -642,9 +796,6 @@ Begin coordination and task execution now!"""
 
 def _organize_by_dependencies(agents_config: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
     """Organize agents into dependency waves for sequential spawning."""
-    # Create a mapping of agent indices for dependency resolution
-    agent_indices = {i: config for i, config in enumerate(agents_config)}
-    
     # Track which agents have been placed in waves
     placed_agents = set()
     waves = []

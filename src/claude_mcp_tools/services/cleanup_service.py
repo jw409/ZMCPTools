@@ -7,7 +7,7 @@ from typing import Any
 import structlog
 from sqlalchemy import delete, func, select, text
 
-from ..database import get_session
+from ..database import DatabaseSession
 from ..models import AgentSession, ChatMessage, DocumentationEntry, ErrorLog, Task
 
 logger = structlog.get_logger()
@@ -25,7 +25,7 @@ class CleanupService:
         """
         try:
             # Base data directory
-            data_dir = Path.home() / ".claude" / "zmcptools"
+            data_dir = Path.home() / ".mcptools" / "data"
 
             # Calculate directory sizes
             def get_dir_size(path: Path) -> int:
@@ -63,7 +63,7 @@ class CleanupService:
                 if cache_dir.exists():
                     cache_size += get_dir_size(cache_dir)
 
-            async with get_session() as session:
+            async with DatabaseSession() as session:
                 # Count database records
                 agents_count = await session.scalar(select(func.count(AgentSession.id)))
                 tasks_count = await session.scalar(select(func.count(Task.id)))
@@ -105,7 +105,7 @@ class CleanupService:
         try:
             orphaned = []
 
-            async with get_session() as session:
+            async with DatabaseSession() as session:
                 # Get all unique repository paths from various tables
                 repo_paths = set()
 
@@ -158,7 +158,7 @@ class CleanupService:
         try:
             cutoff_date = datetime.now(timezone.utc) - timedelta(days=older_than_days)
 
-            async with get_session() as session:
+            async with DatabaseSession() as session:
                 # Count stale records
                 stale_agents = await session.scalar(
                     select(func.count(AgentSession.id)).where(AgentSession.created_at < cutoff_date),
@@ -167,8 +167,8 @@ class CleanupService:
                     select(func.count(Task.id)).where(Task.created_at < cutoff_date),
                 )
                 stale_messages = await session.scalar(
-                    select(func.count(CommunicationMessage.id)).where(
-                        CommunicationMessage.timestamp < cutoff_date,
+                    select(func.count(ChatMessage.id)).where(
+                        ChatMessage.timestamp < cutoff_date,
                     ),
                 )
                 stale_errors = await session.scalar(
@@ -234,7 +234,7 @@ class CleanupService:
                 "errors": [],
             }
 
-            async with get_session() as session:
+            async with DatabaseSession() as session:
                 for repo_path in repository_paths:
                     try:
                         # Count what would be deleted
@@ -293,7 +293,7 @@ class CleanupService:
                 "errors": [],
             }
 
-            async with get_session() as session:
+            async with DatabaseSession() as session:
                 # Count and optionally delete stale records
                 tables_to_clean = [
                     ("agents", AgentSession, AgentSession.created_at),
@@ -338,14 +338,14 @@ class CleanupService:
             Vacuum operation results
         """
         try:
-            db_file = Path.home() / ".claude" / "zmcptools" / "orchestration.db"
+            db_file = Path.home() / ".mcptools" / "data" / "orchestration.db"
 
             # Get size before vacuum
             size_before = 0
             if db_file.exists():
                 size_before = db_file.stat().st_size
 
-            async with get_session() as session:
+            async with DatabaseSession() as session:
                 # Run VACUUM command
                 await session.execute(text("VACUUM"))
                 await session.commit()

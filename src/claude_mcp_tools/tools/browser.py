@@ -1,6 +1,5 @@
 """Browser automation tools for navigation, screenshots, and content extraction."""
 
-import base64
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -32,7 +31,7 @@ async def go_to_url(
 ) -> dict[str, Any]:
     """Navigate to a URL and confirm successful loading."""
     try:
-        scraper = DocumentationScraper(headless=True)
+        scraper = DocumentationScraper(headless=False)
         await scraper.initialize()
         
         page = await scraper.new_page()
@@ -105,7 +104,7 @@ async def take_screenshot(
 ) -> dict[str, Any]:
     """Take a screenshot of a webpage."""
     try:
-        scraper = DocumentationScraper(headless=True)
+        scraper = DocumentationScraper(headless=False)
         await scraper.initialize()
         
         page = await scraper.new_page()
@@ -126,7 +125,6 @@ async def take_screenshot(
             # Determine output path
             if output_path is None:
                 from tempfile import NamedTemporaryFile
-                import os
                 temp_file = NamedTemporaryFile(suffix=".png", delete=False)
                 output_path = temp_file.name
                 temp_file.close()
@@ -182,7 +180,7 @@ async def get_page_html(
 ) -> dict[str, Any]:
     """Extract raw HTML content from a webpage."""
     try:
-        scraper = DocumentationScraper(headless=True)
+        scraper = DocumentationScraper(headless=False)
         await scraper.initialize()
         
         page = await scraper.new_page()
@@ -281,7 +279,7 @@ async def get_page_markdown(
 ) -> dict[str, Any]:
     """Convert webpage content to clean markdown format."""
     try:
-        scraper = DocumentationScraper(headless=True)
+        scraper = DocumentationScraper(headless=False)
         await scraper.initialize()
         
         page = await scraper.new_page()

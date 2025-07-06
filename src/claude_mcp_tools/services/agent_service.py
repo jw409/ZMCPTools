@@ -38,9 +38,10 @@ class AgentService:
         Returns:
             Agent creation result with agent_id
         """
+        # Generate agent ID
+        agent_id = str(uuid.uuid4())
+        
         async def _create_agent(session: AsyncSession):
-            # Generate agent ID
-            agent_id = str(uuid.uuid4())
 
             # Create agent instance
             agent = AgentSession(

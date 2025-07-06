@@ -62,7 +62,7 @@ orchestrate_objective(
 ### Project Analysis (Use Before Implementation)
 - `analyze_project_structure(project_path=".")` - Generate .treesummary files
 - `generate_project_summary(project_path=".")` - AI-optimized project overview
-- `detect_dead_code(project_path=".")` - Find unused code
+# Dead code detection removed - was unimplemented
 
 ### Documentation Intelligence (For Context-Aware Development)
 - `scrape_documentation(url="https://docs.example.com")` - Scrape and index docs
@@ -96,9 +96,8 @@ docs_agent = await spawn_agent(
 ```
 
 ### Shared Memory & Cross-Agent Learning
-- `store_memory_entry(repository_path=".", agent_id, entry_type="insight", title, content)` - Store insights for other agents
-- `query_shared_memory(repository_path=".", query_text="authentication")` - Search previous agent work
-- `store_agent_insight(repository_path=".", agent_id, insight_type="pattern", category="architecture", title, description)` - Share discoveries
+- `store_memory(repository_path=".", agent_id, entry_type="insight", title, content)` - Store insights for other agents
+- `search_memory(repository_path=".", query_text="authentication")` - Search previous agent work
 - `log_error(repository_path=".", error_type="runtime", error_category="mcp_tool", error_message)` - Enhanced error logging
 - `get_error_patterns(repository_path=".")` - Learn from previous failures
 - `get_recent_errors(repository_path=".")` - Debug current issues
@@ -148,5 +147,5 @@ orchestrate_objective(
 
 🎯 **Recommended**: Always start with `orchestrate_objective()` for multi-step tasks. The architect will intelligently break down work and coordinate specialized agents with proper dependencies and shared context.
 
-Data stored locally at `~/.claude/zmcptools/` with intelligent caching and cross-agent memory sharing.
+Data stored locally at `~/.mcptools/data/` with intelligent caching and cross-agent memory sharing.
 <!-- zzClaudeMcpToolszz END -->

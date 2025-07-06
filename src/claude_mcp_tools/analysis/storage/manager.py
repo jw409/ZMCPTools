@@ -68,9 +68,9 @@ class ProjectStorageManager:
         """Initialize storage manager.
         
         Args:
-            storage_root: Root storage directory (defaults to ~/.claude/zmcptools)
+            storage_root: Root storage directory (defaults to ~/.mcptools/data)
         """
-        self.storage_root = Path(storage_root or Path.home() / ".claude" / "zmcptools")
+        self.storage_root = Path(storage_root or Path.home() / ".mcptools" / "data")
         self.treegraph_root = self.storage_root / ".treegraph"
         self.projects_root = self.treegraph_root / "projects"
         self.metadata_root = self.treegraph_root / "metadata"

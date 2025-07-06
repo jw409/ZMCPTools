@@ -9,7 +9,6 @@ from typing import Any
 import structlog
 from sqlalchemy import and_, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from fastmcp import Context
 
 from ..database import execute_query
 from ..models import ErrorLog, ErrorPattern, LearningEntry
@@ -380,76 +379,3 @@ class ErrorLoggingService:
 
         return await execute_query(_get_recent_errors)
 
-    @staticmethod
-    async def get_learning_entries(
-        repository_path: str,
-        categories: list[str] | None = None,
-        min_success_rate: float = 0.5,
-        limit: int = 20,
-    ) -> dict[str, Any]:
-        """Get learning entries for knowledge sharing.
-        
-        Args:
-            repository_path: Repository path to query
-            categories: Filter by categories
-            min_success_rate: Minimum success rate
-            limit: Maximum results to return
-            
-        Returns:
-            Dictionary with learning entries
-        """
-        async def _get_learning_entries(session: AsyncSession):
-            # Build query
-            stmt = select(LearningEntry).where(
-                and_(
-                    LearningEntry.repository_path == repository_path,
-                    LearningEntry.success_rate >= min_success_rate,
-                ),
-            )
-
-            # Add filters
-            if categories:
-                stmt = stmt.where(LearningEntry.category.in_(categories))
-
-            # Order by success rate and applicability
-            stmt = stmt.order_by(
-                desc(LearningEntry.success_rate),
-                desc(LearningEntry.applicability_score),
-                desc(LearningEntry.created_at),
-            ).limit(limit)
-
-            result = await session.execute(stmt)
-            entries = result.scalars().all()
-
-            learning_list = []
-            for entry in entries:
-                learning_dict = {
-                    "learning_id": entry.id,
-                    "learning_type": entry.learning_type,
-                    "category": entry.category,
-                    "title": entry.title,
-                    "lesson": entry.lesson,
-                    "context": entry.get_context(),
-                    "source_error_id": entry.source_error_id,
-                    "confidence": entry.confidence,
-                    "applicability_score": entry.applicability_score,
-                    "applied_count": entry.applied_count,
-                    "success_rate": entry.success_rate,
-                    "created_at": entry.created_at.isoformat(),
-                }
-                learning_list.append(learning_dict)
-
-            logger.info("Learning entries retrieved",
-                       repository_path=repository_path,
-                       entries_count=len(learning_list))
-
-            return {
-                "learning_entries": learning_list,
-                "count": len(learning_list),
-                "filters": {
-                    "categories": categories,
-                    "min_success_rate": min_success_rate,
-                },
-            }
-
-        return await execute_query(_get_learning_entries)

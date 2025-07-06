@@ -1,6 +1,6 @@
 [project]
 name = "claude-mcp-tools"
-version = "0.1.1"
+version = "0.2.0"
 description = "Claude MCP orchestration layer with multi-agent workflows, communication, and enhanced file handling"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -21,7 +21,9 @@ classifiers = [
     "Topic :: Software Development",
 ]
 dependencies = [
+    "aiofiles>=24.1.0",
     "aiosqlite>=0.21.0",
+    "alembic>=1.16.2",
     "beautifulsoup4>=4.13.4",
     "chromadb>=0.5.0",
     "click>=8.2.1",
@@ -31,6 +33,7 @@ dependencies = [
     "greenlet>=3.2.3",
     "httpx>=0.28.1",
     "jinja2>=3.1.2",
+    "litequeue>=0.9",
     "markdown>=3.8.2",
     "networkx>=3.4.2",
     "patchright>=1.52.5",
@@ -45,10 +48,10 @@ dependencies = [
     "rich>=14.0.0",
     "sqlalchemy[asyncio]>=2.0.41",
     "structlog>=25.4.0",
-    "transformers>=4.53.0",
     "tree-sitter>=0.24.0",
     "typer>=0.16.0",
     "uvicorn>=0.24.0",
+    "uvloop>=0.21.0",
     "vulture>=2.14",
     "watchdog>=6.0.0",
     "websockets>=12.0",
@@ -71,6 +74,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/claude_mcp_tools"]
+artifacts = ["hooks/*.sh", "alembic.ini"]
 
 [tool.ruff]
 line-length = 100
@@ -80,10 +84,11 @@ target-version = "py310"
 select = ["E", "F", "W", "C90", "I", "N", "UP", "YTT", "S", "BLE", "FBT", "B", "A", "COM", "C4", "DTZ", "T10", "EM", "EXE", "FA", "ISC", "ICN", "G", "INP", "PIE", "T20", "PYI", "PT", "Q", "RSE", "RET", "SLF", "SIM", "TID", "TCH", "INT", "ARG", "PTH", "PGH", "TRY", "FLY", "NPY", "PERF", "RUF"]
 ignore = ["S101", "T201", "T203", "F821"]
 
-[[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
-explicit = true
 
 [tool.ruff.lint.isort]
 known-first-party = ["claude_mcp_tools"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.1",
+]
