@@ -170,3 +170,4 @@ model_cache/
 # Local documentation scraping cache
 scraping_cache/
 web_cache/
+node_modules/

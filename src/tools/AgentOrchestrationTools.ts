@@ -1,0 +1,695 @@
+import { ClaudeDatabase } from '../database/index.js';
+import { AgentService, TaskService, CommunicationService, MemoryService } from '../services/index.js';
+import { WebScrapingService } from '../services/WebScrapingService.js';
+import { ClaudeSpawner } from '../process/ClaudeSpawner.js';
+import { TaskType, AgentStatus, MessageType } from '../models/index.js';
+
+export interface OrchestrationResult {
+  success: boolean;
+  message: string;
+  data?: any;
+}
+
+export interface SpawnAgentOptions {
+  agentType: string;
+  repositoryPath: string;
+  taskDescription: string;
+  capabilities?: string[];
+  dependsOn?: string[];
+  metadata?: Record<string, any>;
+}
+
+export class AgentOrchestrationTools {
+  private agentService: AgentService;
+  private taskService: TaskService;
+  private communicationService: CommunicationService;
+  private memoryService: MemoryService;
+  private webScrapingService: WebScrapingService;
+
+  constructor(private db: ClaudeDatabase, repositoryPath: string) {
+    this.agentService = new AgentService(db);
+    this.taskService = new TaskService(db);
+    this.communicationService = new CommunicationService(db);
+    this.memoryService = new MemoryService(db);
+    this.webScrapingService = new WebScrapingService(
+      db,
+      this.agentService,
+      this.memoryService,
+      repositoryPath
+    );
+  }
+
+  /**
+   * Spawn architect agent to coordinate multi-agent objective completion
+   */
+  async orchestrateObjective(
+    objective: string,
+    repositoryPath: string,
+    foundationSessionId?: string
+  ): Promise<OrchestrationResult> {
+    try {
+      // 1. Create coordination room
+      const roomName = `objective_${Date.now()}`;
+      this.communicationService.createRoom({
+        name: roomName,
+        description: `Coordination room for: ${objective}`,
+        repositoryPath,
+        metadata: {
+          objective,
+          foundationSessionId,
+          createdAt: new Date().toISOString()
+        }
+      });
+
+      // 2. Store objective in shared memory
+      this.memoryService.storeInsight(
+        repositoryPath,
+        'system',
+        `Objective: ${objective}`,
+        `Multi-agent objective coordination started.\nRoom: ${roomName}\nFoundation Session: ${foundationSessionId || 'none'}`,
+        ['objective', 'orchestration', 'coordination']
+      );
+
+      // 3. Generate architect prompt
+      const architectPrompt = this.generateArchitectPrompt(objective, repositoryPath, roomName, foundationSessionId);
+
+      // 4. Spawn architect agent with full autonomy
+      const architectAgent = await this.agentService.createAgent({
+        agentName: 'architect',
+        repositoryPath,
+        taskDescription: `Orchestrate objective: ${objective}`,
+        capabilities: ['ALL_TOOLS', 'orchestration', 'planning', 'coordination'],
+        metadata: {
+          role: 'architect',
+          objective,
+          roomName,
+          foundationSessionId,
+          fullAutonomy: true
+        },
+        claudeConfig: {
+          prompt: architectPrompt,
+          sessionId: foundationSessionId,
+          environmentVars: {
+            ORCHESTRATION_MODE: 'architect',
+            TARGET_ROOM: roomName,
+            OBJECTIVE: objective
+          }
+        }
+      });
+
+      // 5. Send welcome message to room
+      this.communicationService.sendMessage({
+        roomName,
+        agentName: 'system',
+        message: `🏗️ Architect agent ${architectAgent.id} has been spawned to coordinate objective: "${objective}"`,
+        messageType: MessageType.SYSTEM
+      });
+
+      return {
+        success: true,
+        message: 'Architect agent spawned successfully',
+        data: {
+          architectAgentId: architectAgent.id,
+          roomName,
+          objective
+        }
+      };
+
+    } catch (error) {
+      return {
+        success: false,
+        message: `Failed to orchestrate objective: ${error}`,
+        data: { error: String(error) }
+      };
+    }
+  }
+
+  /**
+   * Spawn fully autonomous Claude agent with complete tool access
+   */
+  async spawnAgent(options: SpawnAgentOptions): Promise<OrchestrationResult> {
+    try {
+      const {
+        agentType,
+        repositoryPath,
+        taskDescription,
+        capabilities = ['ALL_TOOLS'],
+        dependsOn = [],
+        metadata = {}
+      } = options;
+
+      // 1. Check dependencies if any
+      if (dependsOn.length > 0) {
+        const depCheck = await this.checkDependencies(dependsOn);
+        if (!depCheck.success) {
+          return {
+            success: false,
+            message: `Dependencies not met: ${depCheck.message}`,
+            data: { missingDependencies: depCheck.data }
+          };
+        }
+      }
+
+      // 2. Generate specialized prompt
+      const specializedPrompt = this.generateAgentPrompt(agentType, taskDescription, repositoryPath);
+
+      // 3. Create agent with full capabilities
+      const agent = await this.agentService.createAgent({
+        agentName: agentType,
+        repositoryPath,
+        taskDescription,
+        capabilities,
+        dependsOn,
+        metadata: {
+          ...metadata,
+          spawnedAt: new Date().toISOString(),
+          fullAutonomy: true
+        },
+        claudeConfig: {
+          prompt: specializedPrompt,
+          environmentVars: {
+            AGENT_TYPE: agentType,
+            TASK_DESCRIPTION: taskDescription,
+            REPOSITORY_PATH: repositoryPath
+          }
+        }
+      });
+
+      // 4. Store agent spawn in memory
+      this.memoryService.storeProgress(
+        repositoryPath,
+        'system',
+        `Agent ${agentType} spawned`,
+        `Successfully spawned ${agentType} agent for task: ${taskDescription}`,
+        {
+          agentId: agent.id,
+          agentType,
+          capabilities,
+          dependsOn
+        },
+        ['agent-spawn', agentType]
+      );
+
+      return {
+        success: true,
+        message: `${agentType} agent spawned successfully`,
+        data: {
+          agentId: agent.id,
+          agentType,
+          pid: agent.claude_pid,
+          capabilities
+        }
+      };
+
+    } catch (error) {
+      return {
+        success: false,
+        message: `Failed to spawn ${options.agentType} agent: ${error}`,
+        data: { error: String(error) }
+      };
+    }
+  }
+
+  /**
+   * Create and assign task to agents
+   */
+  async createTask(
+    repositoryPath: string,
+    taskType: TaskType,
+    title: string,
+    description: string,
+    requirements?: Record<string, any>,
+    dependencies?: string[]
+  ): Promise<OrchestrationResult> {
+    try {
+      // Create the task
+      const task = await this.taskService.createTask({
+        repositoryPath,
+        taskType,
+        description: `${title}: ${description}`,
+        requirements,
+        priority: 1
+      });
+
+      // Add dependencies if specified
+      if (dependencies && dependencies.length > 0) {
+        for (const depId of dependencies) {
+          this.taskService.addTaskDependency(task.id, depId);
+        }
+      }
+
+      // Store task creation in memory
+      this.memoryService.storeProgress(
+        repositoryPath,
+        'system',
+        `Task created: ${title}`,
+        `Task ${task.id} created with type ${taskType}.\nDescription: ${description}`,
+        {
+          taskId: task.id,
+          taskType,
+          dependencies: dependencies || []
+        },
+        ['task-creation', taskType]
+      );
+
+      return {
+        success: true,
+        message: 'Task created successfully',
+        data: {
+          taskId: task.id,
+          taskType,
+          status: task.status
+        }
+      };
+
+    } catch (error) {
+      return {
+        success: false,
+        message: `Failed to create task: ${error}`,
+        data: { error: String(error) }
+      };
+    }
+  }
+
+  /**
+   * Join communication room for coordination
+   */
+  async joinRoom(roomName: string, agentName: string): Promise<OrchestrationResult> {
+    try {
+      // Check if room exists
+      const room = this.communicationService.getRoom(roomName);
+      if (!room) {
+        return {
+          success: false,
+          message: `Room ${roomName} not found`,
+          data: { roomName }
+        };
+      }
+
+      // Join the room
+      await this.communicationService.joinRoom(roomName, agentName);
+
+      // Get recent messages for context
+      const recentMessages = this.communicationService.getRecentMessages(roomName, 10);
+
+      return {
+        success: true,
+        message: `Successfully joined room ${roomName}`,
+        data: {
+          roomName,
+          agentName,
+          participantCount: this.communicationService.getRoomParticipants(roomName).length,
+          recentMessageCount: recentMessages.length,
+          recentMessages: recentMessages.slice(0, 5) // Return last 5 for context
+        }
+      };
+
+    } catch (error) {
+      return {
+        success: false,
+        message: `Failed to join room: ${error}`,
+        data: { error: String(error) }
+      };
+    }
+  }
+
+  /**
+   * Send message to coordination room
+   */
+  async sendMessage(
+    roomName: string,
+    agentName: string,
+    message: string,
+    mentions?: string[]
+  ): Promise<OrchestrationResult> {
+    try {
+      const sentMessage = this.communicationService.sendMessage({
+        roomName,
+        agentName,
+        message,
+        mentions,
+        messageType: MessageType.STANDARD
+      });
+
+      return {
+        success: true,
+        message: 'Message sent successfully',
+        data: {
+          messageId: sentMessage.id,
+          roomName,
+          agentName,
+          mentions: mentions || []
+        }
+      };
+
+    } catch (error) {
+      return {
+        success: false,
+        message: `Failed to send message: ${error}`,
+        data: { error: String(error) }
+      };
+    }
+  }
+
+  /**
+   * Wait for messages in a room
+   */
+  async waitForMessages(
+    roomName: string,
+    timeout = 30000,
+    sinceTimestamp?: Date
+  ): Promise<OrchestrationResult> {
+    try {
+      const messages = await this.communicationService.waitForMessages(
+        roomName,
+        sinceTimestamp,
+        timeout
+      );
+
+      return {
+        success: true,
+        message: `Retrieved ${messages.length} messages`,
+        data: {
+          messages,
+          count: messages.length,
+          roomName
+        }
+      };
+
+    } catch (error) {
+      return {
+        success: false,
+        message: `Failed to wait for messages: ${error}`,
+        data: { error: String(error) }
+      };
+    }
+  }
+
+  /**
+   * Store insights and learnings in shared memory
+   */
+  async storeMemory(
+    repositoryPath: string,
+    agentName: string,
+    entryType: 'insight' | 'error' | 'decision' | 'progress',
+    title: string,
+    content: string,
+    tags?: string[]
+  ): Promise<OrchestrationResult> {
+    try {
+      let memory;
+
+      switch (entryType) {
+        case 'insight':
+          memory = this.memoryService.storeInsight(repositoryPath, agentName, title, content, tags);
+          break;
+        case 'error':
+          memory = this.memoryService.storeError(repositoryPath, agentName, content, {}, tags);
+          break;
+        case 'decision':
+          memory = this.memoryService.storeDecision(repositoryPath, agentName, title, content, {}, tags);
+          break;
+        case 'progress':
+          memory = this.memoryService.storeProgress(repositoryPath, agentName, title, content, {}, tags);
+          break;
+        default:
+          throw new Error(`Unknown entry type: ${entryType}`);
+      }
+
+      return {
+        success: true,
+        message: `${entryType} stored successfully`,
+        data: {
+          memoryId: memory.id,
+          entryType,
+          title,
+          agentName
+        }
+      };
+
+    } catch (error) {
+      return {
+        success: false,
+        message: `Failed to store memory: ${error}`,
+        data: { error: String(error) }
+      };
+    }
+  }
+
+  /**
+   * Search shared memory for insights
+   */
+  async searchMemory(
+    repositoryPath: string,
+    queryText: string,
+    agentName?: string,
+    limit = 10
+  ): Promise<OrchestrationResult> {
+    try {
+      const insights = this.memoryService.getRelevantMemories(
+        queryText,
+        repositoryPath,
+        agentName,
+        limit
+      );
+
+      return {
+        success: true,
+        message: `Found ${insights.length} relevant memories`,
+        data: {
+          insights,
+          count: insights.length,
+          query: queryText
+        }
+      };
+
+    } catch (error) {
+      return {
+        success: false,
+        message: `Failed to search memory: ${error}`,
+        data: { error: String(error) }
+      };
+    }
+  }
+
+  /**
+   * Get list of active agents
+   */
+  async listAgents(repositoryPath: string, status?: AgentStatus): Promise<OrchestrationResult> {
+    try {
+      const agents = this.agentService.listAgents(repositoryPath, status);
+
+      return {
+        success: true,
+        message: `Found ${agents.length} agents`,
+        data: {
+          agents: agents.map(agent => ({
+            id: agent.id,
+            name: agent.agent_name,
+            status: agent.status,
+            capabilities: agent.capabilities,
+            lastHeartbeat: agent.last_heartbeat,
+            metadata: agent.agent_metadata
+          })),
+          count: agents.length
+        }
+      };
+
+    } catch (error) {
+      return {
+        success: false,
+        message: `Failed to list agents: ${error}`,
+        data: { error: String(error) }
+      };
+    }
+  }
+
+  // Private helper methods
+  private generateArchitectPrompt(
+    objective: string,
+    repositoryPath: string,
+    roomName: string,
+    foundationSessionId?: string
+  ): string {
+    return `🏗️ ARCHITECT AGENT - Strategic Orchestration Leader
+
+OBJECTIVE: ${objective}
+REPOSITORY: ${repositoryPath}
+COORDINATION ROOM: ${roomName}
+FOUNDATION SESSION: ${foundationSessionId || 'none'}
+
+You are an autonomous architect agent with COMPLETE CLAUDE CODE CAPABILITIES.
+You can use ALL tools: file operations, web browsing, code analysis, agent spawning, etc.
+
+PHASES:
+1. RESEARCH & DISCOVERY
+   - Join coordination room: orchestrate_objective() and join_room("${roomName}", "architect")
+   - Search shared memory for relevant patterns: search_memory()
+   - Analyze repository structure thoroughly
+   
+2. STRATEGIC PLANNING
+   - Break objective into specialized tasks
+   - Identify required agent types and capabilities
+   - Define dependency relationships
+   - Store complete plan in shared memory: store_memory()
+   
+3. COORDINATED EXECUTION
+   - spawn_agent() specialist agents in dependency order
+   - Monitor progress through room messages: wait_for_messages()
+   - Handle conflicts and dependencies
+   - Ensure quality gates and completion criteria
+   
+4. COMPLETION & HANDOFF
+   - Verify all objectives met
+   - Document learnings in shared memory
+   - Provide final status report
+
+AVAILABLE ORCHESTRATION TOOLS:
+- orchestrate_objective() - Spawn coordinator agents
+- spawn_agent() - Create specialized agents
+- create_task() - Define and assign work
+- join_room() - Join coordination rooms
+- send_message() - Communicate with agents
+- wait_for_messages() - Monitor conversations
+- store_memory() - Share insights and decisions
+- search_memory() - Learn from previous work
+- list_agents() - Check agent status
+
+CRITICAL: You have COMPLETE autonomy. Use any tools needed to succeed.
+Start by joining the coordination room and analyzing the objective.`;
+  }
+
+  private generateAgentPrompt(agentType: string, taskDescription: string, repositoryPath: string): string {
+    const basePrompt = `You are a fully autonomous ${agentType} agent with COMPLETE CLAUDE CODE CAPABILITIES.
+
+TASK: ${taskDescription}
+REPOSITORY: ${repositoryPath}
+
+You have access to ALL tools:
+- File operations (Read, Write, Edit, Search, etc.)
+- Code analysis and refactoring
+- Web browsing and research
+- System commands and build tools
+- Git operations
+- Database queries
+- Agent coordination tools (spawn_agent, join_room, send_message, etc.)
+- Shared memory and communication (store_memory, search_memory, etc.)
+
+AUTONOMOUS OPERATION GUIDELINES:
+- Work independently to complete your assigned task
+- Use any tools necessary for success
+- Coordinate with other agents when beneficial
+- Store insights and learnings in shared memory
+- Report progress in coordination rooms
+- Make decisions and take actions as needed
+
+COORDINATION TOOLS AVAILABLE:
+- join_room() - Join project coordination rooms
+- send_message() - Communicate with other agents
+- store_memory() - Share knowledge and insights
+- search_memory() - Learn from previous work
+- spawn_agent() - Create helper agents if needed
+
+CRITICAL: You are fully autonomous. Think, plan, and execute independently.`;
+
+    // Add role-specific instructions
+    const roleInstructions = this.getRoleInstructions(agentType);
+    return basePrompt + roleInstructions;
+  }
+
+  private getRoleInstructions(agentType: string): string {
+    const instructions: Record<string, string> = {
+      'backend': `
+
+BACKEND AGENT SPECIALIZATION:
+- Focus on server-side implementation
+- Database design and API development
+- Security and performance optimization
+- Integration testing and validation
+- Use appropriate frameworks and libraries
+- Follow security best practices`,
+
+      'frontend': `
+
+FRONTEND AGENT SPECIALIZATION:
+- User interface and user experience
+- Component design and state management
+- Responsive design and accessibility
+- Client-side testing and optimization
+- Modern UI frameworks and patterns
+- Cross-browser compatibility`,
+
+      'testing': `
+
+TESTING AGENT SPECIALIZATION:
+- Comprehensive test strategy and implementation
+- Unit, integration, and end-to-end testing
+- Test automation and CI/CD integration
+- Quality assurance and bug detection
+- Performance and load testing
+- Coverage analysis and reporting`,
+
+      'documentation': `
+
+DOCUMENTATION AGENT SPECIALIZATION:
+- Technical documentation and guides
+- API documentation and examples
+- User manuals and tutorials
+- Knowledge base maintenance
+- Code documentation and comments
+- Architecture decision records`,
+
+      'devops': `
+
+DEVOPS AGENT SPECIALIZATION:
+- Infrastructure as code
+- CI/CD pipeline optimization
+- Container orchestration
+- Monitoring and logging
+- Security and compliance
+- Performance optimization`,
+
+      'researcher': `
+
+RESEARCH AGENT SPECIALIZATION:
+- Technology research and analysis
+- Best practices investigation
+- Competitive analysis
+- Documentation scraping and analysis
+- Trend analysis and recommendations
+- Knowledge synthesis and reporting`
+    };
+
+    return instructions[agentType] || `
+
+SPECIALIST AGENT:
+- Apply your expertise to the specific task
+- Follow best practices in your domain
+- Collaborate effectively with other agents
+- Deliver high-quality results
+- Document your decisions and learnings`;
+  }
+
+  private async checkDependencies(dependsOn: string[]): Promise<{ success: boolean; message: string; data?: any }> {
+    const missingDeps: string[] = [];
+
+    for (const depId of dependsOn) {
+      const agent = this.agentService.getAgent(depId);
+      if (!agent) {
+        missingDeps.push(depId);
+      } else if (agent.status !== AgentStatus.COMPLETED && agent.status !== AgentStatus.ACTIVE) {
+        missingDeps.push(`${depId} (status: ${agent.status})`);
+      }
+    }
+
+    if (missingDeps.length > 0) {
+      return {
+        success: false,
+        message: `Missing or incomplete dependencies: ${missingDeps.join(', ')}`,
+        data: missingDeps
+      };
+    }
+
+    return { success: true, message: 'All dependencies satisfied' };
+  }
+}

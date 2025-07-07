@@ -1,0 +1,55 @@
+{
+  "name": "claude-mcp-tools-ts",
+  "version": "0.1.0",
+  "description": "TypeScript implementation of ClaudeMcpTools with full agent autonomy",
+  "main": "dist/lib.js",
+  "types": "dist/lib.d.ts",
+  "type": "module",
+  "bin": {
+    "claude-mcp-tools": "dist/cli/index.js",
+    "claude-mcp-server": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "dev:cli": "tsx src/cli/index.ts",
+    "start": "node dist/index.js",
+    "start:cli": "node dist/cli/index.js",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:run": "vitest run",
+    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc --noEmit",
+    "prepare": "pnpm build"
+  },
+  "keywords": [
+    "mcp",
+    "claude",
+    "typescript",
+    "agent",
+    "orchestration"
+  ],
+  "author": "ClaudeMcpTools",
+  "license": "MIT",
+  "packageManager": "pnpm@10.11.1",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.15.0",
+    "better-sqlite3": "^12.2.0",
+    "commander": "^14.0.0",
+    "patchright": "^1.52.5",
+    "user-agents": "^1.1.593",
+    "zod": "^3.25.74"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.0.10",
+    "@types/user-agents": "^1.0.4",
+    "@typescript-eslint/eslint-plugin": "^8.35.1",
+    "@typescript-eslint/parser": "^8.35.1",
+    "@vitest/ui": "^3.2.4",
+    "eslint": "^9.30.1",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  }
+}

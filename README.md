@@ -1,6 +1,6 @@
 # ClaudeMcpTools
 
-🚀 **Enhanced MCP Tools for Claude Code** - Complete multi-agent orchestration with beautiful CLI, intuitive web dashboard, documentation intelligence, and advanced file operations.
+🚀 **TypeScript MCP Tools for Claude Code** - Complete multi-agent orchestration with enhanced CLI, documentation intelligence, and advanced file operations. Built with TypeScript for type safety and performance.
 
 ## ✨ Features
 
@@ -11,19 +11,19 @@
 - **Foundation Sessions**: 85-90% cost reduction through shared context
 - **65+ Enhanced Tools**: Complete orchestration with seamless Claude Code integration
 
-### 🎨 **Modern CLI Experience**
-- **Beautiful Interface**: Built with Typer + Rich for colored output and progress bars
-- **One-Command Setup**: `uv tool install claude-mcp-tools` and you're ready!
-- **Interactive Commands**: Guided setup with smart defaults
-- **Global Installation**: Available anywhere with `claude-mcp-tools`
-- **Project Integration**: Automatic CLAUDE.md creation with architect guidance
+### 🎨 **TypeScript CLI Experience**
+- **Type-Safe Interface**: Built with Commander.js for robust command handling
+- **Development Setup**: `pnpm install && pnpm build` and you're ready!
+- **Structured Commands**: Organized command hierarchy for agent, task, and memory management
+- **Binary Access**: Available via `claude-mcp-tools` and `claude-mcp-server`
+- **Development Tools**: Hot-reload development with tsx
 
-### 🎛️ **Web Dashboard**
-- **Real-Time Monitoring**: Live system status with WebSocket updates
-- **Agent Management**: Visual interface for spawning and monitoring agents
-- **Interactive Cleanup**: Storage analysis and database optimization tools
-- **Responsive Design**: Mobile-friendly with light/dark theme support
-- **Network Access**: Default 0.0.0.0 binding for team collaboration
+### 🎛️ **CLI Management**
+- **Agent Operations**: Command-line agent spawning and monitoring
+- **Task Management**: CLI-based task creation and tracking
+- **Memory Operations**: Search and manage shared agent memory
+- **Room Communication**: Join and manage agent communication rooms
+- **Status Reporting**: System health and component status
 
 ### 📂 Enhanced File Operations (6 tools)
 - **Smart Ignore Patterns**: `.claudeignore` and `.gitignore` support with hierarchical precedence
@@ -55,67 +55,61 @@
 
 ## 🚀 Quick Installation
 
-### Method 1: Global Installation (Recommended)
+### Prerequisites
+- **Node.js 18+**: Required for TypeScript runtime
+- **PNPM**: Package manager (`npm install -g pnpm`)
+- **Claude CLI**: Anthropic's Claude Code CLI
+
+### Installation
 
 ```bash
-# Install globally with uv tool (when published)
-uv tool install claude-mcp-tools
-
-# Or install from local development
+# Clone the repository
 git clone https://github.com/zachhandley/ClaudeMcpTools
 cd ClaudeMcpTools
-uv tool install .
+
+# Install dependencies
+pnpm install
+
+# Build the project
+pnpm build
+
+# Link for global access (optional)
+npm link
 ```
 
-### Method 2: Enhanced Interactive Installation
+### MCP Server Configuration
 
-**Auto Mode (Default - maintains existing behavior):**
 ```bash
-# Quick auto-setup with sensible defaults
-claude-mcp-tools install
+# Add the MCP server to Claude Code
+claude mcp add claude-mcp-tools /path/to/ClaudeMcpTools/dist/index.js
 
-# Auto-setup with specific options
-claude-mcp-tools install --minimal --global-only
-claude-mcp-tools install --allow-all --no-hooks
+# Verify the server is configured
+claude mcp list
 ```
 
-**Interactive Mode (Advanced configuration):**
-```bash
-# Interactive setup with full configuration options
-claude-mcp-tools install --interactive
-```
-
-**Available Installation Options:**
-- **Installation Location**: `~/.claude/mcptools/` (default) or `~/.mcptools/` or custom path
-- **Installation Type**: Full setup, Global-only, Project-only, or Custom components
-- **Permission Level**: Allow-all (default), Selective categories, or Minimal tools
-- **Hook Installation**: Project hooks, Global hooks, Both, or Skip
-- **Tool Categories**: Agents, Analysis, Documentation, Tasks, Communication, Memory, Files
-
-**This will:**
-- ✅ Install ClaudeMcpTools globally with configurable location
-- ✅ Set up MCP server launchers  
-- ✅ Configure Claude Code integration with 64k token limits via settings.json
-- ✅ Set up modular permissions based on your choices
-- ✅ Create sample hooks for automation (optional)
-- ✅ Enhanced CLAUDE.md integration with architect guidance
-- ✅ Enable 65+ enhanced tools with architect-led orchestration
+**This provides:**
+- ✅ Core MCP server with 65+ tools
+- ✅ Multi-agent orchestration capabilities
+- ✅ TypeScript type safety and performance
+- ✅ SQLite-based data persistence
+- ✅ Advanced file operations and project analysis
+- ✅ Documentation intelligence and web scraping
+- ✅ Foundation session caching for cost optimization
 
 ## 📋 Prerequisites
 
-ClaudeMcpTools requires the following tools to be installed:
+ClaudeMcpTools TypeScript requires the following:
 
 ### Required
-- **[uv](https://astral.sh/uv/)** - Python package manager: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+- **[Node.js 18+](https://nodejs.org/)** - JavaScript runtime
+- **[PNPM](https://pnpm.io/)** - Package manager: `npm install -g pnpm`
 - **[Claude CLI](https://docs.anthropic.com/en/docs/claude-code)** - Anthropic's Claude Code CLI
 
-### Optional (for hooks)
-- **jq** - JSON processor for hook functionality:
-  - **Ubuntu/Debian**: `sudo apt install jq`
-  - **macOS**: `brew install jq`
-  - **Other systems**: See [jq installation guide](https://stedolan.github.io/jq/download/)
+### Optional
+- **TypeScript**: For development (`pnpm add -g typescript`)
+- **TSX**: For development hot-reload (included in devDependencies)
 
-**Note**: The installation process will check for these prerequisites and provide installation instructions if any are missing.
+**Note**: The TypeScript implementation provides better type safety and performance compared to the Python version.
 
 ## 🎯 Architect-Led Orchestration
 
@@ -170,92 +164,80 @@ orchestrate_objective(
 ### CLI Commands
 
 ```bash
-# Beautiful help with Rich formatting
+# Show help and available commands
 claude-mcp-tools --help
 
-# Show installation status and available tools
+# Show system status
 claude-mcp-tools status
 
-# Configure Claude Code MCP integration
-claude-mcp-tools configure
+# Start the MCP server
+claude-mcp-server
 
-# Manage tool permissions  
-claude-mcp-tools permissions
+# Agent management
+claude-mcp-tools agent list
+claude-mcp-tools agent spawn <type> <task>
+claude-mcp-tools agent terminate <id>
 
-# Start servers
-claude-mcp-tools server         # Basic file operations
-claude-mcp-tools orchestration  # Full orchestration (recommended)
-claude-mcp-tools dashboard      # Web dashboard interface
+# Task management
+claude-mcp-tools task list
+claude-mcp-tools task create <title> <description>
 
-# Install/setup
-claude-mcp-tools install                    # Auto-setup (default)
-claude-mcp-tools install --interactive      # Interactive configuration
-claude-mcp-tools install --minimal --global-only  # Minimal global-only
-claude-mcp-tools uninstall                  # Clean removal
+# Memory operations
+claude-mcp-tools memory search <query>
+claude-mcp-tools memory store <title> <content>
+
+# Communication rooms
+claude-mcp-tools room list
+claude-mcp-tools room join <name>
 ```
 
-### 🎛️ Web Dashboard
-
-ClaudeMcpTools includes a modern web dashboard for visual management and monitoring:
+### 🛠️ Development Commands
 
 ```bash
-# Start the dashboard (accessible from any device on your network)
-claude-mcp-tools dashboard
+# Development with hot-reload
+pnpm dev          # Start MCP server with tsx
+pnpm dev:cli      # Start CLI with tsx
 
-# Custom host and port
-claude-mcp-tools dashboard --host 127.0.0.1 --port 3000
+# Building and testing
+pnpm build        # Compile TypeScript to dist/
+pnpm test         # Run Vitest tests
+pnpm test:ui      # Run tests with UI
+pnpm test:run     # Run tests once
 
-# Development mode with auto-reload
-claude-mcp-tools dashboard --reload
+# Code quality
+pnpm lint         # ESLint checking
+pnpm typecheck    # TypeScript type checking
 
-# Start without auto-opening browser
-claude-mcp-tools dashboard --no-open
+# Production
+pnpm start        # Start compiled MCP server
+pnpm start:cli    # Start compiled CLI
 ```
 
-**🌟 Dashboard Features:**
+**🌟 TypeScript Features:**
 
-- **📊 Real-time System Monitoring**
-  - Live agent status and performance metrics
-  - Storage usage breakdown with visual charts
-  - Database record counts and health indicators
-  - WebSocket-powered automatic updates
+- **🎯 Type Safety**
+  - Full TypeScript implementation with strict mode
+  - Zod schemas for runtime validation
+  - Compile-time error checking
+  - IntelliSense support in IDEs
 
-- **🤖 Agent Management Interface**
-  - Spawn new agents with custom configurations
-  - Monitor agent lifecycle and task assignments
-  - Terminate agents with confirmation dialogs
-  - View agent capabilities and status history
+- **🚀 Performance**
+  - Better-sqlite3 for high-performance database operations
+  - ES2022 target with modern optimizations
+  - Efficient memory management
+  - Fast development with tsx hot-reload
 
-- **🧹 Interactive Cleanup Tools**
-  - Visual storage analysis with breakdown charts
-  - Orphaned project detection and removal
-  - Database optimization tools (SQLite VACUUM)
-  - Preview mode for safe cleanup operations
+- **🧪 Testing**
+  - Vitest for modern testing experience
+  - UI mode for interactive test debugging
+  - Coverage reports with V8 provider
+  - TypeScript test support out of the box
 
-- **📚 Documentation Browser** *(Coming Soon)*
-  - Search semantic documentation database
-  - Browse scraped documentation sources
-  - View documentation change history
-  - Configure crawl settings and schedules
-
-- **⚙️ Settings & Configuration**
-  - Light/dark mode with system preference detection
-  - Auto-refresh interval configuration
-  - Notification preferences management
-  - Export/import dashboard settings
-
-- **📱 Responsive Design**
-  - Mobile-friendly interface
-  - Adaptive layouts for all screen sizes
-  - Touch-optimized controls
-  - Cross-platform compatibility
-
-**🔧 Network Access:**
-The dashboard defaults to `0.0.0.0:8080`, making it accessible from any device on your network. This enables:
-- Management from mobile devices
-- Remote monitoring capabilities
-- Multi-device development workflows
-- Team collaboration features
+- **📦 Module System**
+  - ESNext modules for tree-shaking
+  - Clean imports and exports
+  - Library mode for programmatic use
+  - Dual CLI and server binaries
 
 ### Convenient Aliases
 
@@ -263,53 +245,60 @@ The following aliases are available (add to `~/.zshrc`):
 
 ```bash
 alias mcp-tools="claude-mcp-tools"
-alias mcp-status="claude-mcp-tools status" 
-alias mcp-server="claude-mcp-tools orchestration"
-alias mcp-dashboard="claude-mcp-tools dashboard"
+alias mcp-server="claude-mcp-server"
+alias mcp-status="claude-mcp-tools status"
+alias mcp-dev="pnpm dev"
 ```
 
 ## ⚙️ Configuration
 
-### Enhanced Installation Options
+### TypeScript Configuration
 
 ```bash
-# Auto-setup with sensible defaults (recommended)
-claude-mcp-tools install
+# Build configuration in tsconfig.json
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "experimentalDecorators": true,
+    "outDir": "dist",
+    "rootDir": "src"
+  }
+}
 
-# Interactive setup with full configuration choices
-claude-mcp-tools install --interactive
+# Package manager configuration
+echo 'packageManager="pnpm@10.11.1"' > .npmrc
 
-# Quick setups for specific use cases
-claude-mcp-tools install --minimal --global-only     # Minimal global installation
-claude-mcp-tools install --allow-all --project-only  # Full project setup only
-claude-mcp-tools install --yes --no-hooks           # Silent install without hooks
-
-# Configure MCP servers interactively
-claude-mcp-tools configure
-
-# Set up permissions (project or global)
-claude-mcp-tools permissions
+# Development scripts
+pnpm dev          # Hot-reload development
+pnpm build        # Production build
+pnpm test         # Run test suite
 ```
 
-**🎯 Interactive Installation Features:**
-- **Smart Location Choice**: `~/.claude/mcptools/` vs `~/.mcptools/` vs custom path
-- **Modular Permissions**: Choose specific tool categories (agents, docs, analysis, etc.)
-- **Hook Management**: Optional automation hooks for pre-commit, post-save actions
-- **Environment Configuration**: Automatic Claude Code 64k token limit setup
-- **Installation Summary**: Clear overview before proceeding
-- **Non-Interactive Flags**: Full CLI control for automation scripts
+**🎯 TypeScript Features:**
+- **Strict Type Checking**: Full type safety with strict mode enabled
+- **Modern ES Modules**: ESNext target with bundler resolution
+- **Development Tools**: tsx for hot-reload, Vitest for testing
+- **Code Quality**: ESLint with TypeScript rules
+- **Binary Generation**: Dual binaries for CLI and server
+- **Library Mode**: Exportable as TypeScript library
 
-### Manual MCP Server Configuration
+### MCP Server Configuration
 
 ```bash
-# Add orchestration server (recommended)
-claude mcp add claude-mcp-orchestration ~/.local/share/uv/tools/claude-mcp-tools/bin/claude-mcp-orchestration
+# Add the TypeScript MCP server
+claude mcp add claude-mcp-tools /path/to/ClaudeMcpTools/dist/index.js
 
-# Or add basic file operations server
-claude mcp add claude-mcp-tools ~/.local/share/uv/tools/claude-mcp-tools/bin/claude-mcp-tools-server
+# Alternative: use local binary after npm link
+claude mcp add claude-mcp-tools claude-mcp-server
 
 # Verify installation
 claude mcp list
+
+# Test server directly
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | node dist/index.js
 ```
 
 ## 📖 Usage Examples
@@ -462,11 +451,11 @@ claude-mcp-tools install --project
 
 ### Data Storage
 
-- **Global Installation**: `~/.local/share/uv/tools/claude-mcp-tools/`
-- **Project Data**: `~/.claude/zmcptools/`
-- **Analysis Cache**: `~/.claude/zmcptools/.treegraph/`
-- **Documentation Database**: `~/.claude/zmcptools/documentation/`
-- **Vector Embeddings**: Local ChromaDB with sentence-transformers
+- **Installation**: Local project directory (`./dist/`)
+- **Data Directory**: `~/.mcptools/data/` (SQLite databases)
+- **Agent Data**: `~/.mcptools/data/agents.db`
+- **Documentation**: `~/.mcptools/data/documentation.db`
+- **Cache**: Foundation session cache in memory/disk
 
 ## 🛠️ Development
 
@@ -474,77 +463,54 @@ claude-mcp-tools install --project
 # Clone and setup development environment
 git clone https://github.com/zachhandley/ClaudeMcpTools
 cd ClaudeMcpTools
-uv sync
+pnpm install
 
-# Install in development mode
-uv tool install . --force
+# Development mode
+pnpm dev          # Run MCP server with hot-reload
+pnpm dev:cli      # Run CLI with hot-reload
 
-# Or run servers directly for testing
-uv run python -m claude_mcp_tools.server                    # Basic server
-uv run python -m claude_mcp_tools.orchestration_server     # Full orchestration
+# Build and test
+pnpm build        # Compile TypeScript
+pnpm test         # Run test suite
 
-# Test the CLI
-claude-mcp-tools --help
-claude-mcp-tools status
+# Test the binaries
+node dist/index.js       # MCP server
+node dist/cli/index.js   # CLI interface
 ```
 
 ## 🎨 CLI Examples
 
-### Beautiful Status Display
+### Status Display
 
 ```bash
 $ claude-mcp-tools status
 ```
 
 ```
-╭──────────────────────────╮
-│ 📊 ClaudeMcpTools Status │
-╰──────────────────────────╯
-                              Installation Status                               
-┏━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃ Component           ┃ Status           ┃ Location                            ┃
-┡━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
-│ Global Installation │ ✅ Installed     │ ~/.local/share/uv/tools/claude-...  │
-│ Data Storage        │ ✅ Active (388K) │ ~/.claude/zmcptools                 │
-│ Project Settings    │ ✅ Configured    │ ./.claude/settings.local.json       │
-│ Project Integration │ ✅ Enhanced      │ ./CLAUDE.md                         │
-└─────────────────────┴──────────────────┴─────────────────────────────────────┘
+ClaudeMcpTools Status:
+✅ TypeScript Build: dist/ directory exists
+✅ Data Directory: ~/.mcptools/data/
+✅ SQLite Databases: agents.db, tasks.db, memory.db
+✅ MCP Server: claude-mcp-server binary available
+✅ Dependencies: @modelcontextprotocol/sdk, better-sqlite3
 ```
 
-### Interactive Installation
+### Development Workflow
 
 ```bash
-$ claude-mcp-tools install --auto
+$ pnpm dev
 ```
 
 ```
-╭─────────────────────────────────────────╮
-│ 🚀 ClaudeMcpTools Installation         │
-│ Enhanced MCP Tools for Claude Code      │
-╰─────────────────────────────────────────╯
+Starting TypeScript development server...
+✅ TypeScript compilation successful
+✅ MCP server starting on stdio
+✅ SQLite databases initialized
+✅ Agent orchestration ready
+✅ Foundation cache system active
 
-📁 Creating directories... ████████████████████████████████████████ 100%
-📦 Installing package... ████████████████████████████████████████ 100%
-🔧 Creating MCP launchers... ████████████████████████████████████████ 100%
-📝 Setting up CLAUDE.md integration... ████████████████████████████████████████ 100%
-⚙️ Auto-configuring... ████████████████████████████████████████ 100%
-
-╭─────────────────── 🎉 Success ───────────────────╮
-│ ✅ Installation Complete!                        │
-│                                                   │
-│ 📋 What was installed:                            │
-│ • Global installation: ~/.claude/mcptools/       │
-│ • Data storage: ~/.claude/zmcptools/              │
-│ • MCP servers configured in Claude Code          │
-│ • Project permissions: ./.claude/settings.local.json │
-│ • Project integration: ./CLAUDE.md               │
-│                                                   │
-│ 🚀 Next steps:                                    │
-│ 1. Restart Claude Code                            │
-│ 2. Use /mcp to see available tools               │
-│ 3. Try: orchestrate_objective() for workflows    │
-│ 4. Check: ./CLAUDE.md for architect examples     │
-╰───────────────────────────────────────────────────╯
+Listening for MCP requests...
+Press Ctrl+C to stop
 ```
 
 ## 🌊 Example Workflows
@@ -596,66 +562,74 @@ orchestrate_objective(
 
 ```bash
 # Check prerequisites
-uv --version            # UV package manager required
+node --version          # Node.js 18+ required
+pnpm --version          # PNPM package manager required
 claude --version        # Claude CLI required
 
 # Clean installation
-uv tool uninstall claude-mcp-tools
-uv tool install claude-mcp-tools
+rm -rf node_modules dist
+pnpm install
+pnpm build
 
 # Development installation
 git clone https://github.com/zachhandley/ClaudeMcpTools
 cd ClaudeMcpTools
-uv tool install . --force
+pnpm install
+pnpm build
 ```
 
 ### Verification
 
 ```bash
-# Check global installation
-claude-mcp-tools status
-uv tool list
+# Check build output
+ls -la dist/
+node dist/index.js --help
 
-# Check project-specific settings
-cat ./.claude/settings.local.json
-ls -la ~/.claude/zmcptools/
+# Check data directory
+ls -la ~/.mcptools/data/
 
-# Test MCP servers
+# Test MCP server
 claude mcp list
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | node dist/index.js
 ```
 
 ### Server Connection Issues
 
 ```bash
-# Test servers manually
-claude-mcp-tools server              # Test basic server
-claude-mcp-tools orchestration       # Test full server
-claude-mcp-tools dashboard           # Test dashboard server
+# Test TypeScript compilation
+pnpm typecheck
+pnpm lint
 
-# Reconfigure MCP servers
-claude-mcp-tools configure
+# Test MCP server directly
+node dist/index.js
 
-# Reset permissions
-claude-mcp-tools permissions
+# Debug with development server
+pnpm dev
+
+# Check MCP configuration
+claude mcp list
+claude mcp remove claude-mcp-tools
+claude mcp add claude-mcp-tools $(pwd)/dist/index.js
 ```
 
-### Dashboard Issues
+### TypeScript Issues
 
 ```bash
-# Check dashboard accessibility
-curl http://localhost:8080          # Test if dashboard is running
-netstat -an | grep 8080              # Check if port is in use
+# Type checking errors
+pnpm typecheck                      # Check TypeScript errors
+npx tsc --noEmit --pretty           # Detailed type errors
 
-# Dashboard won't start
-claude-mcp-tools status              # Verify installation
-claude-mcp-tools dashboard --reload  # Development mode for debugging
+# Runtime errors
+node --inspect dist/index.js        # Debug with Node.js inspector
+pnpm dev                             # Hot-reload development
 
-# Network access issues
-claude-mcp-tools dashboard --host 127.0.0.1  # Local only
-claude-mcp-tools dashboard --port 3000       # Alternative port
+# Database issues
+rm -rf ~/.mcptools/data/*.db        # Reset databases
+node dist/index.js                   # Reinitialize
 
-# Permission denied errors
-sudo ufw allow 8080                  # Open firewall port (if needed)
+# Dependency issues
+rm -rf node_modules pnpm-lock.yaml
+pnpm install                         # Clean dependency install
 ```
 
 ## 🤝 Contributing
@@ -672,4 +646,4 @@ MIT License - see LICENSE file for details.
 
 ---
 
-**🚀 Supercharge your Claude Code workflows with architect-led multi-agent orchestration, beautiful CLI, intuitive web dashboard, one-command installation, and intelligent development assistance!**
+**🚀 Supercharge your Claude Code workflows with TypeScript-powered multi-agent orchestration, type-safe development, enhanced performance, and intelligent development assistance!**
