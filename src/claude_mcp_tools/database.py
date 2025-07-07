@@ -1,6 +1,8 @@
 """Database session management and initialization for SQLAlchemy ORM."""
 
 import asyncio
+import fcntl
+import os
 import shutil
 import sqlite3
 import sys
@@ -15,6 +17,8 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine, AsyncEngine
+from sqlalchemy import text
+from typing import Callable, Any
 
 from .models import Base
 
@@ -23,6 +27,9 @@ logger = structlog.get_logger()
 # Global engine and session factory
 engine: AsyncEngine | None = None
 AsyncSessionLocal: async_sessionmaker[AsyncSession] | None = None
+
+# Cross-process coordination
+_initialization_lock_fd: int | None = None
 
 
 def create_backup(db_path: Path) -> Path | None:
@@ -322,8 +329,84 @@ async def _fallback_create_all() -> None:
         logger.info("✅ Database initialized with fallback method")
 
 
-async def init_database(db_path: Path | None = None) -> None:
-    """Initialize database engine, create tables, and set up session factory.
+async def _enable_wal_mode() -> None:
+    """Enable SQLite WAL mode for better concurrent access."""
+    if engine is None:
+        logger.warning("Cannot enable WAL mode - engine not initialized")
+        return
+        
+    try:
+        async with engine.begin() as conn:
+            # Enable WAL mode for better concurrent read/write performance
+            await conn.execute(text("PRAGMA journal_mode = WAL;"))
+            # Set busy timeout for better concurrent access
+            await conn.execute(text("PRAGMA busy_timeout = 30000;"))
+            # Optimize for concurrent access
+            await conn.execute(text("PRAGMA synchronous = NORMAL;"))
+            # Increase cache size for better performance
+            await conn.execute(text("PRAGMA cache_size = -64000;"))  # 64MB cache
+            # Keep temp tables in memory
+            await conn.execute(text("PRAGMA temp_store = MEMORY;"))
+            
+        logger.info("✅ SQLite WAL mode and optimizations enabled")
+    except Exception as e:
+        logger.warning("Failed to enable WAL mode, proceeding with defaults", error=str(e))
+
+
+async def _acquire_init_lock(db_path: Path) -> bool:
+    """Acquire cross-process initialization lock to prevent conflicts."""
+    global _initialization_lock_fd
+    
+    lock_file = db_path.parent / f".{db_path.name}.init.lock"
+    
+    try:
+        # Create lock file if it doesn't exist
+        lock_file.parent.mkdir(parents=True, exist_ok=True)
+        _initialization_lock_fd = os.open(str(lock_file), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+        
+        # Try to acquire exclusive lock (non-blocking)
+        fcntl.flock(_initialization_lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        
+        # Write process ID to lock file
+        os.write(_initialization_lock_fd, f"{os.getpid()}\n".encode())
+        os.fsync(_initialization_lock_fd)
+        
+        logger.debug("Acquired database initialization lock", pid=os.getpid())
+        return True
+        
+    except (OSError, IOError) as e:
+        # Lock already held by another process
+        if _initialization_lock_fd is not None:
+            try:
+                os.close(_initialization_lock_fd)
+            except:
+                pass
+            _initialization_lock_fd = None
+        
+        logger.debug("Database initialization lock held by another process", error=str(e))
+        return False
+
+
+async def _release_init_lock() -> None:
+    """Release cross-process initialization lock."""
+    global _initialization_lock_fd
+    
+    if _initialization_lock_fd is not None:
+        try:
+            fcntl.flock(_initialization_lock_fd, fcntl.LOCK_UN)
+            os.close(_initialization_lock_fd)
+            logger.debug("Released database initialization lock", pid=os.getpid())
+        except Exception as e:
+            logger.warning("Error releasing database initialization lock", error=str(e))
+        finally:
+            _initialization_lock_fd = None
+
+
+async def init_database_with_migrations(db_path: Path | None = None) -> None:
+    """Initialize database with full migrations (for install/setup only).
+    
+    This function should only be called during installation or setup,
+    not during runtime operations.
     
     Args:
         db_path: Path to SQLite database file. If None, uses default location.
@@ -336,6 +419,81 @@ async def init_database(db_path: Path | None = None) -> None:
 
     # Ensure directory exists
     db_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Try to acquire initialization lock
+    has_lock = await _acquire_init_lock(db_path)
+    
+    try:
+        if has_lock:
+            # We have the lock - perform full initialization WITH MIGRATIONS
+            logger.info("Performing database initialization with migrations", pid=os.getpid())
+            await _init_database_with_migrations_locked(db_path)
+        else:
+            # Another process is initializing - wait for them to finish
+            logger.info("Waiting for database initialization by another process", pid=os.getpid())
+            
+            # Wait for database to be ready (poll every 100ms, max 60 seconds for migrations)
+            max_wait = 60.0
+            poll_interval = 0.1
+            waited = 0.0
+            
+            while waited < max_wait:
+                if await is_database_ready(db_path):
+                    logger.info("Database ready after migration by another process")
+                    await init_engine_only(db_path)
+                    return
+                
+                await asyncio.sleep(poll_interval)
+                waited += poll_interval
+            
+            # Timeout waiting - fall back to full initialization
+            logger.warning("Timeout waiting for database initialization, proceeding with full init")
+            await _init_database_with_migrations_locked(db_path)
+            
+    finally:
+        if has_lock:
+            await _release_init_lock()
+
+
+async def init_database(db_path: Path | None = None) -> None:
+    """Initialize database engine for runtime use (no migrations).
+    
+    This is the fast runtime initialization that assumes migrations
+    have already been run during installation/setup.
+    
+    Args:
+        db_path: Path to SQLite database file. If None, uses default location.
+    """
+    global engine, AsyncSessionLocal
+
+    if db_path is None:
+        # Default to .mcptools/data directory in user's home
+        db_path = Path.home() / ".mcptools" / "data" / "orchestration.db"
+
+    # Ensure directory exists
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # If already initialized, just return
+    if engine is not None and AsyncSessionLocal is not None:
+        logger.debug("Database already initialized, skipping")
+        return
+
+    # Check if database exists and is ready
+    if not await is_database_ready(db_path):
+        # Database not ready - this is a setup issue
+        logger.error("Database not found or not ready. Please run database setup first.")
+        raise RuntimeError(
+            "Database not initialized. Please run 'uv run python -m claude_mcp_tools.database setup' first."
+        )
+    
+    # Use lightweight initialization (no migrations, no locking)
+    logger.info("Using fast runtime database initialization", pid=os.getpid())
+    await _init_database_locked(db_path)
+
+
+async def _init_database_locked(db_path: Path) -> None:
+    """Perform actual database initialization (called when holding lock)."""
+    global engine, AsyncSessionLocal
 
     # Create async engine with aiosqlite and connection pooling
     database_url = f"sqlite+aiosqlite:///{db_path}"
@@ -343,16 +501,18 @@ async def init_database(db_path: Path | None = None) -> None:
         database_url,
         echo=False,  # Set to True for SQL debugging
         future=True,
-        # Optimized pool settings for concurrent operations
-        pool_size=20,           # More connections for concurrent agents
-        max_overflow=30,        # Allow bursts of additional connections
-        pool_timeout=30,        # Wait time for connection
-        pool_recycle=3600,      # Refresh connections hourly
+        # Enhanced pool settings for high concurrent operations
+        pool_size=50,           # More connections for concurrent agents
+        max_overflow=100,       # Allow many concurrent operations
+        pool_timeout=60,        # Longer wait time for busy periods
+        pool_recycle=7200,      # Refresh connections every 2 hours
         pool_pre_ping=True,     # Verify connections before use
-        # SQLite-specific optimizations
+        # SQLite-specific optimizations for concurrency
         connect_args={
             "check_same_thread": False,  # Allow cross-thread usage
-            "timeout": 20,               # Connection timeout
+            "timeout": 60,               # Longer connection timeout for busy periods
+            # SQLite WAL mode for better concurrency
+            "isolation_level": None,     # Autocommit mode
         },
     )
 
@@ -363,10 +523,14 @@ async def init_database(db_path: Path | None = None) -> None:
         expire_on_commit=False,
     )
 
-    # Run database migrations to ensure schema is up to date
-    await run_migrations(db_path)
+    # REMOVED: Run database migrations to ensure schema is up to date
+    # await run_migrations(db_path)  # <-- This was causing the hanging!
+    # Migrations should be run during install/setup, not during runtime
 
-    logger.info("Database initialized with migrations", db_path=str(db_path))
+    # Enable SQLite WAL mode for better concurrent access
+    await _enable_wal_mode()
+
+    logger.info("Database initialized with runtime connection (no migrations)", db_path=str(db_path))
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
@@ -379,15 +543,17 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
         await init_database()
     assert AsyncSessionLocal is not None, "AsyncSessionLocal must be initialized before use"
 
-    async with AsyncSessionLocal() as session:
-        try:
-            yield session
-        except SQLAlchemyError as e:
-            await session.rollback()
-            logger.error("Database session error", error=str(e))
-            raise
-        finally:
-            await session.close()
+    # Create session outside of async with to avoid cancellation issues
+    session = AsyncSessionLocal()
+    try:
+        # Yield outside of resource management context to prevent cancellation bugs
+        yield session
+    except SQLAlchemyError as e:
+        await session.rollback()
+        logger.error("Database session error", error=str(e))
+        raise
+    finally:
+        await session.close()
 
 
 async def close_database() -> None:
@@ -679,7 +845,7 @@ async def is_database_ready(db_path: Path | None = None) -> bool:
                 return False
             
             # Check if core tables exist (basic schema validation)
-            core_tables = ['agents', 'communication_rooms', 'shared_memory_entries']
+            core_tables = ['agent_sessions', 'chat_rooms', 'memories']
             for table in core_tables:
                 cursor.execute("""
                     SELECT name FROM sqlite_master 
@@ -740,6 +906,188 @@ async def init_engine_only(db_path: Path | None = None) -> None:
     )
     
     logger.info("Database engine initialized (lightweight mode)", db_path=str(db_path))
+
+
+# =============================================================================
+# CONCURRENT DATABASE ACCESS METHODS WITH RETRY
+# =============================================================================
+
+async def execute_with_retry(
+    operation: Callable,
+    max_retries: int = 3,
+    base_delay: float = 0.1,
+    max_delay: float = 5.0
+) -> Any:
+    """Execute database operation with exponential backoff retry for busy database.
+    
+    Args:
+        operation: Async function to execute
+        max_retries: Maximum number of retry attempts
+        base_delay: Initial retry delay in seconds
+        max_delay: Maximum retry delay in seconds
+        
+    Returns:
+        Result of the operation
+        
+    Raises:
+        Exception: Re-raises the last exception if all retries fail
+    """
+    last_exception = None
+    
+    for attempt in range(max_retries + 1):
+        try:
+            return await operation()
+        except Exception as e:
+            last_exception = e
+            
+            # Check if this is a retryable error
+            error_str = str(e).lower()
+            if any(term in error_str for term in ['database is locked', 'busy', 'timeout']):
+                if attempt < max_retries:
+                    # Calculate exponential backoff delay
+                    delay = min(base_delay * (2 ** attempt), max_delay)
+                    logger.warning(
+                        "Database operation failed, retrying",
+                        attempt=attempt + 1,
+                        max_retries=max_retries,
+                        delay=delay,
+                        error=str(e)
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+            
+            # Non-retryable error or max retries reached
+            break
+    
+    # All retries failed
+    if last_exception is not None:
+        logger.error("Database operation failed after all retries", error=str(last_exception))
+        raise last_exception
+    else:
+        # This shouldn't happen, but handle the edge case
+        error_msg = "Database operation failed after all retries (no exception captured)"
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
+
+
+# =============================================================================
+# MCP-SAFE DATABASE ACCESS METHODS
+# =============================================================================
+
+async def mcp_safe_execute_query(query_func, *args, timeout: float = 5.0, **kwargs):
+    """Execute a query function with MCP-safe session management and timeout protection.
+    
+    This function is specifically designed to work safely with FastMCP's communication 
+    channel lifecycle by ensuring database operations complete before MCP timeouts
+    and providing proper error isolation.
+    
+    Args:
+        query_func: Async function that takes a session as first parameter
+        *args: Arguments to pass to query_func
+        timeout: Maximum time allowed for database operation (default 5 seconds)
+        **kwargs: Keyword arguments to pass to query_func
+        
+    Returns:
+        Result of query_func or None if timeout/error occurs
+        
+    Raises:
+        asyncio.TimeoutError: If operation exceeds timeout
+        Exception: Re-raises database errors after proper cleanup
+    """
+    # Fast path: Direct session creation without complex context detection
+    global AsyncSessionLocal
+    
+    try:
+        # Ensure database is initialized with lightweight approach
+        if AsyncSessionLocal is None:
+            if await is_database_ready():
+                await init_engine_only()
+                logger.debug("MCP-safe: Using lightweight database initialization")
+            else:
+                await init_database()
+                logger.debug("MCP-safe: Using full database initialization")
+        
+        assert AsyncSessionLocal is not None, "AsyncSessionLocal must be initialized"
+        
+        # Execute with timeout protection
+        async with asyncio.timeout(timeout):
+            async with AsyncSessionLocal() as session:
+                try:
+                    result = await query_func(session, *args, **kwargs)
+                    return result
+                except Exception as e:
+                    await session.rollback()
+                    logger.warning("MCP-safe query failed, rolled back transaction", error=str(e))
+                    raise
+                finally:
+                    # Explicit session close to ensure cleanup before MCP channel closure
+                    await session.close()
+                    
+    except asyncio.TimeoutError:
+        logger.warning("MCP-safe query timed out", timeout=timeout, func=query_func.__name__)
+        raise
+    except Exception as e:
+        logger.error("MCP-safe query error", error=str(e), func=query_func.__name__)
+        raise
+
+
+class MCPSafeSession:
+    """MCP-safe database session context manager with explicit lifecycle control.
+    
+    This context manager is optimized for FastMCP resource handlers, ensuring
+    database sessions are properly closed before MCP communication channels.
+    """
+    
+    def __init__(self, timeout: float = 5.0):
+        """Initialize MCP-safe session context manager.
+        
+        Args:
+            timeout: Maximum time allowed for all database operations in this session
+        """
+        self.session: AsyncSession | None = None
+        self.timeout = timeout
+        self._timeout_handle = None
+    
+    async def __aenter__(self) -> AsyncSession:
+        """Enter the context manager and return a session with timeout protection."""
+        global AsyncSessionLocal
+        
+        # Ensure database is initialized
+        if AsyncSessionLocal is None:
+            if await is_database_ready():
+                await init_engine_only()
+            else:
+                await init_database()
+        
+        assert AsyncSessionLocal is not None, "AsyncSessionLocal must be initialized"
+        
+        # Create session with timeout protection
+        self._timeout_handle = asyncio.timeout(self.timeout)
+        await self._timeout_handle.__aenter__()
+        
+        self.session = AsyncSessionLocal()
+        logger.debug("MCP-safe session created", timeout=self.timeout)
+        return self.session
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Exit the context manager with guaranteed cleanup."""
+        try:
+            if self.session:
+                if exc_type:
+                    await self.session.rollback()
+                    logger.debug("MCP-safe session rolled back due to exception")
+                # Always explicitly close the session
+                await self.session.close()
+                logger.debug("MCP-safe session closed")
+        except Exception as cleanup_error:
+            logger.warning("Error during MCP-safe session cleanup", error=str(cleanup_error))
+        finally:
+            # Always clean up timeout handler
+            if self._timeout_handle:
+                try:
+                    await self._timeout_handle.__aexit__(exc_type, exc_val, exc_tb)
+                except Exception:
+                    pass  # Ignore timeout handler cleanup errors
 
 
 # =============================================================================
@@ -941,137 +1289,6 @@ def check_existing_urls_sync(urls: list[str], source_id: str, db_path: Path | No
             conn.close()
 
 
-# Synchronous database functions for ThreadPoolExecutor use
-def get_session_sync(db_path: Path | None = None) -> "sqlite3.Connection":
-    """Get synchronous database connection for ThreadPoolExecutor use.
-    
-    Args:
-        db_path: Path to SQLite database file. If None, uses default location.
-        
-    Returns:
-        sqlite3.Connection: Synchronous database connection
-    """
-    import sqlite3
-    
-    if db_path is None:
-        db_path = Path.home() / ".mcptools" / "data" / "orchestration.db"
-    
-    # Ensure directory exists
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    # Create connection with optimized settings for concurrent access
-    conn = sqlite3.connect(
-        str(db_path),
-        timeout=20,  # 20 second timeout
-        check_same_thread=False,  # Allow cross-thread usage
-    )
-    
-    # Enable WAL mode for better concurrent access
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
-    conn.execute("PRAGMA cache_size=10000")
-    conn.execute("PRAGMA temp_store=memory")
-    
-    return conn
-
-
-def save_scraped_urls_sync(scraped_data: list[dict], source_id: str, db_path: Path | None = None) -> None:
-    """Save scraped URLs using sync database connection.
-    
-    Args:
-        scraped_data: List of scraped entry data with URLs
-        source_id: Documentation source ID
-        db_path: Path to SQLite database file. If None, uses default location.
-    """
-    if not scraped_data:
-        return
-    
-    try:
-        with get_session_sync(db_path) as conn:
-            cursor = conn.cursor()
-            
-            # Prepare batch insert
-            scraped_url_records = []
-            for entry_data in scraped_data:
-                url = entry_data.get("url")
-                content_hash = entry_data.get("content_hash")
-                
-                if url:
-                    # Import ScrapedUrl here to avoid circular imports
-                    from .models.documentation import ScrapedUrl
-                    normalized_url = ScrapedUrl.normalize_url(url)
-                    
-                    scraped_url_records.append((
-                        str(uuid.uuid4()),  # id
-                        normalized_url,     # normalized_url
-                        url,                # original_url
-                        source_id,          # source_id
-                        content_hash,       # content_hash
-                        datetime.now(timezone.utc).isoformat(),  # last_scraped
-                        1,                  # scrape_count
-                        200                 # last_status_code
-                    ))
-            
-            # Batch insert all records
-            if scraped_url_records:
-                cursor.executemany("""
-                    INSERT OR REPLACE INTO scraped_urls 
-                    (id, normalized_url, original_url, source_id, content_hash, 
-                     last_scraped, scrape_count, last_status_code)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, scraped_url_records)
-                
-                conn.commit()
-                logger.info("💾 Saved scraped URLs to database (sync)", 
-                           count=len(scraped_url_records))
-                
-    except Exception as e:
-        logger.warning("Failed to save scraped URLs to database (sync)", error=str(e))
-
-
-def check_existing_urls_sync(urls: list[str], source_id: str, db_path: Path | None = None) -> set[str]:
-    """Check existing URLs using sync database connection.
-    
-    Args:
-        urls: List of URLs to check
-        source_id: Documentation source ID
-        db_path: Path to SQLite database file. If None, uses default location.
-        
-    Returns:
-        Set of normalized URLs that already exist in database
-    """
-    if not urls:
-        return set()
-    
-    try:
-        # Import ScrapedUrl here to avoid circular imports
-        from .models.documentation import ScrapedUrl
-        normalized_urls = [ScrapedUrl.normalize_url(url) for url in urls]
-        
-        with get_session_sync(db_path) as conn:
-            cursor = conn.cursor()
-            
-            # Query existing URLs in batch using placeholders
-            placeholders = ','.join('?' * len(normalized_urls))
-            query = f"""
-                SELECT normalized_url FROM scraped_urls 
-                WHERE normalized_url IN ({placeholders}) AND source_id = ?
-            """
-            
-            cursor.execute(query, normalized_urls + [source_id])
-            existing_normalized = {row[0] for row in cursor.fetchall()}
-            
-            logger.info("🔍 Database URL check completed (sync)",
-                       total_urls=len(urls),
-                       existing_count=len(existing_normalized),
-                       new_count=len(normalized_urls) - len(existing_normalized))
-            
-            return existing_normalized
-            
-    except Exception as e:
-        logger.warning("Failed to check existing URLs (sync), proceeding without deduplication", 
-                     error=str(e))
-        return set()
 
 
 async def get_session_fast() -> AsyncGenerator[AsyncSession, None]:
@@ -1099,12 +1316,58 @@ async def get_session_fast() -> AsyncGenerator[AsyncSession, None]:
     
     # Same session management as get_session()
     assert AsyncSessionLocal is not None, "AsyncSessionLocal must be initialized before use"
-    async with AsyncSessionLocal() as session:
-        try:
-            yield session
-        except SQLAlchemyError as e:
-            await session.rollback()
-            logger.error("Database session error", error=str(e))
-            raise
-        finally:
-            await session.close()
+    
+    # Create session outside of async with to avoid cancellation issues
+    session = AsyncSessionLocal()
+    try:
+        # Yield outside of resource management context to prevent cancellation bugs
+        yield session
+    except SQLAlchemyError as e:
+        await session.rollback()
+        logger.error("Database session error", error=str(e))
+        raise
+    finally:
+        await session.close()
+
+
+
+async def _init_database_with_migrations_locked(db_path: Path) -> None:
+    """Perform database initialization WITH migrations (for setup only)."""
+    global engine, AsyncSessionLocal
+
+    # Create async engine with aiosqlite and connection pooling
+    database_url = f"sqlite+aiosqlite:///{db_path}"
+    engine = create_async_engine(
+        database_url,
+        echo=False,  # Set to True for SQL debugging
+        future=True,
+        # Enhanced pool settings for high concurrent operations
+        pool_size=50,           # More connections for concurrent agents
+        max_overflow=100,       # Allow many concurrent operations
+        pool_timeout=60,        # Longer wait time for busy periods
+        pool_recycle=7200,      # Refresh connections every 2 hours
+        pool_pre_ping=True,     # Verify connections before use
+        # SQLite-specific optimizations for concurrency
+        connect_args={
+            "check_same_thread": False,  # Allow cross-thread usage
+            "timeout": 60,               # Longer connection timeout for busy periods
+            # SQLite WAL mode for better concurrency
+            "isolation_level": None,     # Autocommit mode
+        },
+    )
+
+    # Create session factory
+    AsyncSessionLocal = async_sessionmaker(
+        engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
+
+    # Run database migrations to ensure schema is up to date
+    await run_migrations(db_path)
+
+    # Enable SQLite WAL mode for better concurrent access
+    await _enable_wal_mode()
+
+    logger.info("Database initialized with migrations and WAL mode", db_path=str(db_path))
+

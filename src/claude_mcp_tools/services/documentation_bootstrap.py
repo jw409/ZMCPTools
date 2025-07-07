@@ -11,7 +11,7 @@ from typing import Optional
 
 from ..database import DatabaseSession
 from ..models.documentation import DocumentationSource, DocumentationEntry
-from ..services.background_task_manager import submit_web_scraping_task, background_task_manager
+from ..services.scrape_job_service import ScrapeJobService
 from ..config import config
 from sqlalchemy import select, func
 
@@ -52,13 +52,9 @@ class DocumentationBootstrapService:
                 logger.info(f"📚 Found {len(unscraped_sources)} unscraped documentation sources",
                            sources=[{"name": s.name, "url": s.url} for s in unscraped_sources])
                 
-                # Start background task manager if not already started
-                if not background_task_manager._started:
-                    logger.info("🚀 Starting background task manager for documentation scraping")
-                    await background_task_manager.start()
-                    logger.info("✅ Background task manager ready")
-                else:
-                    logger.info("✅ Background task manager already running")
+                # Initialize scrape job service
+                job_service = ScrapeJobService()
+                logger.info("✅ Scrape job service ready for documentation scraping")
                 
                 scheduled_count = 0
                 
@@ -66,7 +62,7 @@ class DocumentationBootstrapService:
                 for source in unscraped_sources:
                     if source.id not in self.processed_sources:
                         try:
-                            task_id = await self._schedule_source_scraping(source)
+                            task_id = await self._schedule_source_scraping(source, job_service)
                             self.processed_sources.add(source.id)
                             scheduled_count += 1
                             
@@ -80,7 +76,10 @@ class DocumentationBootstrapService:
                             logger.error(f"❌ Failed to schedule source: {source.name}",
                                        source_id=source.id, error=str(e))
                 
-                logger.info(f"✅ Bootstrap complete: {scheduled_count} sources scheduled for scraping")
+                logger.info(f"✅ Bootstrap complete: {scheduled_count} sources scheduled for scraping",
+                           total_sources=len(unscraped_sources),
+                           job_service_worker=job_service.worker_id,
+                           architecture="unified_scraper_worker")
                 
                 return {
                     "unscraped_found": len(unscraped_sources),
@@ -107,14 +106,15 @@ class DocumentationBootstrapService:
         result = await session.execute(query)
         return result.scalars().all()
     
-    async def _schedule_source_scraping(self, source: DocumentationSource) -> str:
-        """Schedule immediate scraping for a documentation source.
+    async def _schedule_source_scraping(self, source: DocumentationSource, job_service: ScrapeJobService) -> str:
+        """Schedule immediate scraping for a documentation source using unified job queue.
         
         Args:
             source: DocumentationSource to scrape
+            job_service: ScrapeJobService instance for job queue operations
             
         Returns:
-            Task ID for the scheduled scraping job
+            Job ID for the scheduled scraping job (processed by ScraperWorker)
         """
         
         # Parse selectors if available
@@ -144,109 +144,76 @@ class DocumentationBootstrapService:
             except Exception:
                 logger.warning(f"Invalid ignore_patterns for source {source.name}")
         
-        # Submit to background task manager
-        task_id = await submit_web_scraping_task(
+        # Submit to scrape job service
+        result = await job_service.queue_scrape_job(
             source_id=str(source.id),
-            url=source.url,
-            selectors=selectors,
-            crawl_depth=source.crawl_depth or 3,
-            max_pages=50,  # Default max pages since model doesn't have this field
-            allow_patterns=allow_patterns,
-            ignore_patterns=ignore_patterns
+            job_params={
+                "url": source.url,
+                "selectors": selectors,
+                "crawl_depth": source.crawl_depth or 3,
+                "max_pages": 50,  # Default max pages since model doesn't have this field
+                "allow_patterns": allow_patterns,
+                "ignore_patterns": ignore_patterns
+            }
         )
+        task_id = result.get("job_id")
         
         return task_id
     
     async def _monitor_and_save_results(self, source: DocumentationSource, task_id: str):
-        """Monitor task completion and save results to database."""
-        from ..services.background_task_manager import get_scraping_task_status
+        """Monitor task completion using unified job queue system."""
+        job_service = ScrapeJobService()
         
-        # Wait for task to complete (check every 5 seconds, max 10 minutes)
+        # Monitor job status every 10 seconds for up to 10 minutes
         max_wait_time = 600  # 10 minutes
-        check_interval = 5   # 5 seconds
+        check_interval = 10  # 10 seconds
         elapsed_time = 0
+        
+        logger.info(f"📊 Starting job monitoring for source: {source.name}", 
+                   source_id=source.id, task_id=task_id)
         
         while elapsed_time < max_wait_time:
             try:
-                task_status = get_scraping_task_status(str(source.id))
+                # Get job status from unified job queue
+                job_status = await job_service.get_job_status(task_id)
                 
-                if not task_status:
-                    logger.error(f"❌ Task status not found for source: {source.name}", source_id=source.id)
+                if not job_status:
+                    logger.error(f"❌ Job not found: {task_id} for source: {source.name}")
                     return
                 
-                if task_status.status.value == "completed":
-                    logger.info(f"✅ Task completed, saving results for source: {source.name}", source_id=source.id)
-                    await self._save_scraping_results(source, task_status.result)
+                status = job_status["status"]
+                
+                if status == "COMPLETED":
+                    pages_scraped = job_status.get("pages_scraped", 0)
+                    logger.info(f"✅ Job completed for source: {source.name}", 
+                               source_id=source.id, task_id=task_id, pages_scraped=pages_scraped)
+                    # Results are already saved by ScraperWorker, just log completion
+                    return
+                    
+                elif status in ["FAILED", "CANCELLED"]: 
+                    logger.error(f"❌ Job {status.lower()} for source: {source.name}",
+                               source_id=source.id, task_id=task_id, 
+                               error=job_status.get("error_message"))
                     return
                 
-                elif task_status.status.value in ["failed", "cancelled"]:
-                    logger.error(f"❌ Task {task_status.status.value} for source: {source.name}", 
-                               source_id=source.id, error=task_status.error)
-                    return
-                
+                elif status in ["IN_PROGRESS", "PENDING"]:
+                    # Log progress for long-running jobs
+                    if elapsed_time % 60 == 0:  # Every minute
+                        logger.info(f"⏳ Job still {status.lower()} for source: {source.name}",
+                                   source_id=source.id, task_id=task_id, elapsed_minutes=elapsed_time//60)
+                    
                 # Still running, wait and check again
                 await asyncio.sleep(check_interval)
                 elapsed_time += check_interval
                 
             except Exception as e:
-                logger.error(f"❌ Error monitoring task for source: {source.name}", 
-                           source_id=source.id, error=str(e))
+                logger.error(f"❌ Error monitoring job for source: {source.name}",
+                           source_id=source.id, task_id=task_id, error=str(e))
                 return
         
-        logger.warning(f"⚠️ Task monitoring timed out for source: {source.name}", source_id=source.id)
+        logger.warning(f"⚠️ Job monitoring timed out for source: {source.name}", 
+                       source_id=source.id, task_id=task_id, elapsed_minutes=max_wait_time//60)
     
-    async def _save_scraping_results(self, source: DocumentationSource, result: dict):
-        """Save scraping results to the database."""
-        if not result or not result.get("success"):
-            logger.error(f"❌ No valid results to save for source: {source.name}", source_id=source.id)
-            return
-        
-        try:
-            async with DatabaseSession() as session:
-                from ..models.documentation import DocumentationEntry
-                from datetime import datetime, timezone
-                
-                entries = result.get("entries", [])
-                if not entries:
-                    logger.warning(f"⚠️ No entries in results for source: {source.name}", source_id=source.id)
-                    return
-                
-                saved_count = 0
-                
-                for entry_data in entries:
-                    try:
-                        # Create DocumentationEntry
-                        entry = DocumentationEntry(
-                            id=entry_data["id"],
-                            source_id=str(source.id),
-                            url=entry_data["url"],
-                            title=entry_data["title"],
-                            content=entry_data["content"],
-                            content_hash=entry_data["content_hash"],
-                            extracted_at=entry_data["extracted_at"],
-                            section_type="content"  # Default section type
-                        )
-                        
-                        session.add(entry)
-                        saved_count += 1
-                        
-                    except Exception as e:
-                        logger.error(f"❌ Failed to create entry for URL: {entry_data.get('url', 'unknown')}", 
-                                   error=str(e))
-                
-                # Update source last_scraped timestamp
-                source.last_scraped = datetime.now(timezone.utc)
-                session.add(source)
-                
-                # Commit all changes
-                await session.commit()
-                
-                logger.info(f"✅ Saved {saved_count} entries for source: {source.name}", 
-                           source_id=source.id, total_entries=len(entries))
-                
-        except Exception as e:
-            logger.error(f"❌ Failed to save scraping results for source: {source.name}", 
-                       source_id=source.id, error=str(e))
     
     async def check_and_bootstrap_periodically(self, interval_minutes: int = 30):
         """Periodically check for new unscraped sources and bootstrap them.

@@ -143,6 +143,135 @@ class AgentService:
         return await execute_query(_get_agent)
 
     @staticmethod
+    async def get_agent_by_id_safe(agent_id: str) -> dict[str, Any] | None:
+        """Get agent by ID with MCP-safe session management.
+        
+        This method uses MCP-safe database access patterns to prevent 
+        communication channel conflicts in FastMCP resource handlers.
+        
+        Args:
+            agent_id: Agent ID to retrieve
+            
+        Returns:
+            Agent information or None if not found
+        """
+        from ..database import mcp_safe_execute_query
+        
+        async def _get_agent_safe(session):
+            # Simplified query to minimize session lifetime - no eager loading
+            stmt = select(AgentSession).where(AgentSession.id == agent_id)
+            result = await session.execute(stmt)
+            agent = result.scalar_one_or_none()
+            
+            if not agent:
+                return None
+            
+            # Load capabilities separately with a quick query
+            cap_stmt = select(AgentCapability).where(AgentCapability.agent_id == agent_id)
+            cap_result = await session.execute(cap_stmt)
+            capabilities = [cap.capability for cap in cap_result.scalars().all()]
+            
+            # Build minimal response immediately to reduce session time
+            return {
+                "id": agent.id,
+                "agent_name": agent.agent_name,
+                "repository_path": agent.repository_path,
+                "status": agent.status.value,
+                "claude_pid": agent.claude_pid,
+                "capabilities": capabilities,
+                "metadata": agent.get_metadata() if hasattr(agent, 'get_metadata') else {},
+                "created_at": agent.created_at.isoformat(),
+                "last_heartbeat": agent.last_heartbeat.isoformat(),
+                "active_tasks": 0,  # Skip expensive task loading for MCP
+            }
+        
+        # Use MCP-safe execution with 3 second timeout for fast response
+        return await mcp_safe_execute_query(_get_agent_safe, timeout=3.0)
+
+    @staticmethod
+    async def list_agents_safe(
+        repository_path: str | None = None,
+        status_filter: list[AgentStatus] | None = None,
+        agent_type: str | None = None,
+    ) -> dict[str, Any]:
+        """List agents with MCP-safe session management.
+        
+        This method uses MCP-safe database access patterns to prevent 
+        communication channel conflicts in FastMCP resource handlers.
+        
+        Args:
+            repository_path: Filter by repository path
+            status_filter: Filter by agent status
+            agent_type: Filter by agent type
+            
+        Returns:
+            Dictionary with agents list and metadata
+        """
+        from ..database import mcp_safe_execute_query
+        
+        async def _list_agents_safe(session):
+            # Simplified query to minimize session lifetime - no eager loading
+            stmt = select(AgentSession)
+            
+            # Apply filters
+            if repository_path:
+                stmt = stmt.where(AgentSession.repository_path == repository_path)
+
+            if status_filter:
+                stmt = stmt.where(AgentSession.status.in_(status_filter))
+
+            # Order by last_heartbeat (desc)
+            stmt = stmt.order_by(AgentSession.last_heartbeat.desc())
+
+            result = await session.execute(stmt)
+            agents = result.scalars().all()
+
+            agent_list = []
+            for agent in agents:
+                metadata = agent.get_metadata()
+
+                # Filter by agent type if specified
+                if agent_type and metadata.get("agent_type") != agent_type:
+                    continue
+
+                # Load capabilities separately with quick query
+                cap_stmt = select(AgentCapability).where(AgentCapability.agent_id == agent.id)
+                cap_result = await session.execute(cap_stmt)
+                capabilities = [cap.capability for cap in cap_result.scalars().all()]
+
+                agent_dict = {
+                    "id": agent.id,
+                    "agent_name": agent.agent_name,
+                    "repository_path": agent.repository_path,
+                    "status": agent.status.value,
+                    "capabilities": capabilities,
+                    "agent_type": metadata.get("agent_type", "unknown"),
+                    "created_at": agent.created_at.isoformat(),
+                    "last_heartbeat": agent.last_heartbeat.isoformat(),
+                    "active_tasks": 0,  # Skip expensive task loading for MCP
+                }
+
+                agent_list.append(agent_dict)
+
+            return {
+                "agents": agent_list,
+                "count": len(agent_list),
+                "filters": {
+                    "repository_path": repository_path,
+                    "status_filter": [s.value for s in status_filter] if status_filter else None,
+                    "agent_type": agent_type,
+                },
+            }
+        
+        # Use MCP-safe execution with 3 second timeout for fast response
+        try:
+            result = await mcp_safe_execute_query(_list_agents_safe, timeout=3.0)
+            return result
+        except Exception as e:
+            logger.error("MCP-safe list_agents failed", error=str(e))
+            return {"error": f"Database error: {e}"}
+
+    @staticmethod
     async def list_agents(
         repository_path: str | None = None,
         status_filter: list[AgentStatus] | None = None,

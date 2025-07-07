@@ -8,6 +8,7 @@ from pydantic import Field
 
 from ..analysis.core.treesummary import TreeSummaryManager
 from ..analysis.parsers.file_analyzer import FileAnalyzer
+from ..utils.ctx_utils import safe_ctx_call
 from .json_utils import parse_json_list, check_parsing_error
 from .app import app
 
@@ -36,36 +37,21 @@ async def analyze_project_structure(
     """Generate comprehensive project structure analysis."""
     try:
         # Safe Context logging with error isolation
-        try:
-            await ctx.info(f"🔍 Starting project structure analysis for {project_path}")
-            await ctx.report_progress(0, 100)
-        except Exception as ctx_error:
-            logger.warning("Context logging failed in project analysis start", error=str(ctx_error))
+        await safe_ctx_call(ctx.info, f"🔍 Starting project structure analysis for {project_path}")
+        await safe_ctx_call(ctx.report_progress, 0, 100)
         
         # Parse list parameters if provided as JSON strings
-        try:
-            await ctx.info("📝 Parsing file type filters...")
-        except Exception as ctx_error:
-            logger.warning("Context logging failed in file type parsing", error=str(ctx_error))
+        await safe_ctx_call(ctx.info, "📝 Parsing file type filters...")
             
         parsed_file_types = parse_json_list(file_types, "file_types")
         if check_parsing_error(parsed_file_types):
-            try:
-                await ctx.error(f"❌ Failed to parse file types: {parsed_file_types}")
-            except Exception as ctx_error:
-                logger.warning("Context error logging failed", error=str(ctx_error))
+            await safe_ctx_call(ctx.error, f"❌ Failed to parse file types: {parsed_file_types}")
             return parsed_file_types
         final_file_types: list[str] | None = parsed_file_types
 
-        try:
-            await ctx.report_progress(20, 100)
-        except Exception as ctx_error:
-            logger.warning("Context progress reporting failed", error=str(ctx_error))
+        await safe_ctx_call(ctx.report_progress, 20, 100)
 
-        try:
-            await ctx.info(f"🏗️ Initializing TreeSummaryManager (depth: {max_depth}, hidden: {include_hidden})")
-        except Exception as ctx_error:
-            logger.warning("Context logging failed in TreeSummaryManager init", error=str(ctx_error))
+        await safe_ctx_call(ctx.info, f"🏗️ Initializing TreeSummaryManager (depth: {max_depth}, hidden: {include_hidden})")
             
         tree_manager = TreeSummaryManager(
             project_path=project_path,
@@ -74,23 +60,14 @@ async def analyze_project_structure(
             file_types=final_file_types
         )
         
-        try:
-            await ctx.report_progress(40, 100)
-        except Exception as ctx_error:
-            logger.warning("Context progress reporting failed", error=str(ctx_error))
+        await safe_ctx_call(ctx.report_progress, 40, 100)
         
         # Using available methods to provide similar functionality
-        try:
-            await ctx.info("📊 Generating project overview...")
-        except Exception as ctx_error:
-            logger.warning("Context logging failed in project overview", error=str(ctx_error))
+        await safe_ctx_call(ctx.info, "📊 Generating project overview...")
         overview = await tree_manager.get_project_overview()
         
-        try:
-            await ctx.report_progress(100, 100)
-            await ctx.info("✅ Project structure analysis completed successfully!")
-        except Exception as ctx_error:
-            logger.warning("Context logging failed in completion", error=str(ctx_error))
+        await safe_ctx_call(ctx.report_progress, 100, 100)
+        await safe_ctx_call(ctx.info, "✅ Project structure analysis completed successfully!")
         
         return {
             "success": True,
@@ -105,10 +82,7 @@ async def analyze_project_structure(
         }
 
     except Exception as e:
-        try:
-            await ctx.error(f"💥 Critical error in project structure analysis: {str(e)}")
-        except Exception as ctx_error:
-            logger.warning("Context error logging failed", error=str(ctx_error))
+        await safe_ctx_call(ctx.error, f"💥 Critical error in project structure analysis: {str(e)}")
         logger.error("Error analyzing project structure", project=project_path, error=str(e))
         return {"error": {"code": "ANALYZE_PROJECT_FAILED", "message": str(e)}}
 

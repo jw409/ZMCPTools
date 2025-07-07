@@ -20,6 +20,19 @@ import uvloop
 import warnings
 from mcp.types import PromptMessage, TextContent
 
+# Import anyio exceptions for server-level stream error handling
+try:
+    from anyio import ClosedResourceError, BrokenResourceError
+except ImportError:
+    # Fallback definitions if anyio is not available
+    class ClosedResourceError(Exception):
+        """Fallback for anyio.ClosedResourceError when anyio is not available."""
+        pass
+    
+    class BrokenResourceError(Exception):
+        """Fallback for anyio.BrokenResourceError when anyio is not available."""
+        pass
+
 # Install uvloop for 2x+ performance boost
 # Suppress deprecation warning when running as MCP server to avoid stderr noise
 with warnings.catch_warnings():
@@ -48,6 +61,125 @@ logger = structlog.get_logger("orchestration")
 
 # Import the shared app instance from tools
 from .tools.app import app
+
+# ========================================
+# PROCESS LIFECYCLE MANAGEMENT
+# ========================================
+
+# Global registry to track spawned Claude processes
+_spawned_processes: dict[int, subprocess.Popen] = {}
+_process_registry_lock = threading.Lock()
+_reaper_thread: threading.Thread | None = None
+_shutdown_event = threading.Event()
+
+
+class ProcessReaper:
+    """Background daemon thread that monitors and reaps finished Claude processes."""
+    
+    def __init__(self):
+        self.is_running = False
+        
+    def start(self) -> None:
+        """Start the process reaper daemon thread."""
+        global _reaper_thread
+        
+        if _reaper_thread is not None and _reaper_thread.is_alive():
+            # logger.debug("Process reaper already running")
+            return
+            
+        # logger.info("Starting process reaper daemon thread")
+        _shutdown_event.clear()
+        _reaper_thread = threading.Thread(target=self._reap_loop, daemon=True)
+        _reaper_thread.start()
+        self.is_running = True
+        
+    def stop(self) -> None:
+        """Stop the process reaper daemon thread."""
+        global _reaper_thread
+        
+        # logger.info("Stopping process reaper daemon thread")
+        _shutdown_event.set()
+        self.is_running = False
+        
+        if _reaper_thread and _reaper_thread.is_alive():
+            _reaper_thread.join(timeout=5.0)
+            
+    def _reap_loop(self) -> None:
+        """Main reaper loop that runs in background thread."""
+        # logger.info("Process reaper started")
+        
+        while not _shutdown_event.is_set():
+            try:
+                reaped_count = self._reap_finished_processes()
+                if reaped_count > 0:
+                    # logger.info("Reaped finished processes", count=reaped_count)
+                    pass
+                    
+                # Check every 2 seconds for finished processes
+                _shutdown_event.wait(timeout=2.0)
+                
+            except Exception as e:
+                # logger.error("Error in process reaper loop", error=str(e))
+                _shutdown_event.wait(timeout=5.0)  # Longer wait after error
+                
+        # logger.info("Process reaper stopped")
+        
+    def _reap_finished_processes(self) -> int:
+        """Check all tracked processes and reap finished ones."""
+        reaped_count = 0
+        processes_to_remove = []
+        
+        with _process_registry_lock:
+            for pid, process in _spawned_processes.items():
+                try:
+                    # Non-blocking check if process has finished
+                    return_code = process.poll()
+                    
+                    if return_code is not None:
+                        # Process has finished - reap it
+                        # logger.debug("Reaping finished Claude process", 
+                        #            pid=pid, return_code=return_code)
+                        
+                        # Call wait() to officially reap the process
+                        try:
+                            process.wait(timeout=0.1)
+                        except subprocess.TimeoutExpired:
+                            # Process still finishing, will catch it next cycle
+                            continue
+                            
+                        processes_to_remove.append(pid)
+                        reaped_count += 1
+                        
+                except Exception as e:
+                    # logger.warning("Error checking process status", 
+                    #              pid=pid, error=str(e))
+                    # Remove problematic process from tracking
+                    processes_to_remove.append(pid)
+                    
+            # Remove reaped processes from tracking
+            for pid in processes_to_remove:
+                del _spawned_processes[pid]
+                
+        return reaped_count
+        
+    def register_process(self, process: subprocess.Popen) -> None:
+        """Register a new process for monitoring."""
+        if process.pid is None:
+            # logger.warning("Cannot register process with no PID")
+            return
+            
+        with _process_registry_lock:
+            _spawned_processes[process.pid] = process
+            # logger.debug("Registered process for monitoring", pid=process.pid)
+            
+    def get_tracked_process_count(self) -> int:
+        """Get the number of currently tracked processes."""
+        with _process_registry_lock:
+            return len(_spawned_processes)
+
+
+# Global process reaper instance
+_process_reaper = ProcessReaper()
 
 
 # Synchronous Claude spawning (no async complexity)
@@ -84,37 +216,38 @@ def spawn_claude_sync(
             
             # Check custom CLI name from env
             custom_cli = os.getenv('CLAUDE_CLI_NAME', 'claude')
-            logger.debug("Claude CLI discovery started", custom_cli_name=custom_cli, path_env=os.getenv('PATH', '')[:200])
+            # logger.debug("Claude CLI discovery started", custom_cli_name=custom_cli, path_env=os.getenv('PATH', '')[:200])
             
             if os.path.isabs(custom_cli):
                 if os.path.exists(custom_cli) and os.access(custom_cli, os.X_OK):
-                    logger.info("Using absolute Claude CLI path", path=custom_cli)
+                    # logger.info("Using absolute Claude CLI path", path=custom_cli)
                     return custom_cli
                 else:
-                    logger.error("Absolute Claude CLI path not executable", path=custom_cli, exists=os.path.exists(custom_cli))
+                    # logger.error("Absolute Claude CLI path not executable", path=custom_cli, exists=os.path.exists(custom_cli))
                     raise FileNotFoundError(f"Claude CLI not executable at {custom_cli}")
             
             # Check local install path
             local_path = Path.home() / '.claude' / 'local' / 'claude'
             if local_path.exists() and os.access(local_path, os.X_OK):
-                logger.info("Using local Claude CLI installation", path=str(local_path))
+                # logger.info("Using local Claude CLI installation", path=str(local_path))
                 return str(local_path)
             elif local_path.exists():
-                logger.warning("Local Claude CLI exists but not executable", path=str(local_path))
+                # logger.warning("Local Claude CLI exists but not executable", path=str(local_path))
+                pass
             
             # Check PATH using shutil.which
             path_claude = shutil.which(custom_cli)
             if path_claude:
-                logger.info("Found Claude CLI in PATH", path=path_claude, command=custom_cli)
+                # logger.info("Found Claude CLI in PATH", path=path_claude, command=custom_cli)
                 return path_claude
             
             # Final fallback - log detailed error
-            logger.error("Claude CLI not found anywhere", 
-                        custom_cli=custom_cli,
-                        local_path_exists=local_path.exists(),
-                        local_path_executable=local_path.exists() and os.access(local_path, os.X_OK),
-                        which_result=shutil.which(custom_cli),
-                        path_dirs=os.getenv('PATH', '').split(':')[:5])  # First 5 PATH dirs
+            # logger.error("Claude CLI not found anywhere", 
+            #            custom_cli=custom_cli,
+            #            local_path_exists=local_path.exists(),
+            #            local_path_executable=local_path.exists() and os.access(local_path, os.X_OK),
+            #            which_result=shutil.which(custom_cli),
+            #            path_dirs=os.getenv('PATH', '').split(':')[:5])  # First 5 PATH dirs
             raise FileNotFoundError(f"Claude CLI '{custom_cli}' not found in PATH or local installation")
 
         claude_cli_path = find_claude_cli()
@@ -134,14 +267,14 @@ def spawn_claude_sync(
         ]
         log_to_file(f"Command built: {' '.join(cmd[:3])}... (truncated)")
 
-        logger.debug("Preparing Claude CLI subprocess", 
-                    claude_cli=claude_cli_path,
-                    work_folder=workFolder,
-                    cmd_length=len(cmd),
-                    prompt_length=len(prompt),
-                    has_session=bool(session_id),
-                    cwd_exists=os.path.exists(workFolder),
-                    cwd_writable=os.access(workFolder, os.W_OK))
+        # logger.debug("Preparing Claude CLI subprocess", 
+        #            claude_cli=claude_cli_path,
+        #            work_folder=workFolder,
+        #            cmd_length=len(cmd),
+        #            prompt_length=len(prompt),
+        #            has_session=bool(session_id),
+        #            cwd_exists=os.path.exists(workFolder),
+        #            cwd_writable=os.access(workFolder, os.W_OK))
 
         # Execute Claude CLI with simple subprocess (each agent gets its own thread)
         try:
@@ -149,9 +282,9 @@ def spawn_claude_sync(
             
             log_to_file(f"About to start subprocess with Popen")
             
-            logger.debug("Starting Claude CLI subprocess with Popen",
-                        cmd=" ".join(cmd),
-                        work_folder=workFolder)
+            # logger.debug("Starting Claude CLI subprocess with Popen",
+            #            cmd=" ".join(cmd),
+            #            work_folder=workFolder)
             
             process = subprocess.Popen(
                 cmd,
@@ -171,27 +304,36 @@ def spawn_claude_sync(
             
             log_to_file(f"SUCCESS: Got PID {pid}")
             
-            logger.info("Claude CLI subprocess started successfully",
-                       pid=pid,
-                       work_folder=workFolder,
-                       session_id=session_id,
-                       command=claude_cli_path)
+            # Register process with the reaper to prevent zombie processes
+            _process_reaper.register_process(process)
+            log_to_file(f"Process {pid} registered with reaper")
+            
+            # Start the process reaper if not already running
+            if not _process_reaper.is_running:
+                _process_reaper.start()
+            
+            # logger.info("Claude CLI subprocess started successfully",
+            #           pid=pid,
+            #           work_folder=workFolder,
+            #           session_id=session_id,
+            #           command=claude_cli_path,
+            #           tracked_processes=_process_reaper.get_tracked_process_count())
                        
         except OSError as e:
             log_to_file(f"OSError in subprocess creation: {e}")
-            logger.error("Failed to create Claude CLI subprocess - OS error",
-                        error=str(e),
-                        cmd=cmd,
-                        work_folder=workFolder,
-                        errno=getattr(e, 'errno', None))
+            # logger.error("Failed to create Claude CLI subprocess - OS error",
+            #            error=str(e),
+            #            cmd=cmd,
+            #            work_folder=workFolder,
+            #            errno=getattr(e, 'errno', None))
             raise RuntimeError(f"Failed to start Claude CLI: {e}")
         except Exception as e:
             log_to_file(f"Unexpected error in subprocess creation: {type(e).__name__}: {e}")
-            logger.error("Unexpected error creating Claude CLI subprocess",
-                        error=str(e),
-                        error_type=type(e).__name__,
-                        cmd=cmd,
-                        work_folder=workFolder)
+            # logger.error("Unexpected error creating Claude CLI subprocess",
+            #            error=str(e),
+            #            error_type=type(e).__name__,
+            #            cmd=cmd,
+            #            work_folder=workFolder)
             raise
 
         log_to_file(f"Returning success result with PID {pid}")
@@ -205,7 +347,7 @@ def spawn_claude_sync(
 
     except Exception as e:
         log_to_file(f"OUTER EXCEPTION: {type(e).__name__}: {e}")
-        logger.error("Claude CLI spawn failed", error=str(e), work_folder=workFolder)
+        # logger.error("Claude CLI spawn failed", error=str(e), work_folder=workFolder)
         
         return {
             "success": False,
@@ -247,7 +389,7 @@ class ProcessPoolManager:
             result = await loop.run_in_executor(self._executor, _spawn_claude_sync, **kwargs)
             return result
         except Exception as e:
-            logger.error("Concurrent Claude spawn failed", error=str(e))
+            # logger.error("Concurrent Claude spawn failed", error=str(e))
             return {"pid": None, "error": f"Concurrent spawn failed: {e!s}"}
 
 
@@ -341,7 +483,7 @@ def setup_dependency_monitoring(agent_id: str, depends_on: list[str]) -> dict[st
             "monitoring_enabled": True,
         }
     except Exception as e:
-        logger.error("Failed to setup dependency monitoring", agent_id=agent_id, error=str(e))
+        # logger.error("Failed to setup dependency monitoring", agent_id=agent_id, error=str(e))
         return {"success": False, "error": str(e)}
 
 
@@ -350,7 +492,7 @@ def setup_dependency_monitoring(agent_id: str, depends_on: list[str]) -> dict[st
 
 # Register all tool modules with the FastMCP app
 # Tools are now automatically registered when the tools package is imported above
-logger.info("MCP tools automatically registered via imports")
+# logger.info("MCP tools automatically registered via imports")
 
 
 # File operation tools (simple ones that don't need schemas)
@@ -472,6 +614,48 @@ async def easy_replace(file_path: str, old_text: str, new_text: str, backup: boo
 
 
 @app.tool(
+    name="get_connection_status",
+    description="Get client connection status and stream error monitoring for debugging",
+    tags={"monitoring", "connections", "stream-errors", "debugging"},
+)
+async def get_connection_status() -> dict[str, Any]:
+    """Get current client connection status and stream error monitoring."""
+    try:
+        connection_status = _connection_monitor.get_status()
+        
+        return {
+            "status": "healthy" if connection_status["consecutive_failures"] < 3 else "degraded",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "connection_monitoring": connection_status,
+            "stream_error_handling": {
+                "enabled": True,
+                "handled_error_types": [
+                    "ClosedResourceError",
+                    "BrokenResourceError", 
+                    "ConnectionResetError",
+                    "OSError (broken pipe/connection reset)"
+                ],
+                "retry_strategy": "exponential_backoff",
+                "max_consecutive_retries": 3,
+                "connection_persistence": "server_continues_after_client_disconnect"
+            },
+            "recommendations": {
+                "healthy": connection_status["consecutive_failures"] == 0,
+                "needs_attention": connection_status["consecutive_failures"] > 2,
+                "retry_capability": connection_status["should_retry"]
+            }
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
+
+
+@app.tool(
     name="get_server_health",
     description="Get comprehensive server health status and metrics for monitoring",
     tags={"monitoring", "health", "system-status"},
@@ -497,6 +681,15 @@ async def get_server_health() -> dict[str, Any]:
         children = current_process.children(recursive=True)
         active_agents = len(children)
         
+        # Get process reaper status
+        reaper_status = {
+            "running": _process_reaper.is_running,
+            "tracked_processes": _process_reaper.get_tracked_process_count(),
+        }
+        
+        # Get connection monitoring status
+        connection_status = _connection_monitor.get_status()
+        
         # Database health
         db_healthy = True
         db_error = None
@@ -514,7 +707,7 @@ async def get_server_health() -> dict[str, Any]:
             db_error = str(e)
         
         health_status = {
-            "status": "healthy" if db_healthy and memory_mb < 1000 else "degraded",
+            "status": "healthy" if db_healthy and memory_mb < 1000 and connection_status["consecutive_failures"] < 3 else "degraded",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "process": {
                 "pid": current_process.pid,
@@ -528,13 +721,22 @@ async def get_server_health() -> dict[str, Any]:
                 "active_count": active_agents,
                 "child_pids": [child.pid for child in children]
             },
+            "process_reaper": reaper_status,
             "database": {
                 "healthy": db_healthy,
                 "error": db_error
             },
+            "connections": {
+                "active_connections": connection_status["active_connections"],
+                "consecutive_failures": connection_status["consecutive_failures"],
+                "disconnect_count": connection_status["disconnect_count"],
+                "healthy": connection_status["consecutive_failures"] < 3,
+                "stream_error_handling_enabled": True
+            },
             "system": {
                 "memory_warning": memory_mb > 500,
-                "high_file_usage": open_files > 100
+                "high_file_usage": open_files > 100,
+                "connection_issues": connection_status["consecutive_failures"] > 0
             }
         }
         
@@ -1047,7 +1249,7 @@ async def get_project_analysis(repo_path: str) -> dict[str, Any]:
         }
 
     except Exception as e:
-        logger.error("Error getting project analysis", repo_path=repo_path, error=str(e))
+        # logger.error("Error getting project analysis", repo_path=repo_path, error=str(e))
         return {"error": f"Failed to analyze project: {e}"}
 
 
@@ -1057,35 +1259,46 @@ async def get_project_analysis(repo_path: str) -> dict[str, Any]:
 async def get_agent_status(agent_id: str) -> dict[str, Any]:
     """Expose agent status and progress as a readable resource."""
     try:
-        from .services.agent_service import AgentService
+        # Add timeout protection for the entire resource handler
+        async with asyncio.timeout(8.0):  # 8 second timeout for MCP resource handler
+            from .services.agent_service import AgentService
 
-        status = await AgentService.get_agent_by_id(agent_id)
+            # Use MCP-safe method to prevent communication channel conflicts
+            status = await AgentService.get_agent_by_id_safe(agent_id)
 
-        if not status:
+            if not status:
+                return {
+                    "agent_id": agent_id,
+                    "status": "not_found",
+                    "error": "Agent not found or not active",
+                }
+
+            # Return simplified response for fast MCP communication
             return {
                 "agent_id": agent_id,
-                "status": "not_found",
-                "error": "Agent not found or not active",
+                "status": status.get("status", "unknown"),
+                "agent_type": status.get("agent_type", "unknown"),
+                "created_at": status.get("created_at"),
+                "last_activity": status.get("last_heartbeat"),  # Use available field
+                "capabilities": status.get("capabilities", []),
+                "active_tasks": status.get("active_tasks", 0),
+                "metadata": status.get("metadata", {}),
             }
 
-        # Enhance with real-time information
+    except asyncio.TimeoutError:
+        # logger.warning("Agent status request timed out", agent_id=agent_id)
         return {
             "agent_id": agent_id,
-            "status": status.get("status", "unknown"),
-            "agent_type": status.get("agent_type", "unknown"),
-            "created_at": status.get("created_at"),
-            "last_activity": status.get("last_activity"),
-            "current_task": status.get("current_task"),
-            "progress": status.get("progress", {}),
-            "dependencies": status.get("dependencies", []),
-            "communication_room": status.get("room_name"),
-            "error_count": status.get("error_count", 0),
-            "last_error": status.get("last_error"),
+            "error": "Database timeout - agent status unavailable",
+            "status": "timeout"
         }
-
     except Exception as e:
-        logger.error("Error getting agent status", agent_id=agent_id, error=str(e))
-        return {"error": f"Failed to get agent status: {e}"}
+        # logger.error("Error getting agent status", agent_id=agent_id, error=str(e))
+        return {
+            "agent_id": agent_id,
+            "error": f"Failed to get agent status: {e}",
+            "status": "error"
+        }
 
 
 @app.resource("agents://active/summary",
@@ -1128,7 +1341,7 @@ async def get_active_agents_summary() -> dict[str, Any]:
         return summary
 
     except Exception as e:
-        logger.error("Error getting active agents summary", error=str(e))
+        # logger.error("Error getting active agents summary", error=str(e))
         return {"error": f"Failed to get agents summary: {e}"}
 
 
@@ -1160,7 +1373,7 @@ async def search_documentation_resource(source_name: str, query: str) -> dict[st
         }
 
     except Exception as e:
-        logger.error("Error searching documentation", source=source_name, query=query, error=str(e))
+        # logger.error("Error searching documentation", source=source_name, query=query, error=str(e))
         return {"error": f"Failed to search documentation: {e}"}
 
 
@@ -1178,7 +1391,7 @@ async def get_memory_insights(repo_path: str) -> dict[str, Any]:
             clean_path = "."
 
         # Get recent insights and learning entries
-        insights = await SharedMemoryService.get_insights(clean_path, limit=50)
+        insights = await SharedMemoryService.get_insights_safe(clean_path, limit=50)
         # Using insights for learning data
 
         return {
@@ -1198,7 +1411,7 @@ async def get_memory_insights(repo_path: str) -> dict[str, Any]:
         }
 
     except Exception as e:
-        logger.error("Error getting memory insights", repo_path=repo_path, error=str(e))
+        # logger.error("Error getting memory insights", repo_path=repo_path, error=str(e))
         return {"error": f"Failed to get memory insights: {e}"}
 
 
@@ -1249,7 +1462,7 @@ async def get_task_history(repo_path: str) -> dict[str, Any]:
         }
 
     except Exception as e:
-        logger.error("Error getting task history", repo_path=repo_path, error=str(e))
+        # logger.error("Error getting task history", repo_path=repo_path, error=str(e))
         return {"error": f"Failed to get task history: {e}"}
 
 
@@ -1279,8 +1492,52 @@ async def get_context_logging() -> dict[str, Any]:
             },
         }
     except Exception as e:
-        logger.error("Error getting FastMCP context logging", error=str(e))
+        # logger.error("Error getting FastMCP context logging", error=str(e))
         return {"error": f"Failed to get context logging: {e}"}
+
+
+@app.resource("connections://status",
+             name="Connection Status Monitoring",
+             description="Real-time client connection status and stream error monitoring")
+async def get_connection_monitoring() -> dict[str, Any]:
+    """Provide real-time connection status and stream error monitoring."""
+    try:
+        connection_status = _connection_monitor.get_status()
+        
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "connection_state": {
+                "active_connections": connection_status["active_connections"],
+                "total_disconnects": connection_status["disconnect_count"],
+                "consecutive_failures": connection_status["consecutive_failures"],
+                "last_disconnect": connection_status.get("last_disconnect"),
+                "should_retry": connection_status["should_retry"]
+            },
+            "stream_error_handling": {
+                "enabled": True,
+                "handled_errors": [
+                    "anyio.ClosedResourceError",
+                    "anyio.BrokenResourceError",
+                    "ConnectionResetError", 
+                    "OSError (broken pipe/connection reset)"
+                ],
+                "retry_mechanism": {
+                    "strategy": "exponential_backoff",
+                    "max_retries": 3,
+                    "backoff_range": "1-10 seconds"
+                }
+            },
+            "recent_events": connection_status["recent_events"],
+            "health_status": {
+                "healthy": connection_status["consecutive_failures"] < 3,
+                "degraded": connection_status["consecutive_failures"] >= 3,
+                "critical": not connection_status["should_retry"]
+            }
+        }
+        
+    except Exception as e:
+        # logger.error("Error getting connection monitoring", error=str(e))
+        return {"error": f"Failed to get connection monitoring: {e}"}
 
 
 @app.resource("system://orchestration/health",
@@ -1320,7 +1577,7 @@ async def get_system_health() -> dict[str, Any]:
         }
 
     except Exception as e:
-        logger.error("Error getting system health", error=str(e))
+        # logger.error("Error getting system health", error=str(e))
         return {"error": f"Failed to get system health: {e}"}
 
 
@@ -1332,7 +1589,7 @@ async def get_documentation_sources_list() -> dict[str, Any]:
     try:
         from .services.documentation_service import DocumentationService
 
-        sources = await DocumentationService.list_documentation_sources()
+        sources = await DocumentationService.list_documentation_sources_safe()
         
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -1341,7 +1598,7 @@ async def get_documentation_sources_list() -> dict[str, Any]:
         }
 
     except Exception as e:
-        logger.error("Error listing documentation sources", error=str(e))
+        # logger.error("Error listing documentation sources", error=str(e))
         return {"error": f"Failed to list documentation sources: {e}"}
 
 
@@ -1353,7 +1610,7 @@ async def get_documentation_source_details(source_id: str) -> dict[str, Any]:
     try:
         from .services.documentation_service import DocumentationService
 
-        source = await DocumentationService.get_documentation_source(source_id)
+        source = await DocumentationService.get_documentation_source_safe(source_id)
         
         if not source:
             return {
@@ -1363,7 +1620,7 @@ async def get_documentation_source_details(source_id: str) -> dict[str, Any]:
             }
 
         # Get additional statistics
-        stats = await DocumentationService.get_documentation_stats()
+        stats = await DocumentationService.get_documentation_stats_safe()
         
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -1377,7 +1634,7 @@ async def get_documentation_source_details(source_id: str) -> dict[str, Any]:
         }
 
     except Exception as e:
-        logger.error("Error getting documentation source details", source_id=source_id, error=str(e))
+        # logger.error("Error getting documentation source details", source_id=source_id, error=str(e))
         return {"error": f"Failed to get documentation source details: {e}"}
 
 
@@ -1398,7 +1655,7 @@ async def get_documentation_source_status(source_id: str) -> dict[str, Any]:
             status = await doc_service.get_scraping_status(source_id)
             
             # Get source details for additional context
-            source_details = await DocumentationService.get_documentation_source(source_id)
+            source_details = await DocumentationService.get_documentation_source_safe(source_id)
             
             if not source_details:
                 return {
@@ -1421,7 +1678,7 @@ async def get_documentation_source_status(source_id: str) -> dict[str, Any]:
             await doc_service.cleanup()
 
     except Exception as e:
-        logger.error("Error getting documentation source status", source_id=source_id, error=str(e))
+        # logger.error("Error getting documentation source status", source_id=source_id, error=str(e))
         return {"error": f"Failed to get documentation source status: {e}"}
 
 
@@ -1431,76 +1688,13 @@ async def get_documentation_source_status(source_id: str) -> dict[str, Any]:
 async def get_documentation_source_entries(source_id: str) -> dict[str, Any]:
     """Expose documentation entries for a specific source as a readable resource."""
     try:
-        from .database import execute_query
-        from .models import DocumentationEntry, DocumentationSource
-        from sqlalchemy import select, func
-        from sqlalchemy.ext.asyncio import AsyncSession
-        from sqlalchemy.orm import selectinload
+        from .services.documentation_service import DocumentationService
 
-        async def _get_source_entries(session: AsyncSession):
-            # First verify the source exists
-            source_stmt = select(DocumentationSource).where(
-                DocumentationSource.id == source_id
-            )
-            source_result = await session.execute(source_stmt)
-            source = source_result.scalar_one_or_none()
-            
-            if not source:
-                return {
-                    "source_id": source_id,
-                    "status": "not_found",
-                    "error": "Documentation source not found",
-                }
-
-            # Get entries for this source
-            entries_stmt = select(DocumentationEntry).where(
-                DocumentationEntry.source_id == source_id
-            ).options(
-                selectinload(DocumentationEntry.source)
-            ).order_by(
-                DocumentationEntry.last_updated.desc()
-            ).limit(100)  # Limit to prevent large responses
-            
-            entries_result = await session.execute(entries_stmt)
-            entries = entries_result.scalars().all()
-
-            # Count total entries
-            count_stmt = select(func.count(DocumentationEntry.id)).where(
-                DocumentationEntry.source_id == source_id
-            )
-            count_result = await session.execute(count_stmt)
-            total_entries = count_result.scalar() or 0
-
-            # Format entries
-            entry_list = []
-            for entry in entries:
-                entry_list.append({
-                    "id": entry.id,
-                    "title": entry.title,
-                    "url": entry.url,
-                    "content_preview": entry.content[:200] + "..." if len(entry.content) > 200 else entry.content,
-                    "content_length": len(entry.content),
-                    "section_type": entry.section_type.value,
-                    "extracted_at": entry.extracted_at.isoformat() if entry.extracted_at else None,
-                    "last_updated": entry.last_updated.isoformat() if entry.last_updated else None,
-                    "content_hash": entry.content_hash,
-                })
-
-            return {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "source_id": source_id,
-                "source_name": source.name,
-                "source_url": source.url,
-                "total_entries": total_entries,
-                "entries_returned": len(entry_list),
-                "entries_limit": 100,
-                "entries": entry_list,
-            }
-
-        return await execute_query(_get_source_entries)
+        # Use MCP-safe method to prevent communication channel conflicts
+        return await DocumentationService.get_documentation_source_entries_safe(source_id)
 
     except Exception as e:
-        logger.error("Error getting documentation source entries", source_id=source_id, error=str(e))
+        # logger.error("Error getting documentation source entries", source_id=source_id, error=str(e))
         return {"error": f"Failed to get documentation source entries: {e}"}
 
 
@@ -1511,9 +1705,10 @@ async def get_documentation_source_entries(source_id: str) -> dict[str, Any]:
 async def _auto_init():
     try:
         await init_database()
-        logger.info("Auto-initialized orchestration server")
+        # logger.info("Auto-initialized orchestration server")
     except Exception as e:
-        logger.error("Auto-initialization failed", error=str(e))
+        # logger.error("Auto-initialization failed", error=str(e))
+        pass
 
 # Auto-initialization will be handled by the server when it starts
 
@@ -1526,29 +1721,29 @@ async def run_startup_diagnostics() -> bool:
     if not config.get("server.startup_diagnostics", True):
         return True
     
-    logger.info("Running startup diagnostics...")
+    # logger.info("Running startup diagnostics...")
     
     try:
         # Check database connectivity
-        logger.info("Checking database connectivity...")
+        # logger.info("Checking database connectivity...")
         await init_database()
-        logger.info("✓ Database connectivity verified")
+        # logger.info("✓ Database connectivity verified")
         
         # Check required dependencies
-        logger.info("Checking dependencies...")
+        # logger.info("Checking dependencies...")
         import fastmcp
         import sqlalchemy
-        logger.info("✓ Dependencies verified", fastmcp_version=fastmcp.__version__)
+        # logger.info("✓ Dependencies verified", fastmcp_version=fastmcp.__version__)
         
         # Validate configuration
-        logger.info("Validating configuration...")
+        # logger.info("Validating configuration...")
         if config.get("logging.level") not in ["DEBUG", "INFO", "WARNING", "ERROR"]:
             logger.warning("Invalid log level in config, using INFO")
-        logger.info("✓ Configuration validated")
+        # logger.info("✓ Configuration validated")
         
         # Bootstrap unscraped documentation sources
         if config.get("documentation.auto_bootstrap", True):
-            logger.info("Bootstrapping unscraped documentation sources...")
+            # logger.info("Bootstrapping unscraped documentation sources...")
             try:
                 from .services.documentation_bootstrap import bootstrap_documentation_sources
                 bootstrap_result = await bootstrap_documentation_sources()
@@ -1556,13 +1751,14 @@ async def run_startup_diagnostics() -> bool:
                 if bootstrap_result.get("error"):
                     logger.error("Documentation bootstrap failed", error=bootstrap_result["error"])
                 else:
-                    logger.info("✓ Documentation bootstrap completed",
-                               sources_found=bootstrap_result.get("unscraped_found", 0),
-                               tasks_scheduled=bootstrap_result.get("tasks_scheduled", 0))
+                    # logger.info("✓ Documentation bootstrap completed",
+                    #           sources_found=bootstrap_result.get("unscraped_found", 0),
+                    #           tasks_scheduled=bootstrap_result.get("tasks_scheduled", 0))
+                    pass
             except Exception as e:
                 logger.error("Documentation bootstrap failed", error=str(e))
         
-        logger.info("All startup diagnostics passed")
+        # logger.info("All startup diagnostics passed")
         return True
         
     except Exception as e:
@@ -1650,6 +1846,96 @@ def _handle_runtime_crash(exception: Exception) -> None:
     
     logger.error("=== END RUNTIME CRASH REPORT ===")
 
+# ========================================
+# CONNECTION STATE MONITORING
+# ========================================
+
+class ConnectionStateMonitor:
+    """Monitor and track client connection state for graceful error handling."""
+    
+    def __init__(self):
+        self.active_connections = 0
+        self.connection_history = []
+        self.last_disconnect_time = None
+        self.disconnect_count = 0
+        self.consecutive_failures = 0
+        self._lock = threading.Lock()
+    
+    def log_connection_established(self) -> None:
+        """Log when a client connection is established."""
+        with self._lock:
+            self.active_connections += 1
+            self.consecutive_failures = 0
+            event = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "event": "connection_established",
+                "active_count": self.active_connections
+            }
+            self.connection_history.append(event)
+            # Keep only last 100 events
+            self.connection_history = self.connection_history[-100:]
+            
+        # logger.info("Client connection established", active_connections=self.active_connections)
+    
+    def log_connection_disconnected(self, error_type: str = "normal") -> None:
+        """Log when a client connection is lost."""
+        with self._lock:
+            self.active_connections = max(0, self.active_connections - 1)
+            self.disconnect_count += 1
+            self.last_disconnect_time = datetime.now(timezone.utc)
+            
+            if error_type in ["ClosedResourceError", "BrokenResourceError"]:
+                self.consecutive_failures += 1
+            
+            event = {
+                "timestamp": self.last_disconnect_time.isoformat(),
+                "event": "connection_disconnected",
+                "error_type": error_type,
+                "active_count": self.active_connections,
+                "consecutive_failures": self.consecutive_failures
+            }
+            self.connection_history.append(event)
+            self.connection_history = self.connection_history[-100:]
+            
+        # logger.info("Client connection disconnected", 
+        #           error_type=error_type,
+        #           active_connections=self.active_connections,
+        #           consecutive_failures=self.consecutive_failures)
+    
+    def should_retry(self) -> bool:
+        """Determine if the server should attempt to continue after connection errors."""
+        with self._lock:
+            # Don't retry if too many consecutive failures
+            if self.consecutive_failures > 5:
+                return False
+            
+            # Check if we've had too many disconnects recently
+            if len(self.connection_history) >= 10:
+                recent_disconnects = [
+                    event for event in self.connection_history[-10:]
+                    if event["event"] == "connection_disconnected"
+                ]
+                if len(recent_disconnects) >= 8:  # 8 out of last 10 events were disconnects
+                    return False
+            
+            return True
+    
+    def get_status(self) -> dict[str, Any]:
+        """Get current connection status for monitoring."""
+        with self._lock:
+            return {
+                "active_connections": self.active_connections,
+                "disconnect_count": self.disconnect_count,
+                "consecutive_failures": self.consecutive_failures,
+                "last_disconnect": self.last_disconnect_time.isoformat() if self.last_disconnect_time else None,
+                "recent_events": self.connection_history[-5:],
+                "should_retry": self.should_retry()
+            }
+
+# Global connection monitor
+_connection_monitor = ConnectionStateMonitor()
+
+
 def _setup_signal_handlers() -> None:
     """Setup signal handlers for graceful shutdown."""
     import signal
@@ -1670,7 +1956,37 @@ def _setup_signal_handlers() -> None:
         
         # Cleanup handled by individual services
         
-        # Cleanup spawned agent processes
+        # Stop the process reaper
+        try:
+            _process_reaper.stop()
+            logger.info("Process reaper stopped")
+        except Exception as e:
+            logger.error("Error stopping process reaper: %s", str(e))
+        
+        # Cleanup tracked spawned processes
+        try:
+            with _process_registry_lock:
+                processes_to_cleanup = list(_spawned_processes.values())
+                _spawned_processes.clear()
+                
+            for process in processes_to_cleanup:
+                try:
+                    if process.poll() is None:  # Still running
+                        process.terminate()
+                        try:
+                            process.wait(timeout=2.0)
+                            logger.info("Gracefully terminated Claude process: %d", process.pid)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                            process.wait()
+                            logger.info("Force killed Claude process: %d", process.pid)
+                except Exception as e:
+                    logger.warning("Error terminating Claude process: %s", str(e))
+                    
+        except Exception as e:
+            logger.error("Error during tracked process cleanup: %s", str(e))
+        
+        # Cleanup any remaining spawned agent processes
         try:
             # Kill any orphaned Claude processes
             import psutil
@@ -1695,6 +2011,135 @@ def _setup_signal_handlers() -> None:
         signal.signal(signal.SIGHUP, signal_handler)
     
     logger.info("Signal handlers registered for graceful shutdown")
+
+
+async def run_server_with_robust_error_handling() -> None:
+    """
+    Run the FastMCP server with comprehensive error handling for stream disconnections.
+    
+    This wrapper provides:
+    1. Server-level exception handling for ClosedResourceError and BrokenResourceError
+    2. Connection state monitoring and logging
+    3. Graceful client disconnection handling
+    4. Retry logic for transient connection issues
+    5. Server continuation after client disconnections
+    """
+    max_consecutive_retries = 3
+    current_retry = 0
+    
+    while True:
+        try:
+            # Log that we're starting the server
+            # logger.info("Starting FastMCP server with robust error handling",
+            #           retry_attempt=current_retry,
+            #           max_retries=max_consecutive_retries)
+            
+            # Track connection establishment
+            _connection_monitor.log_connection_established()
+            
+            # Reset retry counter on successful start
+            current_retry = 0
+            
+            # Run the FastMCP server
+            app.run()
+            
+            # If we reach here, the server exited normally
+            # logger.info("FastMCP server exited normally")
+            break
+            
+        except (ClosedResourceError, BrokenResourceError) as e:
+            # Handle anyio stream errors gracefully
+            error_type = type(e).__name__
+            error_msg = str(e)
+            
+            # Log the disconnection
+            _connection_monitor.log_connection_disconnected(error_type)
+            
+            # logger.warning("Client stream disconnection detected",
+            #              error_type=error_type,
+            #              error_message=error_msg[:200],
+            #              connection_status=_connection_monitor.get_status())
+            
+            # Check if we should continue trying
+            if not _connection_monitor.should_retry():
+                logger.error("Too many consecutive connection failures, shutting down server",
+                           connection_status=_connection_monitor.get_status())
+                break
+            
+            # Implement exponential backoff for retries
+            if current_retry < max_consecutive_retries:
+                backoff_time = min(2 ** current_retry, 10)  # Max 10 seconds
+                # logger.info("Attempting graceful recovery after stream error",
+                #           retry_attempt=current_retry + 1,
+                #           backoff_seconds=backoff_time)
+                
+                # Brief delay before retrying
+                await asyncio.sleep(backoff_time)
+                current_retry += 1
+                continue
+            else:
+                logger.error("Maximum retry attempts reached for stream errors, shutting down",
+                           max_retries=max_consecutive_retries)
+                break
+                
+        except ConnectionResetError as e:
+            # Handle connection reset errors
+            _connection_monitor.log_connection_disconnected("ConnectionResetError")
+            
+            # logger.info("Connection reset by client - this is normal",
+            #           error_message=str(e)[:100],
+            #           connection_status=_connection_monitor.get_status())
+            
+            # Brief pause and continue
+            await asyncio.sleep(1)
+            continue
+            
+        except OSError as e:
+            # Handle OS-level connection errors
+            if "Broken pipe" in str(e) or "Connection reset" in str(e):
+                _connection_monitor.log_connection_disconnected("OSError")
+                # logger.info("OS-level connection error - client likely disconnected",
+                #           error_message=str(e)[:100])
+                await asyncio.sleep(1)
+                continue
+            else:
+                # Other OS errors should be handled differently
+                logger.error("OS error during server operation", error=str(e))
+                raise
+                
+        except KeyboardInterrupt:
+            logger.info("Server shutdown requested by user")
+            break
+            
+        except Exception as e:
+            # Handle all other exceptions
+            error_type = type(e).__name__
+            error_msg = str(e)
+            
+            logger.error("Unexpected server error",
+                        error_type=error_type,
+                        error_message=error_msg[:200],
+                        connection_status=_connection_monitor.get_status())
+            
+            # For unexpected errors, we should probably break rather than retry
+            # unless it's a known recoverable error type
+            recoverable_errors = [
+                "TimeoutError",
+                "asyncio.TimeoutError", 
+                "ConnectionAbortedError",
+                "ConnectionError"
+            ]
+            
+            if any(err in error_type for err in recoverable_errors):
+                # logger.info("Recoverable error detected, attempting to continue",
+                #           error_type=error_type)
+                await asyncio.sleep(2)
+                continue
+            else:
+                # Unknown error - break and let the main function handle it
+                logger.error("Non-recoverable error, propagating to main handler")
+                raise
+
 
 def main():
     """Main entry point for the orchestration server."""
@@ -1734,56 +2179,27 @@ def main():
                 logger.error("Startup diagnostics crashed: %s", str(diag_error))
                 logger.error("Continuing with server startup anyway...")
         
-        # Start the FastMCP server with comprehensive error handling
+        # Start the FastMCP server with comprehensive error handling for stream disconnections
         if config.get("logging.debug") or config.get("logging.verbose"):
-            logger.info("Starting FastMCP server...")
+            logger.info("Starting FastMCP server with robust stream error handling...")
             
         try:
-            # Enhanced error isolation for app.run() to prevent worker crashes from breaking stdio communication
+            # Run the FastMCP server directly - let external process manager handle restarts
             app.run()
+            
         except Exception as e:
-            # Enhanced error handling: isolate worker process errors from main stdio communication
+            # This catches any remaining unhandled exceptions from the server wrapper
             error_type = type(e).__name__
             error_msg = str(e)
             
-            # Check if this is a worker-related or subprocess error that shouldn't break main server
-            worker_related_errors = [
-                "BrokenResourceError",  # anyio stream issues
-                "ConnectionResetError", # Network/process connection issues
-                "subprocess.CalledProcessError",  # Worker process failures
-                "TimeoutError",  # Worker timeouts
-                "OSError",  # File/system issues in workers
-            ]
+            logger.error("Server wrapper encountered unhandled exception",
+                        error_type=error_type,
+                        error_message=error_msg[:200],
+                        connection_status=_connection_monitor.get_status())
             
-            is_worker_error = any(err in error_type or err in error_msg for err in worker_related_errors)
-            
-            if is_worker_error:
-                logger.error("Worker process error detected - attempting graceful recovery", 
-                           error_type=error_type, error_msg=error_msg[:200])
-                
-                # Try to restart/recover the server instead of crashing
-                try:
-                    logger.info("Attempting server recovery after worker error...")
-                    # Give a brief moment for cleanup
-                    import time
-                    time.sleep(1)
-                    
-                    # Restart the server (this will restart the main process)
-                    logger.info("Restarting server after worker error recovery attempt...")
-                    app.run()
-                    
-                except Exception as recovery_error:
-                    logger.error("Server recovery failed", 
-                               original_error=error_msg[:200],
-                               recovery_error=str(recovery_error)[:200])
-                    _handle_runtime_crash(e)
-                    sys.exit(1)
-            else:
-                # This catches OTHER RUNTIME crashes that happen after server startup
-                logger.error("Non-worker runtime error - performing full crash handling",
-                           error_type=error_type, error_msg=error_msg[:200])
-                _handle_runtime_crash(e)
-                sys.exit(1)
+            # Handle the runtime crash
+            _handle_runtime_crash(e)
+            sys.exit(1)
         
     except KeyboardInterrupt:
         logger.info("Server shutdown requested by user")

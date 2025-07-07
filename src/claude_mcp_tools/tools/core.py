@@ -89,8 +89,8 @@ async def orchestrate_objective(
 async def get_system_status(repository_path: str) -> dict[str, Any]:
     """Get comprehensive system status for monitoring orchestration health."""
     try:
-        # Get agent statistics (AgentService has all static methods)
-        agents_result = await AgentService.list_agents(repository_path=repository_path)
+        # Get agent statistics (AgentService has all static methods) - MCP-SAFE
+        agents_result = await AgentService.list_agents_safe(repository_path=repository_path)
         active_agents = [a for a in agents_result.get("agents", []) if a.get("status") in ["running", "spawning"]]
 
         # Get communication stats (CommunicationService has all static methods)
@@ -213,7 +213,7 @@ async def spawn_architect_agent(
            ```
            store_memory(
                repository_path=".", 
-               agent_id="{agent_id}", 
+               agent_id="<your_agent_id>", 
                entry_type="architecture",
                title="Implementation Plan: {objective[:50]}",
                content="DETAILED PLAN WITH PHASES, AGENTS, DEPENDENCIES, AND DELIVERABLES"

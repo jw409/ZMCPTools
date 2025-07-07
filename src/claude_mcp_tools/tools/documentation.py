@@ -11,6 +11,7 @@ from ..services.documentation_service import DocumentationService
 from ..models import ScrapeJobStatus, DocumentationStatus
 from .json_utils import parse_json_list, parse_json_dict, check_parsing_error
 from .app import app
+from ..utils.ctx_utils import safe_ctx_call
 
 logger = structlog.get_logger("tools.documentation")
 
@@ -125,18 +126,12 @@ async def scrape_documentation(
             # Generate source name from project path
             import os
             source_name = os.path.basename(project_path.rstrip('/'))
-            try:
-                await ctx.info(f"🔄 Generated source_name from project_path: {source_name}")
-            except Exception as ctx_error:
-                logger.warning("Context logging failed", error=str(ctx_error))
+            await safe_ctx_call(ctx.info, f"🔄 Generated source_name from project_path: {source_name}")
         
         if content_selector and not selectors:
             # Use content_selector as the main selector
             selectors = {"content": content_selector}
-            try:
-                await ctx.info(f"🔄 Using content_selector as main selector: {content_selector}")
-            except Exception as ctx_error:
-                logger.warning("Context logging failed", error=str(ctx_error))
+            await safe_ctx_call(ctx.info, f"🔄 Using content_selector as main selector: {content_selector}")
         
         if max_pages:
             # Parse max_pages (can be string or int)
@@ -145,86 +140,50 @@ async def scrape_documentation(
                     max_pages = int(max_pages)
                 if max_pages <= 0 or max_pages > 1000:
                     raise ValueError(f"max_pages must be between 1 and 1000, got {max_pages}")
-                try:
-                    await ctx.info(f"🔄 Max pages limit set to: {max_pages}")
-                except Exception as ctx_error:
-                    logger.warning("Context logging failed", error=str(ctx_error))
+                await safe_ctx_call(ctx.info, f"🔄 Max pages limit set to: {max_pages}")
             except (ValueError, TypeError) as e:
-                try:
-                    await ctx.error(f"❌ Invalid max_pages value: {max_pages}")
-                except Exception as ctx_error:
-                    logger.warning("Context error logging failed", error=str(ctx_error))
+                await safe_ctx_call(ctx.error, f"❌ Invalid max_pages value: {max_pages}")
                 return {"error": {"code": "INVALID_MAX_PAGES", "message": f"max_pages must be a valid integer between 1 and 1000: {str(e)}"}}
 
         # Initialize progress and logging
-        try:
-            await ctx.info(f"🚀 Starting documentation scraping for {source_name} at {url}")
-        except Exception as ctx_error:
-            logger.warning("Context logging failed", error=str(ctx_error))
-        try:
-            await ctx.report_progress(0, 100)
-        except Exception as ctx_error:
-            logger.warning("Context progress reporting failed", error=str(ctx_error))
+        await safe_ctx_call(ctx.info, f"🚀 Starting documentation scraping for {source_name} at {url}")
+        await safe_ctx_call(ctx.report_progress, 0, 100)
 
         # Parse selectors, allow_patterns, and ignore_patterns if provided as JSON strings
-        try:
-            await ctx.info("📝 Parsing selectors and pattern configuration...")
-        except Exception as ctx_error:
-            logger.warning("Context logging failed", error=str(ctx_error))
+        await safe_ctx_call(ctx.info, "📝 Parsing selectors and pattern configuration...")
         
         parsed_selectors = parse_json_dict(selectors, "selectors")
         if check_parsing_error(parsed_selectors):
-            try:
-                await ctx.error(f"❌ Failed to parse selectors: {parsed_selectors}")
-            except Exception as ctx_error:
-                logger.warning("Context error logging failed", error=str(ctx_error))
+            await safe_ctx_call(ctx.error, f"❌ Failed to parse selectors: {parsed_selectors}")
             return parsed_selectors
         final_selectors: dict[str, str] | None = parsed_selectors
 
         parsed_allow_patterns = parse_json_list(allow_patterns, "allow_patterns")
         if check_parsing_error(parsed_allow_patterns):
-            try:
-                await ctx.error(f"❌ Failed to parse allow_patterns: {parsed_allow_patterns}")
-            except Exception as ctx_error:
-                logger.warning("Context error logging failed", error=str(ctx_error))
+            await safe_ctx_call(ctx.error, f"❌ Failed to parse allow_patterns: {parsed_allow_patterns}")
             return parsed_allow_patterns
         final_allow_patterns: list[str] | None = parsed_allow_patterns
 
         parsed_ignore_patterns = parse_json_list(ignore_patterns, "ignore_patterns")
         if check_parsing_error(parsed_ignore_patterns):
-            try:
-                await ctx.error(f"❌ Failed to parse ignore_patterns: {parsed_ignore_patterns}")
-            except Exception as ctx_error:
-                logger.warning("Context error logging failed", error=str(ctx_error))
+            await safe_ctx_call(ctx.error, f"❌ Failed to parse ignore_patterns: {parsed_ignore_patterns}")
             return parsed_ignore_patterns
         final_ignore_patterns: list[str] | None = parsed_ignore_patterns
 
         # If it's a simple string without JSON brackets, treat it as a single selector
         if isinstance(selectors, str) and "{" not in selectors:
             final_selectors = {"content": selectors}
-            try:
-                await ctx.info(f"🔧 Using simple selector: {selectors}")
-            except Exception as ctx_error:
-                logger.warning("Context logging failed", error=str(ctx_error))
+            await safe_ctx_call(ctx.info, f"🔧 Using simple selector: {selectors}")
 
-        try:
-            await ctx.report_progress(10, 100)
-        except Exception as ctx_error:
-            logger.warning("Context progress reporting failed", error=str(ctx_error))
+        await safe_ctx_call(ctx.report_progress, 10, 100)
 
-        try:
-            await ctx.info("🏗️ Initializing documentation service...")
-        except Exception as ctx_error:
-            logger.warning("Context logging failed", error=str(ctx_error))
+        await safe_ctx_call(ctx.info, "🏗️ Initializing documentation service...")
         doc_service = DocumentationService()
         await doc_service.initialize()
 
         # First, add/update the documentation source
-        try:
-            await ctx.info("📦 Adding/updating documentation source...")
-            await ctx.report_progress(20, 100)
-        except Exception as ctx_error:
-            logger.warning("Context logging failed", error=str(ctx_error))
+        await safe_ctx_call(ctx.info, "📦 Adding/updating documentation source...")
+        await safe_ctx_call(ctx.report_progress, 20, 100)
 
         source_result = await doc_service.add_documentation_source(
             name=source_name,
@@ -239,31 +198,19 @@ async def scrape_documentation(
         )
 
         if not source_result.get("success"):
-            try:
-                await ctx.error(f"❌ Failed to create documentation source: {source_result.get('error', 'Unknown error')}")
-            except Exception as ctx_error:
-                logger.warning("Context error logging failed", error=str(ctx_error))
+            await safe_ctx_call(ctx.error, f"❌ Failed to create documentation source: {source_result.get('error', 'Unknown error')}")
             return {"error": {"code": "SOURCE_CREATION_FAILED", "message": source_result.get("error", "Unknown error")}}
 
         source_id = source_result["source_id"]
-        try:
-            await ctx.info(f"✅ Documentation source created with ID: {source_id}")
-        except Exception as ctx_error:
-            logger.warning("Context logging failed", error=str(ctx_error))
+        await safe_ctx_call(ctx.info, f"✅ Documentation source created with ID: {source_id}")
 
         # Conditionally scrape the documentation
         if scrape_immediately:
-            try:
-                await ctx.info(f"🕷️ Starting background scraping with depth {crawl_depth}...")
-                await ctx.report_progress(30, 100)
-            except Exception as ctx_error:
-                logger.warning("Context logging failed", error=str(ctx_error))
+            await safe_ctx_call(ctx.info, f"🕷️ Starting background scraping with depth {crawl_depth}...")
+            await safe_ctx_call(ctx.report_progress, 30, 100)
 
             logger.info("DEBUG: About to call doc_service.scrape_documentation", source_id=source_id)
-            try:
-                await ctx.info("🔍 DEBUG: Calling scrape_documentation service...")
-            except Exception as ctx_error:
-                logger.warning("Context logging failed", error=str(ctx_error))
+            await safe_ctx_call(ctx.info, "🔍 DEBUG: Calling scrape_documentation service...")
             
             result = await doc_service.scrape_documentation(
                 source_id=source_id,
@@ -272,28 +219,16 @@ async def scrape_documentation(
             )
             
             logger.info("DEBUG: doc_service.scrape_documentation completed", result=result)
-            try:
-                await ctx.info(f"🔍 DEBUG: Scrape service returned: {result}")
-            except Exception as ctx_error:
-                logger.warning("Context logging failed", error=str(ctx_error))
+            await safe_ctx_call(ctx.info, f"🔍 DEBUG: Scrape service returned: {result}")
 
-            try:
-                await ctx.report_progress(100, 100)
-            except Exception as ctx_error:
-                logger.warning("Context progress reporting failed", error=str(ctx_error))
+            await safe_ctx_call(ctx.report_progress, 100, 100)
             
             if result.get("success"):
-                try:
-                    await ctx.info(f"🎉 Documentation scraping started! Source ID: {source_id}")
-                    await ctx.info(f"📊 {source_name} is being scraped in the background")
-                except Exception as ctx_error:
-                    logger.warning("Context logging failed", error=str(ctx_error))
+                await safe_ctx_call(ctx.info, f"🎉 Documentation scraping started! Source ID: {source_id}")
+                await safe_ctx_call(ctx.info, f"📊 {source_name} is being scraped in the background")
                 
                 logger.info("DEBUG: About to return success response", source_id=source_id)
-                try:
-                    await ctx.info("🔍 DEBUG: Preparing success response...")
-                except Exception as ctx_error:
-                    logger.warning("Context logging failed", error=str(ctx_error))
+                await safe_ctx_call(ctx.info, "🔍 DEBUG: Preparing success response...")
                 
                 return {
                     "success": True,
@@ -304,18 +239,12 @@ async def scrape_documentation(
                     "scraping_in_progress": result.get("scraping_in_progress", True),
                 }
             else:
-                try:
-                    await ctx.error(f"❌ Documentation scraping failed: {result.get('error', 'Unknown error')}")
-                except Exception as ctx_error:
-                    logger.warning("Context error logging failed", error=str(ctx_error))
+                await safe_ctx_call(ctx.error, f"❌ Documentation scraping failed: {result.get('error', 'Unknown error')}")
 
                 return result
         else:
-            try:
-                await ctx.info("📋 Documentation source created successfully, scraping skipped")
-                await ctx.report_progress(100, 100)
-            except Exception as ctx_error:
-                logger.warning("Context logging failed", error=str(ctx_error))
+            await safe_ctx_call(ctx.info, "📋 Documentation source created successfully, scraping skipped")
+            await safe_ctx_call(ctx.report_progress, 100, 100)
 
             return {
                 "success": True,
@@ -326,32 +255,20 @@ async def scrape_documentation(
             }
 
     except ValueError as e:
-        try:
-            await ctx.error(f"📝 Parameter validation error: {str(e)}")
-        except Exception as ctx_error:
-            logger.warning("Context error logging failed", error=str(ctx_error))
+        await safe_ctx_call(ctx.error, f"📝 Parameter validation error: {str(e)}")
         logger.error("Parameter validation error in scrape_documentation", source=source_name, url=url, error=str(e))
         return {"error": {"code": "INVALID_PARAMETERS", "message": f"Parameter validation failed: {str(e)}"}}
     except ConnectionError as e:
-        try:
-            await ctx.error(f"🌐 Network connection error: {str(e)}")
-        except Exception as ctx_error:
-            logger.warning("Context error logging failed", error=str(ctx_error))
+        await safe_ctx_call(ctx.error, f"🌐 Network connection error: {str(e)}")
         logger.error("Network error in scrape_documentation", source=source_name, url=url, error=str(e))
         return {"error": {"code": "NETWORK_ERROR", "message": f"Failed to connect to {url}: {str(e)}"}}
     except TimeoutError as e:
-        try:
-            await ctx.error(f"⏰ Request timeout error: {str(e)}")
-        except Exception as ctx_error:
-            logger.warning("Context error logging failed", error=str(ctx_error))
+        await safe_ctx_call(ctx.error, f"⏰ Request timeout error: {str(e)}")
         logger.error("Timeout error in scrape_documentation", source=source_name, url=url, error=str(e))
         return {"error": {"code": "TIMEOUT_ERROR", "message": f"Request timed out for {url}: {str(e)}"}}
     except Exception as e:
         logger.error("DEBUG: Exception caught in scrape_documentation", error=str(e), exc_info=True)
-        try:
-            await ctx.error(f"💥 Critical error in documentation scraping: {str(e)}")
-        except Exception as ctx_error:
-            logger.warning("Context error logging failed", error=str(ctx_error))
+        await safe_ctx_call(ctx.error, f"💥 Critical error in documentation scraping: {str(e)}")
         logger.error("Unexpected error in scrape_documentation", source=source_name, url=url, error=str(e), exc_info=True)
         error_response = {"error": {"code": "SCRAPE_DOCUMENTATION_FAILED", "message": f"Unexpected error: {str(e)}", "type": type(e).__name__}}
         logger.info("DEBUG: Returning error response", response=error_response)
@@ -623,7 +540,7 @@ async def get_scraping_status(
         await doc_service.initialize()
         
         # Check if scraping is currently in progress
-        is_running = doc_service.is_scraping_running(source_id)
+        is_running = await doc_service._is_scraping_via_jobs(source_id)
         
         # Get source information from database
         async def _get_source_info(session):
@@ -689,7 +606,7 @@ async def watch_scraping_progress(
         await doc_service.initialize()
         
         # Check if scraping is running
-        if not doc_service.is_scraping_running(source_id):
+        if not await doc_service._is_scraping_via_jobs(source_id):
             return {
                 "success": True,
                 "source_id": source_id,
@@ -702,10 +619,7 @@ async def watch_scraping_progress(
         start_time = time.time()
         events = []
         
-        try:
-            await ctx.info(f"👀 Watching scraping progress for {timeout_seconds}s...")
-        except Exception:
-            pass
+        await safe_ctx_call(ctx.info, f"👀 Watching scraping progress for {timeout_seconds}s...")
         
         # Progress callback to collect events
         collected_events = []
@@ -716,28 +630,22 @@ async def watch_scraping_progress(
                 "event": event
             })
             # Log to context
-            try:
-                if event.get("type") == "page_start":
-                    await ctx.info(f"📄 Starting page {event.get('page_number', '?')}: {event.get('url', '')[:60]}...")
-                elif event.get("type") == "page_success":
-                    await ctx.info(f"✅ Scraped: {event.get('title', 'Untitled')[:40]}")
-                elif event.get("type") == "error":
-                    await ctx.error(f"❌ Error: {event.get('error', 'Unknown error')}")
-            except Exception:
-                pass
+            if event.get("type") == "page_start":
+                await safe_ctx_call(ctx.info, f"📄 Starting page {event.get('page_number', '?')}: {event.get('url', '')[:60]}...")
+            elif event.get("type") == "page_success":
+                await safe_ctx_call(ctx.info, f"✅ Scraped: {event.get('title', 'Untitled')[:40]}")
+            elif event.get("type") == "error":
+                await safe_ctx_call(ctx.error, f"❌ Error: {event.get('error', 'Unknown error')}")
         
         # Wait and collect events for the specified timeout
         while time.time() - start_time < timeout_seconds:
-            if not doc_service.is_scraping_running(source_id):
+            if not await doc_service._is_scraping_via_jobs(source_id):
                 break
             await asyncio.sleep(1)  # Check every second
         
-        final_status = ScrapeJobStatus.COMPLETED.value if not doc_service.is_scraping_running(source_id) else "still_running"
+        final_status = ScrapeJobStatus.COMPLETED.value if not await doc_service._is_scraping_via_jobs(source_id) else "still_running"
         
-        try:
-            await ctx.info(f"⏰ Watch period ended. Status: {final_status}")
-        except Exception:
-            pass
+        await safe_ctx_call(ctx.info, f"⏰ Watch period ended. Status: {final_status}")
         
         return {
             "success": True,

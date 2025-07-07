@@ -165,13 +165,36 @@ class McpToolsConfig:
     def get(self, key: str, default: Any = None) -> Any:
         """Get configuration value using dot notation.
         
+        First checks environment variables (e.g., MCPTOOLS_SERVER_STARTUP_DIAGNOSTICS),
+        then falls back to config file, then to default.
+        
         Args:
-            key: Configuration key (e.g., "logging.level")
+            key: Configuration key (e.g., "logging.level", "server.startup_diagnostics")
             default: Default value if key not found
             
         Returns:
             Configuration value
         """
+        import os
+        
+        # Check environment variable first (convert dot notation to uppercase with underscores)
+        env_key = f"MCPTOOLS_{key.replace('.', '_').upper()}"
+        env_value = os.environ.get(env_key)
+        
+        if env_value is not None:
+            # Convert string environment values to appropriate types
+            if env_value.lower() in ('true', '1', 'yes', 'on'):
+                return True
+            elif env_value.lower() in ('false', '0', 'no', 'off'):
+                return False
+            elif env_value.isdigit():
+                return int(env_value)
+            elif env_value.replace('.', '', 1).isdigit():
+                return float(env_value)
+            else:
+                return env_value
+        
+        # Fall back to config file
         keys = key.split('.')
         current = self.config
         

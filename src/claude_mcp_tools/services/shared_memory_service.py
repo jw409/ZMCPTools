@@ -458,3 +458,239 @@ class SharedMemoryService:
             }
 
         return await execute_query(_get_tool_history)
+
+    # =============================================================================
+    # MCP-SAFE DATABASE ACCESS METHODS
+    # =============================================================================
+
+    @staticmethod
+    async def get_insights_safe(
+        repository_path: str,
+        categories: list[str] | None = None,
+        insight_types: list[str] | None = None,
+        min_confidence: float = 0.5,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        """Get insights with MCP-safe database access.
+        
+        This method uses MCP-safe database access patterns to prevent 
+        communication channel conflicts in FastMCP resource handlers.
+        
+        Args:
+            repository_path: Repository path to query
+            categories: Filter by categories
+            insight_types: Filter by insight types (entry types)
+            min_confidence: Minimum confidence score
+            limit: Maximum results to return
+            
+        Returns:
+            Dictionary with insights matching the criteria
+        """
+        from ..database import mcp_safe_execute_query
+        
+        async def _get_insights_safe(session):
+            # Streamlined query to minimize session time
+            stmt = select(Memory).where(
+                and_(
+                    Memory.repository_path == repository_path,
+                    Memory.confidence >= min_confidence,
+                ),
+            )
+            
+            # Add filters
+            if insight_types:
+                stmt = stmt.where(Memory.entry_type.in_(insight_types))
+            
+            if categories:
+                stmt = stmt.where(Memory.category.in_(categories))
+            
+            # Order by usefulness and recency
+            stmt = stmt.order_by(
+                desc(Memory.usefulness_score),
+                desc(Memory.relevance_score),
+                desc(Memory.confidence),
+                desc(Memory.created_at),
+            ).limit(limit)
+            
+            result = await session.execute(stmt)
+            memories = result.scalars().all()
+            
+            # Build response quickly
+            insights = []
+            for memory in memories:
+                insights.append({
+                    "memory_id": memory.id,
+                    "agent_id": memory.agent_id,
+                    "entry_type": memory.entry_type,
+                    "category": memory.category,
+                    "title": memory.title,
+                    "content": memory.content,
+                    "tags": memory.get_tags() if hasattr(memory, 'get_tags') else [],
+                    "confidence": memory.confidence,
+                    "relevance_score": memory.relevance_score,
+                    "usefulness_score": memory.usefulness_score,
+                    "created_at": memory.created_at.isoformat(),
+                    "accessed_count": memory.accessed_count,
+                    # Skip last_accessed to reduce processing time
+                })
+            
+            return {
+                "insights": insights,
+                "count": len(insights),
+                "filters": {
+                    "categories": categories,
+                    "insight_types": insight_types,
+                    "min_confidence": min_confidence,
+                },
+            }
+        
+        try:
+            result = await mcp_safe_execute_query(_get_insights_safe, timeout=3.0)
+            return result if result is not None else {
+                "insights": [],
+                "count": 0,
+                "filters": {
+                    "categories": categories,
+                    "insight_types": insight_types,
+                    "min_confidence": min_confidence,
+                },
+            }
+        except Exception as e:
+            logger.error("MCP-safe get_insights failed", 
+                        repository_path=repository_path, error=str(e))
+            return {
+                "error": f"Database error: {e}",
+                "insights": [],
+                "count": 0,
+                "filters": {
+                    "categories": categories,
+                    "insight_types": insight_types,
+                    "min_confidence": min_confidence,
+                },
+            }
+
+    @staticmethod
+    async def search_memory_safe(
+        repository_path: str,
+        query_text: str | None = None,
+        entry_types: list[str] | None = None,
+        categories: list[str] | None = None,
+        limit: int = 20,
+        min_confidence: float = 0.3,
+        min_relevance: float = 0.3,
+    ) -> dict[str, Any]:
+        """Search memory entries with MCP-safe database access.
+        
+        This method uses MCP-safe database access patterns to prevent 
+        communication channel conflicts in FastMCP resource handlers.
+        
+        Args:
+            repository_path: Repository path to query
+            query_text: Text to search in title and content
+            entry_types: Filter by entry types
+            categories: Filter by categories
+            limit: Maximum results to return
+            min_confidence: Minimum confidence score
+            min_relevance: Minimum relevance score
+            
+        Returns:
+            Dictionary with matching memories
+        """
+        from ..database import mcp_safe_execute_query
+        
+        async def _search_memory_safe(session):
+            # Streamlined query to minimize session time
+            stmt = select(Memory).where(
+                and_(
+                    Memory.repository_path == repository_path,
+                    Memory.confidence >= min_confidence,
+                    Memory.relevance_score >= min_relevance,
+                ),
+            )
+            
+            # Add filters
+            if entry_types:
+                stmt = stmt.where(Memory.entry_type.in_(entry_types))
+            
+            if categories:
+                stmt = stmt.where(Memory.category.in_(categories))
+            
+            if query_text:
+                search_pattern = f"%{query_text}%"
+                stmt = stmt.where(
+                    or_(
+                        Memory.title.ilike(search_pattern),
+                        Memory.content.ilike(search_pattern),
+                    ),
+                )
+            
+            # Order by relevance and recency
+            stmt = stmt.order_by(
+                desc(Memory.usefulness_score),
+                desc(Memory.relevance_score),
+                desc(Memory.confidence),
+                desc(Memory.created_at),
+            ).limit(limit)
+            
+            result = await session.execute(stmt)
+            memories = result.scalars().all()
+            
+            # Build response quickly
+            memory_list = []
+            for memory in memories:
+                memory_list.append({
+                    "memory_id": memory.id,
+                    "agent_id": memory.agent_id,
+                    "entry_type": memory.entry_type,
+                    "category": memory.category,
+                    "title": memory.title,
+                    "content": memory.content,
+                    "tags": memory.get_tags() if hasattr(memory, 'get_tags') else [],
+                    "confidence": memory.confidence,
+                    "relevance_score": memory.relevance_score,
+                    "usefulness_score": memory.usefulness_score,
+                    "created_at": memory.created_at.isoformat(),
+                    "accessed_count": memory.accessed_count,
+                    # Skip complex attributes to reduce processing time
+                })
+            
+            return {
+                "memories": memory_list,
+                "count": len(memory_list),
+                "query": {
+                    "text": query_text,
+                    "entry_types": entry_types,
+                    "categories": categories,
+                    "min_confidence": min_confidence,
+                    "min_relevance": min_relevance,
+                },
+            }
+        
+        try:
+            result = await mcp_safe_execute_query(_search_memory_safe, timeout=3.0)
+            return result if result is not None else {
+                "memories": [],
+                "count": 0,
+                "query": {
+                    "text": query_text,
+                    "entry_types": entry_types,
+                    "categories": categories,
+                    "min_confidence": min_confidence,
+                    "min_relevance": min_relevance,
+                },
+            }
+        except Exception as e:
+            logger.error("MCP-safe search_memory failed", 
+                        repository_path=repository_path, error=str(e))
+            return {
+                "error": f"Database error: {e}",
+                "memories": [],
+                "count": 0,
+                "query": {
+                    "text": query_text,
+                    "entry_types": entry_types,
+                    "categories": categories,
+                    "min_confidence": min_confidence,
+                    "min_relevance": min_relevance,
+                },
+            }

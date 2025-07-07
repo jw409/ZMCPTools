@@ -162,6 +162,75 @@ class ErrorLoggingService:
         return hashlib.md5(signature.encode()).hexdigest()[:16]
 
     @staticmethod
+    async def get_error_patterns_safe(
+        repository_path: str,
+        min_frequency: int = 2,
+        days_back: int = 30,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        """Get error patterns with MCP-safe session management.
+        
+        This method uses MCP-safe database access patterns to prevent 
+        communication channel conflicts in FastMCP resource handlers.
+        
+        Args:
+            repository_path: Repository path to query
+            min_frequency: Minimum frequency to include
+            days_back: Days to look back
+            limit: Maximum results to return
+            
+        Returns:
+            Dictionary with error patterns
+        """
+        from ..database import mcp_safe_execute_query
+        
+        async def _get_patterns_safe(session):
+            since_time = datetime.now() - timedelta(days=days_back)
+
+            stmt = select(ErrorPattern).where(
+                and_(
+                    ErrorPattern.repository_path == repository_path,
+                    ErrorPattern.frequency >= min_frequency,
+                    ErrorPattern.last_occurrence >= since_time,
+                ),
+            ).order_by(desc(ErrorPattern.frequency)).limit(limit)
+
+            result = await session.execute(stmt)
+            patterns = result.scalars().all()
+
+            pattern_list = []
+            for pattern in patterns:
+                pattern_dict = {
+                    "pattern_id": pattern.id,
+                    "pattern_name": pattern.pattern_name,
+                    "error_signature": pattern.error_signature,
+                    "description": pattern.description,
+                    "typical_causes": pattern.get_typical_causes() if hasattr(pattern, 'get_typical_causes') else [],
+                    "suggested_solutions": pattern.get_suggested_solutions() if hasattr(pattern, 'get_suggested_solutions') else [],
+                    "frequency": pattern.frequency,
+                    "last_occurrence": pattern.last_occurrence.isoformat(),
+                    "confidence_score": pattern.confidence_score if hasattr(pattern, 'confidence_score') else 0.5,
+                }
+                pattern_list.append(pattern_dict)
+
+            return {
+                "patterns": pattern_list,
+                "count": len(pattern_list),
+                "filters": {
+                    "min_frequency": min_frequency,
+                    "days_back": days_back,
+                },
+            }
+        
+        # Use MCP-safe execution with 3 second timeout for fast response
+        try:
+            result = await mcp_safe_execute_query(_get_patterns_safe, timeout=3.0)
+            return result
+        except Exception as e:
+            logger.error("MCP-safe get_error_patterns failed", error=str(e))
+            return {"error": f"Database error: {e}"}
+
+    @staticmethod
     async def get_error_patterns(
         repository_path: str,
         min_frequency: int = 2,
@@ -287,6 +356,104 @@ class ErrorLoggingService:
             }
 
         return await execute_query(_resolve_error)
+
+    @staticmethod
+    async def get_recent_errors_safe(
+        repository_path: str,
+        error_types: list[str] | None = None,
+        severity_filter: list[str] | None = None,
+        status_filter: str = "unresolved",
+        hours_back: int = 24,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        """Get recent errors with MCP-safe session management.
+        
+        This method uses MCP-safe database access patterns to prevent 
+        communication channel conflicts in FastMCP resource handlers.
+        
+        Args:
+            repository_path: Repository path to query
+            error_types: Filter by error types
+            severity_filter: Filter by severity levels
+            status_filter: Filter by resolution status
+            hours_back: Hours to look back
+            limit: Maximum results to return
+            
+        Returns:
+            Dictionary with recent errors
+        """
+        from ..database import mcp_safe_execute_query
+        
+        async def _get_recent_errors_safe(session):
+            since_time = datetime.now() - timedelta(hours=hours_back)
+
+            # Build query
+            stmt = select(ErrorLog).where(
+                and_(
+                    ErrorLog.repository_path == repository_path,
+                    ErrorLog.created_at >= since_time,
+                ),
+            )
+
+            # Add filters
+            if error_types:
+                stmt = stmt.where(ErrorLog.error_type.in_(error_types))
+
+            if severity_filter:
+                stmt = stmt.where(ErrorLog.severity.in_(severity_filter))
+
+            if status_filter:
+                stmt = stmt.where(ErrorLog.resolution_status == status_filter)
+
+            # Order by most recent and severity
+            stmt = stmt.order_by(
+                desc(ErrorLog.created_at),
+                desc(ErrorLog.severity),
+            ).limit(limit)
+
+            result = await session.execute(stmt)
+            errors = result.scalars().all()
+
+            error_list = []
+            for error in errors:
+                error_dict = {
+                    "error_id": error.id,
+                    "agent_id": error.agent_id,
+                    "task_id": error.task_id,
+                    "error_type": error.error_type,
+                    "error_category": error.error_category,
+                    "error_message": error.error_message,
+                    "error_details": error.error_details,
+                    "context": error.get_context() if hasattr(error, 'get_context') else {},
+                    "environment": error.get_environment() if hasattr(error, 'get_environment') else {},
+                    "attempted_solution": error.attempted_solution,
+                    "resolution_status": error.resolution_status,
+                    "resolution_details": error.resolution_details,
+                    "pattern_id": error.pattern_id,
+                    "severity": error.severity,
+                    "created_at": error.created_at.isoformat(),
+                    "resolved_at": error.resolved_at.isoformat() if error.resolved_at else None,
+                }
+                error_list.append(error_dict)
+
+            return {
+                "errors": error_list,
+                "count": len(error_list),
+                "filters": {
+                    "error_types": error_types,
+                    "severity_filter": severity_filter,
+                    "status_filter": status_filter,
+                    "hours_back": hours_back,
+                },
+            }
+        
+        # Use MCP-safe execution with 3 second timeout for fast response
+        try:
+            result = await mcp_safe_execute_query(_get_recent_errors_safe, timeout=3.0)
+            return result
+        except Exception as e:
+            logger.error("MCP-safe get_recent_errors failed", error=str(e))
+            return {"error": f"Database error: {e}"}
 
     @staticmethod
     async def get_recent_errors(

@@ -218,6 +218,102 @@ class TaskService:
         return await execute_query(_update_task)
 
     @staticmethod
+    async def list_tasks_safe(
+        repository_path: str | None = None,
+        status_filter: list[TaskStatus] | None = None,
+        task_type_filter: str | None = None,
+        assigned_agent_filter: str | None = None,
+        include_completed: bool = False,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        """List tasks with MCP-safe session management.
+        
+        This method uses MCP-safe database access patterns to prevent 
+        communication channel conflicts in FastMCP resource handlers.
+        
+        Args:
+            repository_path: Filter by repository path
+            status_filter: Filter by task status
+            task_type_filter: Filter by task type
+            assigned_agent_filter: Filter by assigned agent ID
+            include_completed: Include completed tasks in results
+            limit: Maximum number of tasks to return
+            
+        Returns:
+            Dictionary with tasks list and metadata
+        """
+        from ..database import mcp_safe_execute_query
+        
+        async def _list_tasks_safe(session):
+            # Simplified query to minimize session lifetime - no eager loading
+            stmt = select(Task)
+
+            # Apply filters
+            if repository_path:
+                stmt = stmt.where(Task.repository_path == repository_path)
+
+            if status_filter:
+                stmt = stmt.where(Task.status.in_(status_filter))
+            
+            if task_type_filter:
+                stmt = stmt.where(Task.task_type == task_type_filter)
+            
+            if assigned_agent_filter:
+                stmt = stmt.where(Task.assigned_agent_id == assigned_agent_filter)
+            
+            # Handle include_completed flag
+            if not include_completed:
+                stmt = stmt.where(Task.status != TaskStatus.COMPLETED)
+
+            # Order by priority (desc) and created_at (desc)
+            stmt = stmt.order_by(Task.priority.desc(), Task.created_at.desc())
+
+            # Apply limit
+            stmt = stmt.limit(limit)
+
+            result = await session.execute(stmt)
+            tasks = result.scalars().all()
+
+            task_list = []
+            for task in tasks:
+                task_dict = {
+                    "id": task.id,
+                    "repository_path": task.repository_path,
+                    "task_type": task.task_type,
+                    "status": task.status.value,
+                    "assigned_agent_id": task.assigned_agent_id,
+                    "parent_task_id": task.parent_task_id,
+                    "priority": task.priority,
+                    "description": task.description,
+                    "requirements": task.get_requirements(),
+                    "created_at": task.created_at.isoformat(),
+                    "updated_at": task.updated_at.isoformat(),
+                    "assigned_agent": None,  # Skip expensive agent loading for MCP
+                }
+
+                task_list.append(task_dict)
+
+            return {
+                "tasks": task_list,
+                "count": len(task_list),
+                "filters": {
+                    "repository_path": repository_path,
+                    "status_filter": [s.value for s in status_filter] if status_filter else None,
+                    "task_type_filter": task_type_filter,
+                    "assigned_agent_filter": assigned_agent_filter,
+                    "include_completed": include_completed,
+                },
+            }
+        
+        # Use MCP-safe execution with 3 second timeout for fast response
+        try:
+            result = await mcp_safe_execute_query(_list_tasks_safe, timeout=3.0)
+            return result
+        except Exception as e:
+            logger.error("MCP-safe list_tasks failed", error=str(e))
+            return {"error": f"Database error: {e}"}
+
+    @staticmethod
     async def list_tasks(
         repository_path: str | None = None,
         status_filter: list[TaskStatus] | None = None,

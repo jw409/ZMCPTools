@@ -1177,23 +1177,9 @@ Make sure to make them executable: `chmod +x *.sh`
                         else:
                             existing_settings = {}
                         
-                        # Add hooks configuration - minimal set to avoid interference
-                        hooks_config = {
-                            "hooks": {
-                                "SubagentStop": [
-                                    {
-                                        "matcher": "*",
-                                        "hooks": [{"type": "command", "command": ".claude/hooks/compact-replan.sh"}]
-                                    }
-                                ]
-                            }
-                        }
-                        
-                        # Safely merge hooks configuration with existing settings
-                        merged_settings = safely_merge_claude_settings(existing_settings, hooks_config)
-                        
-                        # Write updated settings
-                        project_settings_file.write_text(json.dumps(merged_settings, indent=2))
+                        # Skip hook configuration to avoid interference with tools
+                        # Hooks configuration disabled to prevent tool execution cancellation
+                        pass
                     
                     elif hook_scope in [HookScope.GLOBAL, HookScope.BOTH] and hook_dir == Path.home() / ".claude" / "hooks":
                         # Global hooks - create settings.json in user's .claude directory
@@ -1206,23 +1192,9 @@ Make sure to make them executable: `chmod +x *.sh`
                         else:
                             existing_settings = {}
                         
-                        # Add global hooks configuration (using absolute paths) - minimal set
-                        hooks_config = {
-                            "hooks": {
-                                "SubagentStop": [
-                                    {
-                                        "matcher": "*",
-                                        "hooks": [{"type": "command", "command": f"{Path.home()}/.claude/hooks/compact-replan.sh"}]
-                                    }
-                                ]
-                            }
-                        }
-                        
-                        # Safely merge hooks configuration with existing settings
-                        merged_settings = safely_merge_claude_settings(existing_settings, hooks_config)
-                        
-                        # Write updated settings
-                        global_settings_file.write_text(json.dumps(merged_settings, indent=2))
+                        # Skip global hook configuration to avoid interference with tools
+                        # Hooks configuration disabled to prevent tool execution cancellation
+                        pass
                 
                 progress.update(task_hooks, advance=1, description="📝 Hook configuration complete")
                 
@@ -1280,9 +1252,30 @@ Make sure to make them executable: `chmod +x *.sh`
 
         # Step 7: Auto-configuration of MCP servers (if requested)
         if auto:
-            task7 = progress.add_task("⚙️ Auto-configuring MCP servers...", total=1)
+            task7 = progress.add_task("⚙️ Auto-configuring MCP servers...", total=3)
 
-            # Configure MCP servers
+            # Step 7a: Clean up existing orchestration processes
+            try:
+                progress.update(task7, description="⚙️ Cleaning up existing orchestration processes...")
+                # Kill existing claude-mcp-orchestration processes
+                subprocess.run([
+                    "pkill", "-f", "claude-mcp-orchestration"
+                ], capture_output=True)  # Don't check=True since process might not exist
+                progress.update(task7, advance=1, description="⚙️ Existing processes cleaned up ✓")
+            except Exception as e:
+                progress.update(task7, advance=1, description=f"⚙️ Process cleanup completed (no existing processes)")
+
+            # Step 7b: Remove existing MCP server entries
+            try:
+                progress.update(task7, description="⚙️ Removing existing MCP server entries...")
+                subprocess.run([
+                    "claude", "mcp", "remove", "claude-mcp-orchestration"
+                ], capture_output=True)  # Don't check=True since server might not exist
+                progress.update(task7, advance=1, description="⚙️ Existing server entries removed ✓")
+            except Exception as e:
+                progress.update(task7, advance=1, description=f"⚙️ Server cleanup completed (no existing entries)")
+
+            # Step 7c: Configure MCP servers
             try:
                 progress.update(task7, description="⚙️ Adding MCP servers...")
                 subprocess.run([

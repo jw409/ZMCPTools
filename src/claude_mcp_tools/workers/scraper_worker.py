@@ -1,15 +1,22 @@
-"""Independent scraper worker process using database-backed job queue."""
+"""Unified scraper worker process with integrated browser management and database-backed job queue."""
 
 import asyncio
+import hashlib
+import random
+import re
 import signal
 import sys
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urljoin, urlparse
 
 import structlog
 import uvloop
+from fake_useragent import UserAgent
+from playwright.async_api import async_playwright, Page, Browser, BrowserContext
 
 # Set up uvloop for performance
 uvloop.install()
@@ -18,7 +25,7 @@ logger = structlog.get_logger("scraper_worker")
 
 
 class ScraperWorker:
-    """Independent worker process for documentation scraping with database-backed coordination."""
+    """Unified worker process for documentation scraping with integrated browser management and database-backed coordination."""
 
     def __init__(self, data_dir: str | Path | None = None, worker_id: str | None = None):
         """Initialize scraper worker.
@@ -37,8 +44,11 @@ class ScraperWorker:
         from ..services.scrape_job_service import ScrapeJobService
         self.job_service = ScrapeJobService(worker_id=self.worker_id)
         
-        # Browser management
-        self.browser_manager = None
+        # Integrated browser management (no external dependencies)
+        self.playwright = None
+        self.browser = None
+        self.browser_context = None
+        self.user_agent = UserAgent(os="Windows")
         self.last_job_time = None
         self.browser_idle_timeout = 300  # 5 minutes
         self.poll_interval = 5  # seconds - increased for database polling
@@ -133,8 +143,8 @@ class ScraperWorker:
     async def process_job(self, job_data: dict):
         """Public interface to process a scraping job.
         
-        This method provides a public interface for the ScraperWorkerThread
-        to call from the orchestration server.
+        This method provides a public interface for external callers
+        (like orchestration threads) to process scraping jobs.
         
         Args:
             job_data: Dictionary containing job parameters
@@ -143,16 +153,25 @@ class ScraperWorker:
                    source_id=job_data.get('source_id', 'unknown'),
                    url=job_data.get('url', 'unknown'))
         
-        # Add job_id if not present (for compatibility with thread interface)
+        # Add job_id if not present (for compatibility with external interfaces)
         if 'job_id' not in job_data:
             import time
-            job_data['job_id'] = f"thread-job-{int(time.time())}"
+            job_data['job_id'] = f"external-job-{int(time.time())}"
             
-        # Call the internal processing method
-        await self._process_job(job_data)
+        # Set as current job for proper cleanup
+        self.current_job = job_data
+        self.current_job_id = job_data['job_id']
+        
+        try:
+            # Call the internal processing method
+            await self._process_job(job_data)
+        finally:
+            # Ensure cleanup happens even if processing fails
+            self.current_job = None
+            self.current_job_id = None
 
     async def _process_job(self, job_data: dict):
-        """Process a scraping job."""
+        """Process a scraping job using integrated browser management."""
         job_id = job_data['job_id']
         source_id = job_data.get('source_id')
         job_params = job_data.get('job_data', {})
@@ -166,18 +185,10 @@ class ScraperWorker:
             # Ensure browser is running
             await self._ensure_browser_running()
             
-            # Import scraper here to avoid circular imports
-            from ..services.documentation_scraper import ThreadPoolDocumentationScraper
-            
-            # Create scraper instance
-            scraper = DocumentationScraper()
-            if not scraper.browser_context:
-                await scraper.initialize()
-            
-            # Execute scraping
-            result = await scraper.scrape_documentation_source(
-                ctx=None,  # No context in worker mode
-                base_url=job_params.get('source_url'),
+            # Execute scraping using integrated browser
+            result = await self._scrape_documentation(
+                url=job_params.get('source_url'),
+                source_id=source_id,
                 crawl_depth=job_params.get('crawl_depth', 3),
                 selectors=job_params.get('selectors'),
                 allow_patterns=job_params.get('allow_patterns'),
@@ -193,7 +204,7 @@ class ScraperWorker:
                 completion_result = await self.job_service.complete_job(
                     job_id, 
                     {
-                        'pages_scraped': result.get('entries_scraped', 0),
+                        'pages_scraped': result.get('pages_scraped', 0),
                         'success': True,
                         'scraped_urls': result.get('scraped_urls', []),
                         'entries': len(result.get('entries', [])),
@@ -204,7 +215,7 @@ class ScraperWorker:
                 logger.info("Scraping job completed successfully", 
                            job_id=job_id,
                            source_id=source_id,
-                           entries_scraped=result.get('entries_scraped', 0),
+                           pages_scraped=result.get('pages_scraped', 0),
                            completion_success=completion_result.get('success', False))
             else:
                 # Mark job as failed
@@ -239,18 +250,79 @@ class ScraperWorker:
             self.current_job_id = None
 
     async def _ensure_browser_running(self):
-        """Ensure browser manager is initialized and running."""
-        if self.browser_manager is None:
-            # Import here to avoid circular imports during module initialization
-            from ..services.documentation_scraper import ThreadPoolDocumentationScraper
-            
+        """Ensure browser is initialized and running."""
+        if self.playwright is None or self.browser_context is None:
             logger.info("Initializing browser for scraping jobs")
-            self.browser_manager = DocumentationScraper()
-            await self.browser_manager.initialize()
+            await self._initialize_browser()
+
+    async def _initialize_browser(self):
+        """Initialize Playwright browser with anti-detection features."""
+        try:
+            # Start Playwright
+            self.playwright = await async_playwright().start()
+            
+            # Create user data directory for persistence
+            user_data_root = self.data_dir / "browser_data"
+            user_data_root.mkdir(parents=True, exist_ok=True)
+            persistent_dir = user_data_root / f"chrome_{self.worker_id}"
+            persistent_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Clean up any stale lock files
+            lock_files = ["SingletonLock", "lockfile", "chrome.lock"]
+            for lock_file in lock_files:
+                lock_path = persistent_dir / lock_file
+                if lock_path.exists():
+                    try:
+                        lock_path.unlink()
+                        logger.debug("Cleaned up stale lock file", path=str(lock_path))
+                    except Exception as e:
+                        logger.warning("Failed to clean lock file", path=str(lock_path), error=str(e))
+            
+            # Browser launch options with anti-detection
+            options = {
+                "headless": True,
+                "viewport": {
+                    "width": random.randint(1280, 1920),
+                    "height": random.randint(720, 1080),
+                },
+                "locale": "en-US",
+                "timezone_id": "America/New_York",
+                "user_agent": self.user_agent.chrome,
+                "args": [
+                    "--no-sandbox",
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--disable-features=VizDisplayCompositor",
+                    "--disable-background-timer-throttling",
+                    "--disable-extensions",
+                    "--disable-plugins",
+                    "--disable-sync",
+                    "--disable-translate",
+                    "--disable-background-networking",
+                    "--disable-default-apps",
+                    "--disable-notifications",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    "--disable-software-rasterizer",
+                ],
+            }
+            
+            # Launch persistent browser context
+            self.browser_context = await self.playwright.chromium.launch_persistent_context(
+                user_data_dir=str(persistent_dir), 
+                **options
+            )
+            
+            logger.info("Browser initialized successfully", worker_id=self.worker_id)
+            
+        except Exception as e:
+            logger.error("Failed to initialize browser", error=str(e))
+            raise
 
     async def _manage_browser_lifecycle(self):
         """Close browser if idle for too long to save resources."""
-        if self.browser_manager and self.last_job_time:
+        if self.browser_context and self.last_job_time:
             idle_time = (datetime.now(timezone.utc) - self.last_job_time).total_seconds()
             
             if idle_time > self.browser_idle_timeout:
@@ -258,12 +330,317 @@ class ScraperWorker:
                            idle_seconds=idle_time)
                 
                 try:
-                    await self.browser_manager.cleanup()
+                    await self._close_browser()
                 except Exception as e:
                     logger.warning("Error closing browser", error=str(e))
+
+    async def _close_browser(self):
+        """Close browser and cleanup resources."""
+        if self.browser_context:
+            try:
+                await self.browser_context.close()
+                self.browser_context = None
+            except Exception as e:
+                logger.warning("Error closing browser context", error=str(e))
+        
+        if self.playwright:
+            try:
+                await self.playwright.stop()
+                self.playwright = None
+            except Exception as e:
+                logger.warning("Error stopping playwright", error=str(e))
+        
+        self.last_job_time = None
+
+    async def _scrape_documentation(
+        self,
+        url: str,
+        source_id: str,
+        selectors: dict[str, str] | None = None,
+        crawl_depth: int = 3,
+        allow_patterns: list[str] | None = None,
+        ignore_patterns: list[str] | None = None,
+        include_subdomains: bool = False,
+    ) -> dict[str, Any]:
+        """Main documentation scraping method with integrated browser management."""
+        start_time = time.time()
+        scraped_urls = set()
+        all_entries = []
+        
+        try:
+            # Normalize the starting URL
+            parsed_url = urlparse(url)
+            base_domain = parsed_url.netloc
+            base_url = f"{parsed_url.scheme}://{base_domain}"
+            
+            logger.info("Starting documentation scraping",
+                       url=url, 
+                       source_id=source_id,
+                       crawl_depth=crawl_depth)
+            
+            # Check existing URLs in database to avoid re-scraping
+            existing_urls = await self._check_existing_urls([url], source_id)
+            
+            # Initialize crawling queue
+            to_crawl = [(url, 0)]  # (url, depth)
+            crawled = set()
+            
+            # Process crawling queue
+            while to_crawl and len(scraped_urls) < 1000:  # Safety limit
+                current_url, depth = to_crawl.pop(0)
                 
-                self.browser_manager = None
-                self.last_job_time = None
+                # Skip if already crawled or too deep
+                if current_url in crawled or depth > crawl_depth:
+                    continue
+                    
+                # Skip if URL doesn't match patterns
+                if not self._should_crawl_url(current_url, base_domain, include_subdomains, allow_patterns, ignore_patterns):
+                    continue
+                
+                # Skip if already exists in database
+                if current_url in existing_urls:
+                    logger.debug("Skipping existing URL", url=current_url)
+                    crawled.add(current_url)
+                    continue
+                
+                # Scrape the page
+                try:
+                    page_result = await self._scrape_single_page(current_url, selectors)
+                    
+                    if page_result:
+                        # Add scraped content
+                        entry = {
+                            "id": str(uuid.uuid4()),
+                            "url": current_url,
+                            "title": page_result.get("title", ""),
+                            "content": page_result.get("content", ""),
+                            "content_hash": self._generate_content_hash(page_result.get("content", "")),
+                        }
+                        all_entries.append(entry)
+                        scraped_urls.add(current_url)
+                        
+                        # Add discovered links to crawl queue
+                        for link in page_result.get("links", []):
+                            if link not in crawled and (link, depth + 1) not in to_crawl:
+                                to_crawl.append((link, depth + 1))
+                        
+                        logger.info("Successfully scraped page",
+                                   url=current_url,
+                                   title=page_result.get("title", "")[:50],
+                                   content_length=len(page_result.get("content", "")))
+                    
+                    crawled.add(current_url)
+                    
+                    # Small delay between requests
+                    await asyncio.sleep(random.uniform(0.5, 1.5))
+                    
+                except Exception as e:
+                    logger.warning("Failed to scrape page", url=current_url, error=str(e))
+                    crawled.add(current_url)
+                    continue
+            
+            duration = time.time() - start_time
+            
+            logger.info("Documentation scraping completed",
+                       source_id=source_id,
+                       pages_scraped=len(scraped_urls),
+                       total_entries=len(all_entries),
+                       duration_seconds=round(duration, 2))
+            
+            return {
+                "success": True,
+                "pages_scraped": len(scraped_urls),
+                "scraped_urls": list(scraped_urls),
+                "entries": all_entries,
+                "duration": duration,
+            }
+            
+        except Exception as e:
+            logger.error("Documentation scraping failed", 
+                        source_id=source_id, 
+                        error=str(e))
+            return {
+                "success": False,
+                "error": str(e),
+                "pages_scraped": len(scraped_urls),
+                "scraped_urls": list(scraped_urls),
+                "entries": all_entries,
+            }
+
+    async def _scrape_single_page(self, url: str, selectors: dict[str, str] | None = None) -> dict[str, Any] | None:
+        """Scrape a single page and extract content."""
+        try:
+            # Create new page for this scraping task
+            page = await self.browser_context.new_page()
+            
+            try:
+                # Navigate to page with timeout
+                await page.goto(url, timeout=30000, wait_until="networkidle")
+                
+                # Wait for content to load
+                await page.wait_for_load_state("networkidle", timeout=15000)
+                
+                # Extract page title
+                title = await page.evaluate("document.title") or ""
+                if not title:
+                    # Try common title selectors
+                    for selector in ["h1", "h2", ".title", ".page-title"]:
+                        try:
+                            element = page.locator(selector).first
+                            if await element.is_visible(timeout=2000):
+                                title = await element.text_content() or ""
+                                if title.strip():
+                                    title = title.strip()
+                                    break
+                        except Exception:
+                            continue
+                
+                # Extract content using selectors or default approach
+                content = ""
+                if selectors and "content" in selectors:
+                    try:
+                        content_element = page.locator(selectors["content"])
+                        if await content_element.first.is_visible(timeout=5000):
+                            content = await content_element.first.text_content() or ""
+                    except Exception:
+                        pass
+                
+                # Fallback to general content extraction
+                if not content:
+                    content = await self._extract_default_content(page)
+                
+                # Extract links for further crawling
+                links = await self._extract_links(page)
+                
+                return {
+                    "title": title.strip(),
+                    "content": content.strip(),
+                    "links": links,
+                }
+                
+            finally:
+                await page.close()
+                
+        except Exception as e:
+            logger.warning("Failed to scrape page", url=url, error=str(e))
+            return None
+
+    async def _extract_default_content(self, page: Page) -> str:
+        """Extract content using default selectors."""
+        content_selectors = [
+            "main",
+            "article", 
+            ".content",
+            ".main-content",
+            "#content",
+            ".documentation",
+            ".docs",
+            "body",
+        ]
+        
+        for selector in content_selectors:
+            try:
+                element = page.locator(selector).first
+                if await element.is_visible(timeout=2000):
+                    content = await element.text_content()
+                    if content and len(content.strip()) > 100:  # Meaningful content
+                        return content.strip()
+            except Exception:
+                continue
+        
+        # Final fallback
+        try:
+            return await page.evaluate("document.body.textContent") or ""
+        except Exception:
+            return ""
+
+    async def _extract_links(self, page: Page) -> list[str]:
+        """Extract links from the page for further crawling."""
+        try:
+            links = await page.evaluate("""
+                () => {
+                    return Array.from(document.querySelectorAll('a[href]'))
+                                .map(a => {
+                                    try {
+                                        return new URL(a.href, window.location.href).href;
+                                    } catch {
+                                        return null;
+                                    }
+                                })
+                                .filter(href => href !== null);
+                }
+            """)
+            return links or []
+        except Exception:
+            return []
+
+    def _should_crawl_url(
+        self, 
+        url: str, 
+        base_domain: str, 
+        include_subdomains: bool,
+        allow_patterns: list[str] | None = None,
+        ignore_patterns: list[str] | None = None
+    ) -> bool:
+        """Check if URL should be crawled based on patterns and domain rules."""
+        try:
+            parsed = urlparse(url)
+            url_domain = parsed.netloc
+            
+            # Check domain restrictions
+            if include_subdomains:
+                if not url_domain.endswith(base_domain):
+                    return False
+            else:
+                if url_domain != base_domain:
+                    return False
+            
+            # Check ignore patterns first
+            if ignore_patterns:
+                for pattern in ignore_patterns:
+                    if re.search(pattern, url):
+                        return False
+            
+            # Check allow patterns if specified
+            if allow_patterns:
+                for pattern in allow_patterns:
+                    if re.search(pattern, url):
+                        return True
+                return False  # No allow pattern matched
+            
+            return True
+            
+        except Exception:
+            return False
+
+    async def _check_existing_urls(self, urls: list[str], source_id: str) -> set[str]:
+        """Check which URLs have already been scraped."""
+        try:
+            from ..database import execute_query
+            from sqlalchemy import select
+            from sqlalchemy.ext.asyncio import AsyncSession
+            from ..models.documentation import ScrapedUrl
+            
+            if not urls:
+                return set()
+            
+            async def _check_urls(session: AsyncSession):
+                stmt = select(ScrapedUrl.normalized_url).where(
+                    ScrapedUrl.source_id == source_id,
+                    ScrapedUrl.normalized_url.in_(urls)
+                )
+                result = await session.execute(stmt)
+                return {row[0] for row in result.fetchall()}
+            
+            return await execute_query(_check_urls)
+            
+        except Exception as e:
+            logger.warning("Failed to check existing URLs", error=str(e))
+            return set()
+
+    def _generate_content_hash(self, content: str) -> str:
+        """Generate content hash for deduplication."""
+        return hashlib.sha256(content.encode('utf-8')).hexdigest()
 
     async def _store_scraping_results(self, source_id: str, result: dict):
         """Store scraping results in database."""
@@ -363,9 +740,9 @@ class ScraperWorker:
                              error=str(e))
         
         # Close browser
-        if self.browser_manager:
+        if self.browser_context or self.playwright:
             try:
-                await self.browser_manager.cleanup()
+                await self._close_browser()
             except Exception as e:
                 logger.warning("Error during browser cleanup", error=str(e))
         

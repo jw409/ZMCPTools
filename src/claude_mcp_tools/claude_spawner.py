@@ -1,214 +1,119 @@
-"""Synchronous Claude CLI spawning without circular import issues."""
+"""Simplified Claude CLI spawning - working version."""
 
 import os
 import subprocess
 from pathlib import Path
-from typing import Any, Generator
+from typing import Any
 
-# Universal core tools available to all agents
-UNIVERSAL_CORE_TOOLS = [
-    # Native Claude tools
-    "Task", "Bash", "Glob", "Grep", "LS", "Read", "Edit", "MultiEdit", "Write", 
-    "WebFetch", "TodoRead", "TodoWrite", "WebSearch", "exit_plan_mode",
+def spawn_claude_sync(
+    workFolder: str, 
+    prompt: str, 
+    session_id: str | None = None, 
+    model: str = "sonnet",
+    allowed_tools: list[str] | None = None,
+    disallowed_tools: list[str] | None = None,
+    max_concurrent: int = 3,
+    enable_logging: bool = False,
+) -> dict[str, Any]:
+    """
+    Simple Claude spawning function based on working 6ff2fb4 version.
+    Fire-and-forget approach with basic subprocess.Popen and log files.
     
-    # Universal MCP tools - Communication
-    "mcp__claude-mcp-orchestration__join_room",
-    "mcp__claude-mcp-orchestration__send_message",
-    "mcp__claude-mcp-orchestration__get_messages",
-    "mcp__claude-mcp-orchestration__wait_for_messages",
-    
-    # Universal MCP tools - Unified Memory System
-    "mcp__claude-mcp-orchestration__store_memory",
-    "mcp__claude-mcp-orchestration__search_memory",
-    
-    # Universal MCP tools - Documentation
-    "mcp__claude-mcp-orchestration__search_documentation",
-    
-    # Universal MCP tools - File Operations
-    "mcp__claude-mcp-orchestration__easy_replace",
-    "mcp__claude-mcp-orchestration__easy_replace_all",
-    "mcp__claude-mcp-orchestration__list_files",
-    "mcp__claude-mcp-orchestration__find_files",
-    
-    # Universal MCP tools - Basic Analysis
-    "mcp__claude-mcp-orchestration__analyze_project_structure",
-    "mcp__claude-mcp-orchestration__generate_project_summary",
-]
-
-# Function-based agent tool profiles 
-AGENT_TOOL_PROFILES = {
-    "general-agent": {
-        "allowed_tools": None,  # Full access to all tools
-        "description": "General purpose agent with access to all tools for complex/undefined tasks"
-    },
-    "research-agent": {
-        "allowed_tools": UNIVERSAL_CORE_TOOLS + [
-            "mcp__claude-mcp-orchestration__scrape_documentation",
-            "mcp__claude-mcp-orchestration__analyze_documentation_changes",
-            "mcp__claude-mcp-orchestration__link_docs_to_code",
-            "mcp__claude-mcp-orchestration__update_documentation",
-        ],
-        "description": "Information gathering, documentation research, and web scraping"
-    },
-    "bug-fixing-agent": {
-        "allowed_tools": UNIVERSAL_CORE_TOOLS + [
-            "mcp__claude-mcp-orchestration__detect_dead_code",
-            "mcp__claude-mcp-orchestration__analyze_file_symbols",
-            "mcp__claude-mcp-orchestration__get_error_patterns",
-            "mcp__claude-mcp-orchestration__get_recent_errors",
-            "mcp__claude-mcp-orchestration__resolve_error",
-            "mcp__claude-mcp-orchestration__log_error",
-        ],
-        "description": "Debugging, error analysis, and issue resolution"
-    },
-    "implementation-agent": {
-        "allowed_tools": UNIVERSAL_CORE_TOOLS + [
-            "mcp__claude-mcp-orchestration__update_treesummary_incremental",
-            "mcp__claude-mcp-orchestration__watch_project_changes",
-        ],
-        "description": "Feature development and code implementation"
-    },
-    "testing-agent": {
-        "allowed_tools": UNIVERSAL_CORE_TOOLS + [
-            "mcp__claude-mcp-orchestration__take_screenshot",
-            "mcp__claude-mcp-orchestration__get_system_status",
-            "mcp__claude-mcp-orchestration__cleanup_orphaned_projects",
-        ],
-        "description": "Quality assurance, testing, and validation"
-    },
-    "coordination-agent": {
-        "allowed_tools": UNIVERSAL_CORE_TOOLS + [
-            "mcp__claude-mcp-orchestration__spawn_agent",
-            "mcp__claude-mcp-orchestration__spawn_agents_batch",
-            "mcp__claude-mcp-orchestration__list_agents",
-            "mcp__claude-mcp-orchestration__get_agent_status",
-            "mcp__claude-mcp-orchestration__terminate_agent",
-            "mcp__claude-mcp-orchestration__broadcast_message",
-            "mcp__claude-mcp-orchestration__orchestrate_objective",
-            "mcp__claude-mcp-orchestration__create_task",
-            "mcp__claude-mcp-orchestration__assign_task",
-            "mcp__claude-mcp-orchestration__list_tasks",
-        ],
-        "description": "Multi-agent orchestration and workflow management"
-    },
-    "documentation-agent": {
-        "allowed_tools": UNIVERSAL_CORE_TOOLS + [
-            "mcp__claude-mcp-orchestration__scrape_documentation",
-            "mcp__claude-mcp-orchestration__update_documentation",
-            "mcp__claude-mcp-orchestration__analyze_documentation_changes",
-            "mcp__claude-mcp-orchestration__link_docs_to_code",
-        ],
-        "description": "Documentation creation and maintenance"
-    },
-    "analysis-agent": {
-        "allowed_tools": UNIVERSAL_CORE_TOOLS + [
-            "mcp__claude-mcp-orchestration__detect_dead_code",
-            "mcp__claude-mcp-orchestration__analyze_file_symbols",
-            "mcp__claude-mcp-orchestration__update_treesummary_incremental",
-            "mcp__claude-mcp-orchestration__get_tool_call_history",
-        ],
-        "description": "Code analysis, metrics, and insights"
-    },
-    
-    # Alternative agent names
-    "analyzer": {
-        "allowed_tools": UNIVERSAL_CORE_TOOLS + [
-            "mcp__claude-mcp-orchestration__detect_dead_code",
-            "mcp__claude-mcp-orchestration__analyze_file_symbols",
-            "mcp__claude-mcp-orchestration__update_treesummary_incremental",
-            "mcp__claude-mcp-orchestration__get_tool_call_history",
-        ],
-        "description": "Code analysis, metrics, and insights"
-    },
-    "implementer": {
-        "allowed_tools": UNIVERSAL_CORE_TOOLS + [
-            "mcp__claude-mcp-orchestration__update_treesummary_incremental",
-            "mcp__claude-mcp-orchestration__watch_project_changes",
-        ],
-        "description": "Feature development and code implementation"
-    },
-    "reviewer": {
-        "allowed_tools": UNIVERSAL_CORE_TOOLS + [
-            "mcp__claude-mcp-orchestration__analyze_file_symbols",
-        ],
-        "description": "Code review focused agent"
-    },
-    "tester": {
-        "allowed_tools": UNIVERSAL_CORE_TOOLS + [
-            "mcp__claude-mcp-orchestration__take_screenshot",
-            "mcp__claude-mcp-orchestration__get_system_status",
-            "mcp__claude-mcp-orchestration__cleanup_orphaned_projects",
-        ],
-        "description": "Quality assurance, testing, and validation"
-    },
-    "coordinator": {
-        "allowed_tools": UNIVERSAL_CORE_TOOLS + [
-            "mcp__claude-mcp-orchestration__spawn_agent",
-            "mcp__claude-mcp-orchestration__spawn_agents_batch",
-            "mcp__claude-mcp-orchestration__list_agents",
-            "mcp__claude-mcp-orchestration__get_agent_status",
-            "mcp__claude-mcp-orchestration__terminate_agent",
-            "mcp__claude-mcp-orchestration__broadcast_message",
-            "mcp__claude-mcp-orchestration__orchestrate_objective",
-        ],
-        "description": "Multi-agent orchestration and workflow management"
-    },
-    "documentation": {
-        "allowed_tools": UNIVERSAL_CORE_TOOLS + [
-            "mcp__claude-mcp-orchestration__scrape_documentation",
-            "mcp__claude-mcp-orchestration__update_documentation",
-            "mcp__claude-mcp-orchestration__analyze_documentation_changes",
-            "mcp__claude-mcp-orchestration__link_docs_to_code",
-            "mcp__claude-mcp-orchestration__get_scraping_status",
-            "mcp__claude-mcp-orchestration__watch_scraping_progress",
-            "mcp__claude-mcp-orchestration__take_screenshot",
-        ],
-        "description": "Documentation creation, maintenance, and progress monitoring"
-    },
-    "architect": {
-        "allowed_tools": UNIVERSAL_CORE_TOOLS + [
-            # Agent orchestration tools
-            "mcp__claude-mcp-orchestration__spawn_agent",
-            "mcp__claude-mcp-orchestration__spawn_agents_batch", 
-            "mcp__claude-mcp-orchestration__list_agents",
-            "mcp__claude-mcp-orchestration__get_agent_status",
-            "mcp__claude-mcp-orchestration__terminate_agent",
-            "mcp__claude-mcp-orchestration__broadcast_message",
-            
-            # Task management tools
-            "mcp__claude-mcp-orchestration__create_task",
-            "mcp__claude-mcp-orchestration__create_task_batch",
-            "mcp__claude-mcp-orchestration__assign_task",
-            "mcp__claude-mcp-orchestration__get_task_status",
-            "mcp__claude-mcp-orchestration__list_tasks",
-            
-            # Advanced analysis tools
-            "mcp__claude-mcp-orchestration__analyze_file_symbols",
-            "mcp__claude-mcp-orchestration__update_treesummary_incremental",
-            "mcp__claude-mcp-orchestration__get_tool_call_history",
-            
-            # Documentation tools for research
-            "mcp__claude-mcp-orchestration__scrape_documentation",
-            "mcp__claude-mcp-orchestration__update_documentation",
-            "mcp__claude-mcp-orchestration__analyze_documentation_changes",
-            "mcp__claude-mcp-orchestration__link_docs_to_code",
-        ],
-        "description": "Architecture and orchestration agent with full coordination capabilities"
-    },
-    "master": {
-        "allowed_tools": None,  # Full access
-        "description": "Full tool access for orchestration"
-    }
-}
-
-
-def get_agent_tool_profile(agent_type: str) -> dict[str, Any]:
-    """Get predefined tool profile for agent type."""
-    profile = AGENT_TOOL_PROFILES.get(agent_type.lower())
-    if not profile:
-        # Default to analyzer profile for unknown types
-        return AGENT_TOOL_PROFILES["analyzer"]
-    return profile
+    Args:
+        workFolder: Working directory for Claude
+        prompt: Prompt to send to Claude
+        session_id: Session ID (kept for compatibility, not used)
+        model: Model to use (default: sonnet)
+        allowed_tools: List of allowed tools to pass to Claude CLI
+        disallowed_tools: List of disallowed tools to pass to Claude CLI
+        max_concurrent: Max concurrent processes (not used in simple version)
+        enable_logging: Whether to enable logging (always enabled in simple version)
+    """
+    try:
+        # Ensure workFolder exists
+        Path(workFolder).mkdir(parents=True, exist_ok=True)
+        
+        # Build basic claude command
+        cmd = [
+            "claude",
+            "--dangerously-skip-permissions",
+            "--model", model,
+            "-p", prompt
+        ]
+        
+        # Add tool restrictions if specified
+        if allowed_tools:
+            # Claude CLI expects comma or space-separated list of tool names
+            tools_str = " ".join(allowed_tools)
+            cmd.extend(["--allowedTools", tools_str])
+        
+        if disallowed_tools:
+            # Claude CLI expects comma or space-separated list of tool names
+            tools_str = " ".join(disallowed_tools)
+            cmd.extend(["--disallowedTools", tools_str])
+        
+        # Note: Claude CLI doesn't support --session-id flag in current version
+        # if session_id:
+        #     cmd.extend(["--session-id", session_id])
+        
+        # Set up log file paths
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Create log directory
+        log_dir = Path.home() / ".mcptools" / "agents" / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create log file paths
+        stdout_log = log_dir / f"claude_stdout_{timestamp}.log"
+        stderr_log = log_dir / f"claude_stderr_{timestamp}.log"
+        
+        # Open log files
+        stdout_file = open(stdout_log, 'w')
+        stderr_file = open(stderr_log, 'w')
+        
+        # Set up environment with startup overhead disabled for sub-processes
+        env = os.environ.copy()
+        env.update({
+            # Skip startup diagnostics for sub-processes to prevent hangs
+            "MCPTOOLS_SERVER_STARTUP_DIAGNOSTICS": "false",
+            # Skip documentation bootstrap for sub-processes
+            "MCPTOOLS_DOCUMENTATION_AUTO_BOOTSTRAP": "false",
+            "MCPTOOLS_DOCUMENTATION_BOOTSTRAP_ON_STARTUP": "false",
+            # Disable health checks for faster startup
+            "MCPTOOLS_SERVER_HEALTH_CHECKS": "false",
+        })
+        
+        # Start the process with log file redirection and optimized environment
+        process = subprocess.Popen(
+            cmd,
+            cwd=workFolder,
+            stdout=stdout_file,
+            stderr=stderr_file,
+            env=env,
+            text=True
+        )
+        
+        # Return immediately (fire-and-forget)
+        return {
+            "success": True,
+            "pid": process.pid,
+            "command": " ".join(cmd),
+            "working_directory": workFolder,
+            "stdout_log": str(stdout_log),
+            "stderr_log": str(stderr_log),
+            "session_id": session_id,  # Note: Not actually passed to CLI
+            "model": model,
+            "process": process,  # Include process for compatibility
+            "log_file_path": str(stdout_log),  # For compatibility
+        }
+        
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Failed to spawn Claude CLI: {str(e)}",
+            "pid": None
+        }
 
 
 def spawn_claude_with_profile(
@@ -220,270 +125,127 @@ def spawn_claude_with_profile(
     custom_tools: list[str] | None = None,
     enable_logging: bool = False,
 ) -> dict[str, Any]:
-    """Spawn Claude with predefined tool profile based on agent type."""
-    profile = get_agent_tool_profile(agent_type)
+    """Spawn Claude with predefined tool profile based on agent type.
     
-    # Use custom tools if provided, otherwise use profile tools
-    allowed_tools = custom_tools if custom_tools else profile["allowed_tools"]
-    
+    This is a compatibility function that calls spawn_claude_sync.
+    Tool profiles are not implemented in the simplified version.
+    """
     return spawn_claude_sync(
         workFolder=workFolder,
         prompt=prompt,
         session_id=session_id,
         model=model,
-        allowed_tools=allowed_tools,
-        disallowed_tools=None,
-        max_concurrent=3,
+        allowed_tools=custom_tools,
         enable_logging=enable_logging
     )
 
 
+def get_agent_tool_profile(agent_type: str) -> dict[str, Any]:
+    """Get predefined tool profile for agent type.
+    
+    Simplified version returns basic profile for all agent types.
+    """
+    return {
+        "allowed_tools": None,  # Full access in simplified version
+        "description": f"Simplified agent profile for {agent_type}"
+    }
+
+
+def get_process_status(pid: int) -> dict[str, Any]:
+    """Check if a process is still running."""
+    try:
+        import psutil
+        if psutil.pid_exists(pid):
+            process = psutil.Process(pid)
+            return {
+                "running": True,
+                "status": process.status(),
+                "cpu_percent": process.cpu_percent(),
+                "memory_info": process.memory_info()._asdict() if hasattr(process.memory_info(), '_asdict') else None
+            }
+        else:
+            return {"running": False}
+    except ImportError:
+        # Fallback if psutil not available
+        try:
+            os.kill(pid, 0)  # Send signal 0 to check if process exists
+            return {"running": True, "status": "unknown"}
+        except OSError:
+            return {"running": False}
+    except Exception as e:
+        return {"running": False, "error": str(e)}
+
+
+def read_log_file(log_path: str, lines: int = 50) -> str:
+    """Read the last N lines from a log file."""
+    try:
+        with open(log_path, 'r') as f:
+            all_lines = f.readlines()
+            return ''.join(all_lines[-lines:])
+    except Exception as e:
+        return f"Error reading log file: {str(e)}"
+
+
+def kill_process(pid: int) -> dict[str, Any]:
+    """Terminate a process by PID."""
+    try:
+        import signal
+        os.kill(pid, signal.SIGTERM)
+        return {"success": True, "message": f"Sent SIGTERM to process {pid}"}
+    except Exception as e:
+        try:
+            os.kill(pid, signal.SIGKILL)
+            return {"success": True, "message": f"Sent SIGKILL to process {pid}"}
+        except Exception as e2:
+            return {"success": False, "error": f"Failed to kill process {pid}: {str(e2)}"}
+
+
+# Legacy compatibility functions (these existed in the complex version)
 def test_claude_command(
     workFolder: str,
     prompt: str,
     session_id: str | None = None,
     model: str = "sonnet",
-) -> Generator[str, None, None]:
-    """Test Claude CLI command with realtime output."""
-    try:
-        # Ensure workFolder exists
-        Path(workFolder).mkdir(parents=True, exist_ok=True)
-        
-        # Build claude command
-        cmd = [
-            "claude",
-            "--dangerously-skip-permissions",
-            "--model", model,
-            "-p",
-        ]
-        
-        if session_id:
-            cmd.extend(["--session-id", session_id])
-        
-        # Add prompt at the end
-        cmd.append(prompt)
-        
-        # Set up environment
-        env = os.environ.copy()
-        
-        # Start the process with realtime output
-        process = subprocess.Popen(
-            cmd,
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            cwd=workFolder,
-            text=True,
-            bufsize=1,
-            universal_newlines=True
-        )
-        
-        # Read output in real-time
-        while True:
-            if not process.stdout:
-                yield "No stdout available from process"
-                break
-            output = process.stdout.readline()
-            if output == '' and process.poll() is not None:
-                break
-            if output:
-                yield output.strip()
-        
-        # Check for errors
-        if process.returncode != 0:
-            if not process.stderr:
-                yield "No stderr available from process"
-                return
-            stderr_output = process.stderr.read()
-            if stderr_output:
-                yield f"ERROR: {stderr_output}"
-        
-    except Exception as e:
-        yield f"EXCEPTION: {str(e)}"
+):
+    """Test Claude CLI command - simplified version just calls spawn_claude_sync."""
+    result = spawn_claude_sync(workFolder, prompt, session_id, model)
+    if result["success"]:
+        yield f"Process started with PID: {result['pid']}"
+        yield f"Command: {result['command']}"
+        yield f"Logs: {result['stdout_log']}"
+    else:
+        yield f"Error: {result['error']}"
 
 
-def spawn_claude_sync(
-    workFolder: str,
-    prompt: str,
-    session_id: str | None = None,
-    model: str = "sonnet",
-    allowed_tools: list[str] | None = None,
-    disallowed_tools: list[str] | None = None,
-    max_concurrent: int = 3,
-    enable_logging: bool = False,
-) -> dict[str, Any]:
-    """Spawn Claude CLI directly with bypassed permissions - no file logging."""
-    try:
-        # Ensure workFolder exists
-        Path(workFolder).mkdir(parents=True, exist_ok=True)
-        
-        # Build claude command
-        cmd = [
-            "claude",
-            "--dangerously-skip-permissions",
-            "--model", model,
-        ]
-        
-        if session_id:
-            cmd.extend(["--session-id", session_id])
-        
-        # Add tool filtering if specified (correct format per Claude CLI docs)
-        if allowed_tools:
-            cmd.append("--allowedTools")
-            # Add each tool as a separate argument (no quotes needed in subprocess)
-            cmd.extend(allowed_tools)
-        
-        if disallowed_tools:
-            cmd.append("--disallowedTools")
-            # Add each tool as a separate argument (no quotes needed in subprocess)
-            cmd.extend(disallowed_tools)
-        
-        # Add prompt with -p flag
-        cmd.extend(["-p", prompt])
-        
-        # Set up environment (preserve parent environment)
-        env = os.environ.copy()
-        
-        # Start the process with pipes for real-time monitoring
-        process = subprocess.Popen(
-            cmd,
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            cwd=workFolder,
-            text=True,
-            bufsize=1,
-            universal_newlines=True
-        )
-        
-        # Setup logging if enabled
-        log_file_path = None
-        if enable_logging:
-            import datetime
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            log_file_path = f"/tmp/claude_agent_{process.pid}_{timestamp}.log"
-        
-        # Return immediately with process object for monitoring
-        return {
-            "success": True,
-            "pid": process.pid,
-            "command": cmd,
-            "working_directory": workFolder,
-            "process": process,  # Return process object for real-time monitoring
-            "log_file_path": log_file_path,
-        }
-        
-    except Exception as e:
-        return {
-            "success": False,
-            "error": f"Failed to spawn Claude CLI: {str(e)}",
-            "pid": None,
-        }
+def monitor_agent_output(process: subprocess.Popen, log_file_path: str | None = None):
+    """Monitor agent output - simplified version just yields basic info."""
+    yield f"Monitoring process {process.pid}"
+    if log_file_path:
+        yield f"Logs available at: {log_file_path}"
+    yield "Monitor completed"
 
 
-def monitor_agent_output(process: subprocess.Popen, log_file_path: str | None = None) -> Generator[str, None, None]:
-    """Monitor agent output in real-time with optional logging to file."""
-    import structlog
-    logger = structlog.get_logger("claude_spawner")
-    log_file = None
+# Example usage
+if __name__ == "__main__":
+    # Simple test
+    result = spawn_claude_sync(
+        workFolder="/tmp/test_claude",
+        prompt="List files in current directory",
+        session_id="test-session",
+        model="sonnet"
+    )
     
-    try:
-        if log_file_path:
-            try:
-                log_file = open(log_file_path, 'w')
-                logger.info(f"Agent output logging to: {log_file_path}")
-            except Exception as e:
-                logger.warning(f"Failed to open log file {log_file_path}: {e}")
+    if result["success"]:
+        print(f"✅ Spawned Claude process with PID: {result['pid']}")
+        print(f"📁 Working directory: {result['working_directory']}")
+        print(f"📄 Stdout log: {result['stdout_log']}")
+        print(f"📄 Stderr log: {result['stderr_log']}")
         
+        # Check status after a moment
         import time
-        start_time = time.time()
-        timeout = 300  # 5 minute timeout for monitoring
+        time.sleep(2)
+        status = get_process_status(result["pid"])
+        print(f"🔍 Process status: {status}")
         
-        while True:
-            # Check for timeout to prevent hanging
-            if time.time() - start_time > timeout:
-                logger.warning(f"Monitor timeout after {timeout}s, terminating process {process.pid}")
-                try:
-                    process.terminate()
-                    process.wait(timeout=10)  # Wait up to 10s for graceful termination
-                except Exception:
-                    try:
-                        process.kill()  # Force kill if terminate fails
-                    except Exception:
-                        pass
-                yield f"MONITOR_TIMEOUT: Process monitoring timed out after {timeout}s"
-                break
-            
-            if not process.stdout:
-                yield "No stdout available from process"
-                break
-            
-            output = process.stdout.readline()
-            if output == '' and process.poll() is not None:
-                break
-            if output:
-                output_line = output.strip()
-                yield output_line
-                
-                # Log to file if available
-                if log_file:
-                    try:
-                        log_file.write(f"{output_line}\n")
-                        log_file.flush()
-                    except Exception as file_error:
-                        logger.warning(f"Failed to write to log file: {file_error}")
-                
-                # Log important messages
-                if any(keyword in output_line.lower() for keyword in ['error', 'exception', 'failed', 'crash']):
-                    logger.error(f"Agent error output: {output_line}")
-                elif any(keyword in output_line.lower() for keyword in ['completed', 'finished', 'done']):
-                    logger.info(f"Agent completion: {output_line}")
-            
-            # Small delay to prevent busy waiting
-            time.sleep(0.01)
-        
-        # Check for errors
-        if process.returncode != 0:
-            if not process.stderr:
-                yield "No stderr available from process"
-                return
-            stderr_output = process.stderr.read()
-            if stderr_output:
-                error_msg = f"ERROR: {stderr_output}"
-                yield error_msg
-                logger.error(f"Agent stderr: {stderr_output}")
-                if log_file:
-                    log_file.write(f"{error_msg}\n")
-        
-        # Log final status
-        logger.info(f"Agent process finished with return code: {process.returncode}")
-        if log_file:
-            try:
-                log_file.write(f"PROCESS_FINISHED: return_code={process.returncode}\n")
-            except Exception:
-                pass
-                
-    except Exception as e:
-        error_msg = f"MONITOR_EXCEPTION: {str(e)}"
-        yield error_msg
-        logger.error(f"Monitor exception: {str(e)}", exc_info=True)
-        
-        # Try to cleanup the process if it's still running
-        try:
-            if process.poll() is None:  # Process still running
-                logger.warning("Terminating orphaned process due to monitor exception")
-                process.terminate()
-                process.wait(timeout=5)
-        except Exception:
-            try:
-                process.kill()
-            except Exception:
-                pass
-    
-    finally:
-        # Ensure log file is always closed
-        if log_file:
-            try:
-                log_file.close()
-            except Exception:
-                pass
+    else:
+        print(f"❌ Failed to spawn Claude: {result['error']}")

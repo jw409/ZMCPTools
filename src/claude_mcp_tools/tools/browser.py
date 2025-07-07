@@ -7,7 +7,7 @@ import structlog
 from pydantic import Field
 from markdownify import markdownify
 
-from ..services.documentation_scraper import ThreadPoolDocumentationScraper
+# Note: Updated to use web_scraper for browser functionality
 from .app import app
 
 logger = structlog.get_logger("tools.browser")
@@ -31,7 +31,11 @@ async def go_to_url(
 ) -> dict[str, Any]:
     """Navigate to a URL and confirm successful loading."""
     try:
-        scraper = DocumentationScraper(headless=False)
+        # TODO: Update to use unified browser management
+        return {
+            "success": False,
+            "error": "Browser tools temporarily disabled during unified scraper migration"
+        }
         await scraper.initialize()
         
         page = await scraper.new_page()
@@ -104,7 +108,11 @@ async def take_screenshot(
 ) -> dict[str, Any]:
     """Take a screenshot of a webpage."""
     try:
-        scraper = DocumentationScraper(headless=False)
+        # TODO: Update to use unified browser management
+        return {
+            "success": False,
+            "error": "Browser tools temporarily disabled during unified scraper migration"
+        }
         await scraper.initialize()
         
         page = await scraper.new_page()
@@ -180,7 +188,11 @@ async def get_page_html(
 ) -> dict[str, Any]:
     """Extract raw HTML content from a webpage."""
     try:
-        scraper = DocumentationScraper(headless=False)
+        # TODO: Update to use unified browser management
+        return {
+            "success": False,
+            "error": "Browser tools temporarily disabled during unified scraper migration"
+        }
         await scraper.initialize()
         
         page = await scraper.new_page()
@@ -279,7 +291,11 @@ async def get_page_markdown(
 ) -> dict[str, Any]:
     """Convert webpage content to clean markdown format."""
     try:
-        scraper = DocumentationScraper(headless=False)
+        # TODO: Update to use unified browser management
+        return {
+            "success": False,
+            "error": "Browser tools temporarily disabled during unified scraper migration"
+        }
         await scraper.initialize()
         
         page = await scraper.new_page()

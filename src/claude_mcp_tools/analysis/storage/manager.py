@@ -135,18 +135,27 @@ class ProjectStorageManager:
     async def _atomic_write(self, file_path: Path):
         """Context manager for atomic file writes."""
         temp_file = file_path.with_suffix(f"{file_path.suffix}.tmp")
+        file_handle = None
         try:
             # Ensure parent directory exists
             file_path.parent.mkdir(parents=True, exist_ok=True)
-
-            async with aiofiles.open(temp_file, "w") as f:
-                yield f
-
-            # Atomic move
+            
+            # Open file handle outside of yield to prevent cancellation issues
+            file_handle = await aiofiles.open(temp_file, "w")
+            
+            try:
+                # Yield outside of resource management context to prevent cancellation bugs
+                yield file_handle
+            finally:
+                # Ensure file handle is always closed
+                if file_handle:
+                    await file_handle.close()
+            
+            # Atomic move after file is closed
             await aiofiles.os.rename(str(temp_file), str(file_path))
 
         except Exception:
-            # Cleanup temp file on error
+            # Cleanup temp file on error or cancellation
             if temp_file.exists():
                 await aiofiles.os.unlink(str(temp_file))
             raise

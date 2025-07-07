@@ -7,6 +7,8 @@ import structlog
 from mcp.types import Notification, ToolListChangedNotification, ProgressNotification
 from fastmcp import MessageHandler, Context
 
+from .utils.ctx_utils import safe_ctx_call
+
 logger = structlog.get_logger("message_handler")
 
 
@@ -194,12 +196,14 @@ class ProgressTracker:
         
         # Send progress via context if available
         if ctx:
-            try:
-                await ctx.info(f"{op['name']}: {percentage:.1f}% ({current}/{op['total']})")
-                if message:
-                    await ctx.debug(f"Progress detail: {message}")
-            except Exception as e:
-                await logger.awarn(f"Failed to send progress via context: {e}")
+            info_result = await safe_ctx_call(ctx.info, f"{op['name']}: {percentage:.1f}% ({current}/{op['total']})")
+            if info_result is None:
+                await logger.awarn("Failed to send progress info via context: connection closed")
+            
+            if message:
+                debug_result = await safe_ctx_call(ctx.debug, f"Progress detail: {message}")
+                if debug_result is None:
+                    await logger.awarn("Failed to send progress debug via context: connection closed")
     
     async def complete_operation(self, operation_id: str, ctx: Context | None = None) -> None:
         """Mark an operation as completed."""
@@ -223,10 +227,9 @@ class ProgressTracker:
         )
         
         if ctx:
-            try:
-                await ctx.info(f"✅ {op['name']} completed in {duration}")
-            except Exception as e:
-                await logger.awarn(f"Failed to send completion via context: {e}")
+            result = await safe_ctx_call(ctx.info, f"✅ {op['name']} completed in {duration}")
+            if result is None:
+                await logger.awarn("Failed to send completion via context: connection closed")
     
     async def fail_operation(self, operation_id: str, error: str, ctx: Context | None = None) -> None:
         """Mark an operation as failed."""
@@ -246,10 +249,9 @@ class ProgressTracker:
         )
         
         if ctx:
-            try:
-                await ctx.error(f"❌ {op['name']} failed: {error}")
-            except Exception as e:
-                await logger.awarn(f"Failed to send error via context: {e}")
+            result = await safe_ctx_call(ctx.error, f"❌ {op['name']} failed: {error}")
+            if result is None:
+                await logger.awarn("Failed to send error via context: connection closed")
 
 
 # Global progress tracker instance
@@ -262,10 +264,9 @@ async def start_progress(name: str, total: int = 100, ctx: Context | None = None
     operation_id = progress_tracker.start_operation(name, total)
     
     if ctx:
-        try:
-            await ctx.info(f"🚀 Starting: {name}")
-        except Exception as e:
-            await logger.awarn(f"Failed to send start message via context: {e}")
+        result = await safe_ctx_call(ctx.info, f"🚀 Starting: {name}")
+        if result is None:
+            await logger.awarn("Failed to send start message via context: connection closed")
     
     return operation_id
 
