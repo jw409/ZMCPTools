@@ -154,6 +154,7 @@ export const websites = sqliteTable("websites", {
   name: text("name").notNull(), // User-friendly name/title
   domain: text("domain").notNull().unique(), // Just domain.tld (unique)
   metaDescription: text("metaDescription"), // Optional or generated description
+  sitemapData: text("sitemapData"), // JSON string containing parsed sitemap data
   createdAt: text("createdAt").notNull().default("CURRENT_TIMESTAMP"),
   updatedAt: text("updatedAt").notNull().default("CURRENT_TIMESTAMP"),
 });
@@ -308,6 +309,7 @@ export type Website = {
   name: string;
   domain: string;
   metaDescription?: string;
+  sitemapData?: string;
   createdAt: string;
   updatedAt: string;
 };

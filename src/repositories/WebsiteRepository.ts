@@ -11,6 +11,7 @@ import {
   type WebsiteUpdate 
 } from "../schemas/scraping.js";
 import { randomUUID } from "crypto";
+import type { SitemapResult } from "../utils/sitemapParser.js";
 
 export class WebsiteRepository extends BaseRepository<
   typeof websites,
@@ -154,6 +155,34 @@ export class WebsiteRepository extends BaseRepository<
       // Fallback to basic string manipulation
       const match = url.match(/^https?:\/\/([^\/]+)/);
       return match ? match[1] : url;
+    }
+  }
+
+  async updateSitemapData(id: string, sitemapData: SitemapResult): Promise<Website | null> {
+    try {
+      const sitemapJson = JSON.stringify(sitemapData);
+      
+      return await this.update(id, {
+        sitemapData: sitemapJson,
+        updatedAt: new Date().toISOString()
+      });
+    } catch (error) {
+      this.logger.error("Failed to update sitemap data", { error, id });
+      throw error;
+    }
+  }
+
+  async getSitemapData(id: string): Promise<SitemapResult | null> {
+    try {
+      const website = await this.findById(id);
+      if (!website || !website.sitemapData) {
+        return null;
+      }
+
+      return JSON.parse(website.sitemapData) as SitemapResult;
+    } catch (error) {
+      this.logger.error("Failed to get sitemap data", { error, id });
+      return null;
     }
   }
 }

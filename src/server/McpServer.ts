@@ -96,8 +96,6 @@ export class McpServer {
     const memoryService = new MemoryService(this.db);
     const webScrapingService = new WebScrapingService(
       this.db,
-      agentService,
-      memoryService,
       this.repositoryPath
     );
     

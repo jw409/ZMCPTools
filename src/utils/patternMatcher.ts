@@ -186,13 +186,17 @@ PLAIN STRING PATTERNS:
 
 EXAMPLES:
 Allow patterns:
-- "*/docs/*" - Allow any URL with /docs/ in the path
+- "**/docs/**" - Allow any URL with /docs/ in the path (for full URLs)
+- "*/docs/*" - Allow relative paths with /docs/ (for paths without protocol)
+- "https://example.com/docs/**" - Allow specific domain docs
 - "*.html" - Allow any HTML file
 - "/api\\/v[0-9]+\\/.*/" - Allow versioned API URLs (regex)
 - "documentation" - Allow URLs containing "documentation"
 
 Ignore patterns:
-- "*/private/*" - Ignore private sections
+- "**/private/**" - Ignore private sections (for full URLs)
+- "**/blog/**" - Ignore blog sections (for full URLs)
+- "*/private/*" - Ignore private sections (for paths without protocol)
 - "*.pdf" - Ignore PDF files
 - "/login|admin|auth/" - Ignore auth-related pages (regex)
 - "example.com" - Ignore any URL containing "example.com"

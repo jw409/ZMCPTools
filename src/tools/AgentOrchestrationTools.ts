@@ -33,8 +33,6 @@ export class AgentOrchestrationTools {
     this.memoryService = new MemoryService(db);
     this.webScrapingService = new WebScrapingService(
       db,
-      this.agentService,
-      this.memoryService,
       repositoryPath
     );
   }

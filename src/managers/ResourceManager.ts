@@ -46,8 +46,6 @@ export class ResourceManager {
     this.memoryService = new MemoryService(this.db);
     this.webScrapingService = new WebScrapingService(
       this.db,
-      this.agentService,
-      this.memoryService,
       this.repositoryPath
     );
     this.documentationService = new DocumentationService(this.db);

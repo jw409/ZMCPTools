@@ -8,6 +8,8 @@ import { join } from 'path';
 import { existsSync, mkdirSync, unlinkSync } from 'fs';
 import { chromium, type Browser, type BrowserContext, type Page } from 'patchright';
 import { Logger } from '../utils/logger.js';
+import { PatternMatcher } from '../utils/patternMatcher.js';
+import { SitemapParser, type SitemapResult } from '../utils/sitemapParser.js';
 
 export interface BrowserManagerConfig {
   browserType: 'chrome';
@@ -40,6 +42,7 @@ export interface PageContentResult {
   links: string[];
   codeExamples: string[];
   url: string;
+  sitemapData?: SitemapResult;
 }
 
 export class BrowserManager {
@@ -344,18 +347,55 @@ export class BrowserManager {
         }
       }
 
-      // Extract links
+      // First, expand any collapsed navigation elements
+      await this.expandCollapsedNavigation(page);
+
+      // Extract ALL potential links from ALL attributes on ALL elements
       const links = await page.evaluate(() => {
-        return Array.from(document.querySelectorAll('a[href]'))
-          .map(a => {
-            try {
-              return new URL((a as HTMLAnchorElement).href, window.location.href).href;
-            } catch {
-              return null;
+        const currentUrl = window.location.href;
+        const currentOrigin = window.location.origin;
+        const foundLinks = new Set<string>();
+
+        // Get all elements in the document
+        const allElements = document.querySelectorAll('*');
+        
+        for (const element of Array.from(allElements)) {
+          // Check every attribute on every element
+          for (let i = 0; i < element.attributes.length; i++) {
+            const attr = element.attributes[i];
+            const value = attr.value;
+            
+            if (!value || typeof value !== 'string') continue;
+            
+            // Check if attribute value looks like a link
+            if (value.startsWith('http://') || value.startsWith('https://')) {
+              // Full URL
+              foundLinks.add(value);
+            } else if (value.startsWith('/') && !value.startsWith('/#')) {
+              // Relative path from root (not same-page anchor)
+              if (value.length > 1) { // Not just "/"
+                try {
+                  const fullUrl = new URL(value, currentOrigin).href;
+                  foundLinks.add(fullUrl);
+                } catch (e) {
+                  // Skip invalid URLs
+                }
+              }
             }
-          })
-          .filter((url): url is string => url !== null && url.startsWith('http'))
-          .filter((url, index, arr) => arr.indexOf(url) === index);
+            // Skip: same-page anchors (/#something), relative paths without leading slash, 
+            // mailto:, tel:, javascript:, etc.
+          }
+        }
+
+        // Convert Set to Array and filter out invalid URLs
+        return Array.from(foundLinks).filter(url => {
+          try {
+            new URL(url);
+            return true;
+          } catch (e) {
+            return false;
+          }
+        });
       });
 
       return {
@@ -380,6 +420,142 @@ export class BrowserManager {
     }
   }
 
+  private async expandCollapsedNavigation(page: Page): Promise<void> {
+    try {
+      // Use page.evaluate to run JavaScript in the browser context for SPA compatibility
+      const expandedCount = await page.evaluate(async () => {
+        const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+        
+        // Find all elements that might be collapsible navigation
+        const collapsibleSelectors = [
+          '[aria-expanded="false"]',
+          '[aria-collapsed="true"]',
+          '.collapsed',
+          '.closed',
+          '[data-expanded="false"]',
+          '[data-collapsed="true"]',
+          'button[aria-expanded="false"]',
+          'a[aria-expanded="false"]',
+          'div[aria-expanded="false"]',
+          // Common navigation patterns
+          'nav [aria-expanded="false"]',
+          '.nav [aria-expanded="false"]',
+          '.navigation [aria-expanded="false"]',
+          '.sidebar [aria-expanded="false"]',
+          '.menu [aria-expanded="false"]',
+          '.dropdown [aria-expanded="false"]'
+        ];
+
+        let expandedCount = 0;
+        const processedElements = new Set<Element>();
+
+        for (const selector of collapsibleSelectors) {
+          try {
+            const elements = document.querySelectorAll(selector);
+            
+            for (const element of Array.from(elements)) {
+              if (processedElements.has(element)) continue;
+              processedElements.add(element);
+
+              // Check if element is visible and clickable
+              const rect = element.getBoundingClientRect();
+              if (rect.width === 0 || rect.height === 0) continue;
+
+              // Check if it's actually collapsed
+              const ariaExpanded = element.getAttribute('aria-expanded');
+              const ariaCollapsed = element.getAttribute('aria-collapsed');
+              const dataExpanded = element.getAttribute('data-expanded');
+              const dataCollapsed = element.getAttribute('data-collapsed');
+              
+              const isCollapsed = 
+                ariaExpanded === 'false' || 
+                ariaCollapsed === 'true' ||
+                dataExpanded === 'false' ||
+                dataCollapsed === 'true' ||
+                element.classList.contains('collapsed') ||
+                element.classList.contains('closed');
+
+              if (isCollapsed) {
+                try {
+                  // Scroll element into view if needed
+                  element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  await sleep(100);
+
+                  // Hover over the element first (some menus need hover to activate)
+                  const hoverEvent = new MouseEvent('mouseenter', { bubbles: true });
+                  element.dispatchEvent(hoverEvent);
+                  await sleep(50);
+
+                  // Click the element
+                  const clickEvent = new MouseEvent('click', { bubbles: true });
+                  element.dispatchEvent(clickEvent);
+                  expandedCount++;
+
+                  // Small delay to allow DOM to update
+                  await sleep(100);
+
+                  // Also try triggering any associated events
+                  if (element.tagName === 'BUTTON' || element.tagName === 'A') {
+                    const keyEvent = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true });
+                    element.dispatchEvent(keyEvent);
+                  }
+
+                  await sleep(50);
+                } catch (e) {
+                  // Continue with next element if this one fails
+                  continue;
+                }
+              }
+            }
+          } catch (e) {
+            // Continue with next selector if this one fails
+            continue;
+          }
+        }
+
+        return expandedCount;
+      });
+
+      if (expandedCount > 0) {
+        this.logger.info(`Expanded ${expandedCount} collapsed navigation elements`);
+        // Wait a bit for any animations or dynamic content to load
+        await page.waitForTimeout(500);
+      }
+    } catch (error) {
+      this.logger.debug('Failed to expand collapsed navigation', { 
+        error: error instanceof Error ? error.message : String(error) 
+      });
+    }
+  }
+
+  async parseSitemap(baseUrl: string): Promise<SitemapResult | null> {
+    try {
+      this.logger.info('Parsing sitemap for domain', { baseUrl });
+      const parser = new SitemapParser(baseUrl);
+      const result = await parser.parse();
+      
+      if ('error' in result) {
+        this.logger.warn('Failed to parse sitemap', { baseUrl, error: result.error });
+        return null;
+      }
+      
+      this.logger.info('Successfully parsed sitemap', { 
+        baseUrl, 
+        type: result.type,
+        urlCount: result.type === 'urlset' ? result.urls.length : 
+                  result.type === 'sitemapindex' ? result.sitemaps.length : 0
+      });
+      
+      return result;
+    } catch (error) {
+      this.logger.error('Error parsing sitemap', { 
+        baseUrl, 
+        error: error instanceof Error ? error.message : String(error) 
+      });
+      return null;
+    }
+  }
+
   filterInternalLinks(links: string[], baseUrl: string, includeSubdomains: boolean = false): string[] {
     const baseDomain = new URL(baseUrl).hostname;
     const internalLinks: string[] = [];
@@ -400,6 +576,23 @@ export class BrowserManager {
     return Array.from(new Set(internalLinks)); // Remove duplicates
   }
 
+  filterLinksByPatterns(links: string[], allowPatterns: string[] = [], ignorePatterns: string[] = []): string[] {
+    const filtered: string[] = [];
+
+    for (const link of links) {
+      try {
+        const result = PatternMatcher.shouldAllowUrl(link, allowPatterns, ignorePatterns);
+        if (result.allowed) {
+          filtered.push(link);
+        }
+      } catch (error) {
+        continue;
+      }
+    }
+
+    return Array.from(new Set(filtered)); // Remove duplicates
+  }
+
   private isAllowedDomain(urlDomain: string, baseDomain: string, includeSubdomains: boolean): boolean {
     if (!urlDomain) return false;
     
@@ -412,31 +605,6 @@ export class BrowserManager {
     return false;
   }
 
-  convertPatternToRegex(pattern: string): string {
-    // Check if it's already a regex pattern
-    const regexIndicators = ['.*', '\\d', '\\w', '\\s', '[', ']', '{', '}', '(', ')', '|', '^', '$'];
-    if (regexIndicators.some(indicator => pattern.includes(indicator))) {
-      return pattern;
-    }
-
-    // Convert glob pattern to regex
-    let regexPattern = pattern;
-    
-    // Escape regex special characters except * and ?
-    regexPattern = regexPattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-    
-    // Convert glob wildcards to regex
-    if (regexPattern.endsWith('\\*\\*')) {
-      regexPattern = regexPattern.slice(0, -4) + '(/.*)?';
-    } else {
-      regexPattern = regexPattern.replace(/\\\*\\\*/g, '.*');
-    }
-    
-    regexPattern = regexPattern.replace(/\\\*/g, '[^/]*');
-    regexPattern = regexPattern.replace(/\\\?/g, '.');
-    
-    return regexPattern;
-  }
 
   async close(): Promise<void> {
     if (this.browserContext) {

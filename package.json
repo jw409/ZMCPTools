@@ -63,6 +63,7 @@
     "patchright": "^1.52.5",
     "turndown": "^7.2.0",
     "user-agents": "^1.1.593",
+    "xml2js": "^0.6.2",
     "zod": "^3.25.75"
   },
   "devDependencies": {
@@ -70,6 +71,7 @@
     "@types/node": "^24.0.10",
     "@types/turndown": "^5.0.5",
     "@types/user-agents": "^1.0.4",
+    "@types/xml2js": "^0.4.14",
     "@typescript-eslint/eslint-plugin": "^8.35.1",
     "@typescript-eslint/parser": "^8.35.1",
     "@vitest/ui": "^3.2.4",

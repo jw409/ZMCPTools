@@ -1,6 +1,6 @@
 /**
- * Web scraping service using background sub-agents and job queue
- * TypeScript port of Python web_scraper.py with sub-agent integration
+ * Web scraping service using background job queue with enhanced crawling
+ * Direct scraping implementation with dropdown expansion and dynamic content loading
  */
 
 import { randomBytes, createHash } from 'crypto';
@@ -9,8 +9,6 @@ import { performance } from 'perf_hooks';
 import TurndownService from 'turndown';
 import type { Page } from 'patchright';
 import type { DatabaseManager } from '../database/index.js';
-import type { AgentService } from './AgentService.js';
-import type { MemoryService } from './MemoryService.js';
 import { VectorSearchService } from './VectorSearchService.js';
 import { domainBrowserManager } from './DomainBrowserManager.js';
 import { BrowserManager } from './BrowserManager.js';
@@ -65,8 +63,6 @@ export class WebScrapingService {
 
   constructor(
     private db: DatabaseManager,
-    private agentService: AgentService,
-    private memoryService: MemoryService,
     private repositoryPath: string
   ) {
     this.vectorSearchService = new VectorSearchService(this.db);
@@ -83,7 +79,36 @@ export class WebScrapingService {
       fence: '```',
       emDelimiter: '_',
       strongDelimiter: '**',
-      linkStyle: 'inlined'
+      linkStyle: 'inlined',
+      linkReferenceStyle: 'full',
+      bulletListMarker: '-',
+      preformattedCode: true
+    });
+    
+    // Add custom rules for better content extraction
+    this.turndownService.addRule('preserveTableStructure', {
+      filter: 'table',
+      replacement: function(content) {
+        return '\n\n' + content + '\n\n';
+      }
+    });
+    
+    this.turndownService.addRule('preserveCodeBlocks', {
+      filter: ['pre', 'code'],
+      replacement: function(content, node) {
+        if (node.nodeName === 'PRE') {
+          return '\n\n```\n' + content + '\n```\n\n';
+        }
+        return '`' + content + '`';
+      }
+    });
+    
+    this.turndownService.addRule('preserveListItems', {
+      filter: 'li',
+      replacement: function(content, node) {
+        content = content.replace(/^\n+/, '').replace(/\n+$/, '\n');
+        return '- ' + content;
+      }
     });
     
     // Log constructor parameters for debugging
@@ -92,8 +117,6 @@ export class WebScrapingService {
       repositoryPathType: typeof this.repositoryPath,
       repositoryPathLength: this.repositoryPath?.length,
       repositoryPathTruthy: !!this.repositoryPath,
-      hasAgentService: !!this.agentService,
-      hasMemoryService: !!this.memoryService,
       hasDatabase: !!this.db
     });
     
@@ -146,14 +169,12 @@ export class WebScrapingService {
         throw new Error('Failed to create scrape job');
       }
 
-      // Store job info in memory for coordination
-      await this.memoryService.storeMemory(
-        this.repositoryPath,
-        jobParams.agentId || 'system',
-        'shared',
-        `Scraping job queued: ${jobId}`,
-        `Queued scraping job for ${jobParams.sourceName} (${jobParams.sourceUrl})`
-      );
+      // Log job creation
+      this.logger.info(`Scraping job queued: ${jobId}`, {
+        sourceName: jobParams.sourceName,
+        sourceUrl: jobParams.sourceUrl,
+        agentId: jobParams.agentId
+      });
 
       return {
         success: true,
@@ -221,12 +242,8 @@ export class WebScrapingService {
       // Parse job parameters
       const jobParams: ScrapeJobParams = job.jobData as ScrapeJobParams;
 
-      // Determine if we should use a sub-agent for complex scraping
-      if (this.shouldUseSubAgent(jobParams)) {
-        await this.processJobWithSubAgent(job, jobParams);
-      } else {
-        await this.processJobDirectly(job, jobParams);
-      }
+      // Process job directly using enhanced scraping
+      await this.processJobDirectly(job, jobParams);
 
       // Mark job as completed
       await this.scrapeJobRepository.markCompleted(job.id, {
@@ -249,163 +266,7 @@ export class WebScrapingService {
   }
 
 
-  /**
-   * Determine if job should use a sub-agent
-   */
-  private shouldUseSubAgent(jobParams: ScrapeJobParams): boolean {
-    // Use sub-agent for complex scenarios:
-    // 1. Deep crawling (depth > 2)
-    // 2. Complex selectors
-    // 3. Pattern-based filtering
-    // 4. Multiple content types to extract
 
-    const hasComplexSelectors = jobParams.selectors && Object.keys(jobParams.selectors).length > 3;
-    const hasDeepCrawling = (jobParams.crawlDepth || 1) > 2;
-    const hasPatternFiltering = (jobParams.allowPatterns?.length || 0) > 0 || (jobParams.ignorePatterns?.length || 0) > 0;
-
-    return hasComplexSelectors || hasDeepCrawling || hasPatternFiltering;
-  }
-
-  /**
-   * Process job using a specialized sub-agent
-   */
-  private async processJobWithSubAgent(job: any, jobParams: ScrapeJobParams): Promise<void> {
-    process.stderr.write(`🤖 Spawning sub-agent for complex scraping job: ${job.id}\n`);
-
-    // Create specialized web scraping sub-agent prompt
-    const subAgentPrompt = `
-🕷️ WEB SCRAPING SUB-AGENT - Specialized Documentation Crawler
-
-MISSION: Complete web scraping task for documentation source
-SOURCE: ${jobParams.sourceName} (${jobParams.sourceUrl})
-JOB ID: ${job.id}
-
-You are an autonomous web scraping specialist with COMPLETE CLAUDE CODE CAPABILITIES.
-Your task is to scrape and process documentation from the specified source.
-
-CONFIGURATION:
-- Crawl Depth: ${jobParams.crawlDepth || 3}
-- Include Subdomains: ${jobParams.includeSubdomains ? 'Yes' : 'No'}
-- Force Refresh: ${jobParams.forceRefresh ? 'Yes' : 'No'}
-${jobParams.selectors ? `- Content Selectors: ${JSON.stringify(jobParams.selectors, null, 2)}` : ''}
-${jobParams.allowPatterns ? `- Allow Patterns: ${JSON.stringify(jobParams.allowPatterns)}` : ''}
-${jobParams.ignorePatterns ? `- Ignore Patterns: ${JSON.stringify(jobParams.ignorePatterns)}` : ''}
-
-SCRAPING PROTOCOL:
-1. CREATE BROWSER SESSION
-   - Use navigate_and_scrape for initial page access
-   - Use interact_with_page for complex interactions
-   - Set appropriate viewport and user agent
-   
-2. INTELLIGENT CRAWLING
-   - Start with base URL: ${jobParams.sourceUrl}
-   - Follow same-domain links respecting patterns
-   - Extract content using specified selectors
-   - Respect robots.txt and rate limiting
-   
-3. CONTENT PROCESSING & URL FILTERING
-   - Extract HTML content and convert to clean Markdown format
-   - Process headers, links, code blocks, and lists properly
-   - Remove navigation, scripts, styles, and boilerplate
-   - Apply URL filtering using allow/ignore patterns:
-     ${jobParams.allowPatterns?.length ? `   * Allow patterns: ${JSON.stringify(jobParams.allowPatterns)}` : ''}
-     ${jobParams.ignorePatterns?.length ? `   * Ignore patterns: ${JSON.stringify(jobParams.ignorePatterns)}` : ''}
-   - Generate content hashes for deduplication
-   - Store in websites and website_pages tables with both HTML and Markdown
-   
-4. PROGRESS TRACKING
-   - Update scrape job status regularly
-   - Store insights in shared memory
-   - Report pages scraped and entries created
-
-AUTONOMOUS OPERATION:
-- Use ALL available tools: browser automation, database, file operations
-- Handle errors gracefully with retries
-- Implement intelligent rate limiting
-- Monitor for content changes
-- Optimize for speed and accuracy
-
-COMPLETION CRITERIA:
-- All discoverable pages within crawl depth processed
-- Documentation entries created with proper metadata
-- Job marked as COMPLETED with statistics
-- Results stored in shared memory
-
-CRITICAL: You have full autonomy. Take any actions needed to complete the scraping successfully.
-`;
-
-    // Log spawn parameters for debugging
-    this.logger.info(`Attempting to spawn sub-agent for job ${job.id}`, {
-      agentName: `web_scraper_${job.id}`,
-      repositoryPath: this.repositoryPath,
-      repositoryPathType: typeof this.repositoryPath,
-      repositoryPathLength: this.repositoryPath?.length,
-      capabilities: ['browser_automation', 'database_access', 'file_operations'],
-      jobId: job.id,
-      sourceId: job.sourceId,
-      sourceUrl: jobParams.sourceUrl
-    });
-
-    // Spawn the sub-agent
-    const subAgentResult = await this.agentService.spawnAgent({
-      agentName: `web_scraper_${job.id}`,
-      repositoryPath: this.repositoryPath,
-      prompt: subAgentPrompt,
-      capabilities: ['browser_automation', 'database_access', 'file_operations'],
-      agentMetadata: {
-        job_id: job.id,
-        job_type: 'web_scraping',
-        sourceId: job.sourceId,
-        sourceUrl: jobParams.sourceUrl,
-        started_at: new Date().toISOString()
-      }
-    });
-
-    // Log spawn result for debugging
-    this.logger.info(`Sub-agent spawn result for job ${job.id}`, {
-      success: !!subAgentResult.agentId,
-      agentId: subAgentResult.agentId,
-      hasAgent: !!subAgentResult.agent,
-      agentPid: subAgentResult.agent?.claudePid,
-      resultKeys: Object.keys(subAgentResult),
-      repositoryPathUsed: this.repositoryPath
-    });
-
-    if (!subAgentResult.agentId) {
-      const errorMessage = `Failed to spawn sub-agent for job ${job.id}. Repository path: ${this.repositoryPath} (type: ${typeof this.repositoryPath}). Spawn result: ${JSON.stringify(subAgentResult)}`;
-      this.logger.error(errorMessage, {
-        jobId: job.id,
-        repositoryPath: this.repositoryPath,
-        repositoryPathType: typeof this.repositoryPath,
-        subAgentResult,
-        spawnParameters: {
-          agentName: `web_scraper_${job.id}`,
-          repositoryPath: this.repositoryPath,
-          capabilities: ['browser_automation', 'database_access', 'file_operations']
-        }
-      });
-      throw new Error(errorMessage);
-    }
-
-    // Store sub-agent info
-    await this.memoryService.storeMemory(
-      this.repositoryPath,
-      jobParams.agentId || 'system',
-      'shared',
-      `Web scraping sub-agent spawned`,
-      `Sub-agent ${subAgentResult.agentId} handling scraping job ${job.id} for ${jobParams.sourceName}`
-    );
-
-    // Update job with sub-agent info
-    await this.scrapeJobRepository.update(job.id, {
-      resultData: {
-        sub_agent_id: subAgentResult.agentId,
-        sub_agent_pid: subAgentResult.agent.claudePid,
-        processing_method: 'sub_agent',
-        started_at: new Date().toISOString()
-      }
-    });
-  }
 
   /**
    * Process job directly using domain-aware browser managers with crawling
@@ -438,18 +299,26 @@ CRITICAL: You have full autonomy. Take any actions needed to complete the scrapi
       const processedUrls = new Set<string>();
       const maxDepth = jobParams.crawlDepth || 1;
 
+      this.logger.info(`Starting crawl for ${jobParams.sourceName} with max depth ${maxDepth}`);
+
       while (crawlQueue.length > 0 && pagesScraped < 100) { // Safety limit
         const { url, depth } = crawlQueue.shift()!;
         
         // Skip if already processed
         if (processedUrls.has(url)) {
+          this.logger.debug(`Skipping already processed URL: ${url}`);
           continue;
         }
         
         // Skip if depth exceeded
         if (depth > maxDepth) {
+          this.logger.debug(`Skipping URL due to depth limit (${depth} > ${maxDepth}): ${url}`);
           continue;
         }
+
+        this.logger.info(`Processing URL (depth ${depth}): ${url} (${crawlQueue.length} URLs remaining in queue)`);
+        
+        const processingStart = performance.now();
 
         // Apply URL filtering if patterns are specified
         if (jobParams.allowPatterns?.length || jobParams.ignorePatterns?.length) {
@@ -481,10 +350,14 @@ CRITICAL: You have full autonomy. Take any actions needed to complete the scrapi
             continue;
           }
 
+          // Wait for page to fully load and expand navigation elements
+          await this.expandNavigationElements(page, url);
+
           // Extract page content
           const pageContent = await browser.extractPageContent(page);
           let htmlContent = '';
           let markdownContent = '';
+          let usedSelectors = false;
 
           // Apply selector-based extraction if provided
           if (jobParams.selectors && Object.keys(jobParams.selectors).length > 0) {
@@ -492,22 +365,37 @@ CRITICAL: You have full autonomy. Take any actions needed to complete the scrapi
             
             for (const [key, selector] of Object.entries(jobParams.selectors)) {
               const extractedText = await browser.extractText(page, selector);
-              if (extractedText) {
-                selectorResults[key] = extractedText;
+              if (extractedText && extractedText.trim().length > 0) {
+                selectorResults[key] = extractedText.trim();
               }
             }
             
-            // Convert selector results to HTML and markdown
-            htmlContent = Object.entries(selectorResults)
-              .map(([key, value]) => `<section data-selector="${key}">${value}</section>`)
-              .join('\n');
-            markdownContent = Object.entries(selectorResults)
-              .map(([key, value]) => `## ${key}\n\n${value}`)
-              .join('\n\n');
-          } else {
-            // Use full page content
+            // Check if selector-based extraction yielded meaningful content
+            const totalSelectorContent = Object.values(selectorResults).join('').trim();
+            const hasValidSelectorContent = totalSelectorContent.length > 100; // Minimum threshold for meaningful content
+            
+            if (hasValidSelectorContent) {
+              // Convert selector results to HTML and markdown
+              htmlContent = Object.entries(selectorResults)
+                .map(([key, value]) => `<section data-selector="${key}">${value}</section>`)
+                .join('\n');
+              markdownContent = Object.entries(selectorResults)
+                .map(([key, value]) => `## ${key}\n\n${value}`)
+                .join('\n\n');
+              usedSelectors = true;
+              
+              this.logger.info(`Used selector-based extraction for ${url}, content length: ${totalSelectorContent.length}`);
+            } else {
+              this.logger.warn(`Selector-based extraction yielded insufficient content for ${url} (${totalSelectorContent.length} chars), falling back to full page`);
+            }
+          }
+          
+          // Fallback to full page content if selectors weren't used or failed
+          if (!usedSelectors) {
             htmlContent = await page.content();
             markdownContent = this.convertHtmlToMarkdown(htmlContent);
+            
+            this.logger.info(`Used full page extraction for ${url}, markdown length: ${markdownContent.length}`);
           }
 
           // Normalize URL for consistent storage
@@ -555,11 +443,27 @@ CRITICAL: You have full autonomy. Take any actions needed to complete the scrapi
               jobParams.includeSubdomains || false
             );
             
-            for (const link of internalLinks) {
+            // Apply pattern filtering to discovered links before adding to queue
+            const filteredLinks = internalLinks.filter(link => {
+              if (jobParams.allowPatterns?.length || jobParams.ignorePatterns?.length) {
+                const urlCheck = PatternMatcher.shouldAllowUrl(
+                  link,
+                  jobParams.allowPatterns,
+                  jobParams.ignorePatterns
+                );
+                return urlCheck.allowed;
+              }
+              return true;
+            });
+            
+            for (const link of filteredLinks) {
               if (!processedUrls.has(link) && !crawlQueue.find(item => item.url === link)) {
                 crawlQueue.push({ url: link, depth: depth + 1 });
+                this.logger.debug(`Added to crawl queue: ${link} (depth ${depth + 1})`);
               }
             }
+            
+            this.logger.info(`Discovered ${filteredLinks.length} new links at depth ${depth} for ${url}`);
           }
 
         } catch (error) {
@@ -567,7 +471,20 @@ CRITICAL: You have full autonomy. Take any actions needed to complete the scrapi
           processedUrls.add(url);
           continue;
         }
+        
+        const processingTime = performance.now() - processingStart;
+        this.logger.info(`Completed processing ${url} in ${processingTime.toFixed(2)}ms`);
       }
+
+      // Log final crawl summary
+      this.logger.info(`Crawl completed for ${jobParams.sourceName}:`, {
+        pagesScraped,
+        entriesCreated,
+        maxDepth,
+        processedUrls: Array.from(processedUrls),
+        remainingInQueue: crawlQueue.length,
+        totalProcessed: processedUrls.size
+      });
 
       // Update job results
       await this.scrapeJobRepository.update(job.id, {
@@ -578,6 +495,8 @@ CRITICAL: You have full autonomy. Take any actions needed to complete the scrapi
           entries_created: entriesCreated,
           max_depth: maxDepth,
           processed_urls: Array.from(processedUrls),
+          remaining_in_queue: crawlQueue.length,
+          total_discovered: processedUrls.size + crawlQueue.length,
           completed_at: new Date().toISOString()
         }
       });
@@ -709,29 +628,48 @@ CRITICAL: You have full autonomy. Take any actions needed to complete the scrapi
    */
   private convertHtmlToMarkdown(htmlContent: string): string {
     try {
-      // Clean up the HTML first
+      // Clean up the HTML first - be more selective to preserve content
       const cleanHtml = htmlContent
         .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '') // Remove scripts
         .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '') // Remove styles
-        .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '') // Remove navigation
-        .replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '') // Remove headers
-        .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '') // Remove footers
-        .replace(/<aside[^>]*>[\s\S]*?<\/aside>/gi, '') // Remove sidebars
+        .replace(/<noscript[^>]*>[\s\S]*?<\/noscript>/gi, '') // Remove noscript
         .replace(/<!--[\s\S]*?-->/g, '') // Remove HTML comments
+        // Only remove navigation if it's clearly marked as such
+        .replace(/<nav[^>]*class="[^"]*nav[^"]*"[^>]*>[\s\S]*?<\/nav>/gi, '') // Remove navigation with nav class
+        .replace(/<div[^>]*class="[^"]*sidebar[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '') // Remove sidebars
+        .replace(/<div[^>]*class="[^"]*menu[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '') // Remove menus
+        // Preserve main content areas
         .replace(/\s+/g, ' ') // Normalize whitespace
         .trim();
 
-      // Convert to Markdown
+      // Convert to Markdown with better configuration
       const markdown = this.turndownService.turndown(cleanHtml);
       
-      // Clean up the markdown
+      // Clean up the markdown more carefully
       const cleanMarkdown = markdown
         .replace(/\n\s*\n\s*\n/g, '\n\n') // Remove excessive newlines
         .replace(/^\s+|\s+$/gm, '') // Trim each line
         .replace(/\[([^\]]+)\]\(\)/g, '$1') // Remove empty links
         .replace(/\*\*\s*\*\*/g, '') // Remove empty bold
         .replace(/__\s*__/g, '') // Remove empty italic
+        .replace(/\n\n\n+/g, '\n\n') // Ensure max 2 consecutive newlines
         .trim();
+
+      // Ensure we have meaningful content
+      if (cleanMarkdown.length < 100) {
+        this.logger.warn(`Markdown conversion resulted in short content (${cleanMarkdown.length} chars), trying with less aggressive cleaning`);
+        
+        // Try with less aggressive cleaning
+        const lessAggressiveClean = htmlContent
+          .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+          .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+          .replace(/<!--[\s\S]*?-->/g, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+        
+        const fallbackMarkdown = this.turndownService.turndown(lessAggressiveClean);
+        return fallbackMarkdown.trim();
+      }
 
       return cleanMarkdown;
     } catch (error) {
@@ -745,6 +683,140 @@ CRITICAL: You have full autonomy. Take any actions needed to complete the scrapi
    */
   private sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Expand navigation elements and wait for dynamic content to load
+   */
+  private async expandNavigationElements(page: Page, url: string): Promise<void> {
+    try {
+      this.logger.info(`Expanding navigation elements for ${url}`);
+      
+      // Wait for initial page load to complete
+      await page.waitForTimeout(2000);
+      
+      // Try to expand dropdowns and collapsible menus
+      const expandableSelectors = [
+        // Common dropdown triggers
+        'button[aria-expanded="false"]',
+        'button[aria-haspopup="menu"]',
+        'button[aria-haspopup="true"]',
+        '.dropdown-toggle',
+        '.nav-toggle',
+        '.menu-toggle',
+        '.sidebar-toggle',
+        
+        // Common collapsible elements
+        '.collapsible',
+        '.accordion-trigger',
+        '.expand-trigger',
+        '[data-toggle="collapse"]',
+        '[data-toggle="dropdown"]',
+        
+        // Framework-specific patterns
+        '.v-expansion-panel-header', // Vuetify
+        '.mat-expansion-panel-header', // Angular Material
+        '.ant-collapse-header', // Ant Design
+        '.bp3-collapse-header', // Blueprint
+        
+        // Generic patterns
+        '[role="button"][aria-expanded="false"]',
+        'details summary',
+        '.show-more',
+        '.expand-all',
+        '.nav-expand'
+      ];
+
+      for (const selector of expandableSelectors) {
+        try {
+          // Find all elements matching this selector
+          const elements = await page.$$eval(selector, (elements) => {
+            return elements.map((el, index) => ({
+              index,
+              isVisible: (el as HTMLElement).offsetWidth > 0 && (el as HTMLElement).offsetHeight > 0,
+              text: el.textContent?.trim() || '',
+              ariaExpanded: el.getAttribute('aria-expanded'),
+              tagName: el.tagName.toLowerCase()
+            }));
+          });
+
+          if (elements.length > 0) {
+            this.logger.info(`Found ${elements.length} expandable elements for selector: ${selector}`);
+            
+            // Click each expandable element
+            for (const element of elements) {
+              if (element.isVisible) {
+                try {
+                  await page.click(`${selector}:nth-child(${element.index + 1})`, { timeout: 5000 });
+                  this.logger.debug(`Clicked expandable element: ${element.text.substring(0, 50)}...`);
+                  
+                  // Wait for potential animation/loading
+                  await page.waitForTimeout(1000);
+                } catch (clickError) {
+                  this.logger.debug(`Failed to click element at index ${element.index}: ${clickError}`);
+                }
+              }
+            }
+          }
+        } catch (error) {
+          // Continue with next selector if this one fails
+          this.logger.debug(`Failed to process selector ${selector}: ${error}`);
+        }
+      }
+
+      // Wait for any dynamically loaded content
+      await page.waitForTimeout(3000);
+      
+      // Try to load more content if "Load more" buttons exist
+      const loadMoreSelectors = [
+        'button:has-text("Load more")',
+        'button:has-text("Show more")',
+        'button:has-text("View more")',
+        'button:has-text("See more")',
+        '.load-more',
+        '.show-more',
+        '.view-more',
+        '[data-testid="load-more"]',
+        '[data-cy="load-more"]'
+      ];
+
+      for (const selector of loadMoreSelectors) {
+        try {
+          const loadMoreButton = await page.$(selector);
+          if (loadMoreButton) {
+            const isVisible = await loadMoreButton.isVisible();
+            if (isVisible) {
+              this.logger.info(`Found "Load more" button, clicking: ${selector}`);
+              await loadMoreButton.click();
+              
+              // Wait for content to load
+              await page.waitForTimeout(2000);
+            }
+          }
+        } catch (error) {
+          this.logger.debug(`Failed to click load more button ${selector}: ${error}`);
+        }
+      }
+
+      // Scroll to bottom to trigger lazy loading
+      await page.evaluate(() => {
+        window.scrollTo(0, document.body.scrollHeight);
+      });
+      
+      // Wait for lazy-loaded content
+      await page.waitForTimeout(2000);
+      
+      // Scroll back to top
+      await page.evaluate(() => {
+        window.scrollTo(0, 0);
+      });
+      
+      this.logger.info(`Completed navigation expansion for ${url}`);
+      
+    } catch (error) {
+      this.logger.warn(`Failed to expand navigation elements for ${url}`, error);
+      // Don't throw - continue with scraping even if expansion fails
+    }
   }
 
   /**

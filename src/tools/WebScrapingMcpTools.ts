@@ -92,12 +92,12 @@ export class WebScrapingMcpTools {
             allow_patterns: {
               type: 'array',
               items: { type: 'string' },
-              description: 'URL patterns to include during crawling (allowlist). Supports glob patterns (*/docs/*), regex patterns (/api\\/v[0-9]+\\/.*/) or plain strings.'
+              description: 'URL patterns to include during crawling (allowlist). Supports glob patterns (**/docs/**, https://domain.com/docs/**), regex patterns (/api\\/v[0-9]+\\/.*/) or plain strings. For full URLs, use ** at start: **/docs/** matches https://example.com/docs/page'
             },
             ignore_patterns: {
               type: 'array',
               items: { type: 'string' },
-              description: 'URL patterns to ignore during crawling (blocklist). Supports glob patterns (*/private/*), regex patterns (/login|admin/) or plain strings.'
+              description: 'URL patterns to ignore during crawling (blocklist). Supports glob patterns (**/private/**, **/blog/**), regex patterns (/login|admin/) or plain strings. For full URLs, use ** at start: **/private/** matches https://example.com/private/page'
             },
             include_subdomains: {
               type: 'boolean',
