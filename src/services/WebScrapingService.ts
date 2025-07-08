@@ -14,6 +14,8 @@ import { VectorSearchService } from './VectorSearchService.js';
 import { BrowserTools } from '../tools/BrowserTools.js';
 import { Logger } from '../utils/logger.js';
 import { PatternMatcher } from '../utils/patternMatcher.js';
+import { ScrapeJobRepository } from '../repositories/ScrapeJobRepository.js';
+import { DocumentationRepository } from '../repositories/DocumentationRepository.js';
 
 export interface ScrapeJobParams {
   force_refresh?: boolean;
@@ -48,6 +50,8 @@ export interface ScrapingWorkerConfig {
 export class WebScrapingService {
   private browserTools: BrowserTools;
   private vectorSearchService: VectorSearchService;
+  private scrapeJobRepository: ScrapeJobRepository;
+  private documentationRepository: DocumentationRepository;
   private isWorkerRunning = false;
   private workerConfig: ScrapingWorkerConfig;
   private logger: Logger;
@@ -61,6 +65,8 @@ export class WebScrapingService {
   ) {
     this.browserTools = new BrowserTools(memoryService, repositoryPath);
     this.vectorSearchService = new VectorSearchService(this.db);
+    this.scrapeJobRepository = new ScrapeJobRepository(this.db);
+    this.documentationRepository = new DocumentationRepository(this.db);
     this.logger = new Logger('webscraping');
     
     // Initialize Turndown service for HTML to Markdown conversion
@@ -103,16 +109,15 @@ export class WebScrapingService {
   ): Promise<ScrapeJobResult> {
     try {
       // Check for existing jobs
-      const existing = this.db.database.prepare(`
-        SELECT * FROM scrape_jobs 
-        WHERE source_id = ? AND status IN ('PENDING', 'IN_PROGRESS') 
-        LIMIT 1
-      `).get(source_id);
+      const existingJobs = await this.scrapeJobRepository.findBySourceId(source_id);
+      const existing = existingJobs.find(job => 
+        job.status === 'pending' || job.status === 'running'
+      );
 
       if (existing) {
         return {
           success: true,
-          job_id: (existing as any).id,
+          job_id: existing.id,
           skipped: true,
           reason: 'Job already exists for this source'
         };
@@ -121,10 +126,17 @@ export class WebScrapingService {
       // Create new job
       const job_id = `scrape_job_${Date.now()}_${randomBytes(8).toString('hex')}`;
       
-      this.db.database.prepare(`
-        INSERT INTO scrape_jobs (id, source_id, job_data, status, created_at, lock_timeout)
-        VALUES (?, ?, ?, ?, datetime('now'), ?)
-      `).run(job_id, source_id, JSON.stringify(job_params), 'PENDING', this.workerConfig.job_timeout_seconds);
+      const newJob = await this.scrapeJobRepository.create({
+        id: job_id,
+        sourceId: source_id,
+        jobData: job_params,
+        status: 'pending',
+        lockTimeout: this.workerConfig.job_timeout_seconds
+      });
+
+      if (!newJob) {
+        throw new Error('Failed to create scrape job');
+      }
 
       // Store job info in memory for coordination
       await this.memoryService.storeMemory(
@@ -185,7 +197,11 @@ export class WebScrapingService {
    */
   private async processNextJob(): Promise<void> {
     // Find next available job
-    const job = await this.acquireNextJob();
+    const job = await this.scrapeJobRepository.lockNextPendingJob(
+      this.workerConfig.worker_id,
+      this.workerConfig.job_timeout_seconds
+    );
+    
     if (!job) {
       return; // No jobs available
     }
@@ -195,7 +211,7 @@ export class WebScrapingService {
 
     try {
       // Parse job parameters
-      const jobParams: ScrapeJobParams = JSON.parse(job.job_data);
+      const jobParams: ScrapeJobParams = job.jobData as ScrapeJobParams;
 
       // Determine if we should use a sub-agent for complex scraping
       if (this.shouldUseSubAgent(jobParams)) {
@@ -205,11 +221,10 @@ export class WebScrapingService {
       }
 
       // Mark job as completed
-      this.db.database.prepare(`
-        UPDATE scrape_jobs 
-        SET status = 'COMPLETED', completed_at = datetime('now'), locked_by = NULL, locked_at = NULL
-        WHERE id = ?
-      `).run(job.id);
+      await this.scrapeJobRepository.markCompleted(job.id, {
+        processingMethod: 'completed',
+        completedAt: new Date().toISOString()
+      });
 
       const duration = performance.now() - startTime;
       process.stderr.write(`✅ Completed scrape job: ${job.id} (${duration.toFixed(2)}ms)\n`);
@@ -218,11 +233,10 @@ export class WebScrapingService {
       console.error(`❌ Failed scrape job: ${job.id}`, error);
       
       // Mark job as failed
-      this.db.database.prepare(`
-        UPDATE scrape_jobs 
-        SET status = 'FAILED', completed_at = datetime('now'), error_message = ?, locked_by = NULL, locked_at = NULL
-        WHERE id = ?
-      `).run(error instanceof Error ? error.message : 'Unknown error', job.id);
+      await this.scrapeJobRepository.markFailed(
+        job.id,
+        error instanceof Error ? error.message : 'Unknown error'
+      );
     }
   }
 
@@ -236,10 +250,10 @@ export class WebScrapingService {
     const expiredTime = new Date(now.getTime() - this.workerConfig.job_timeout_seconds * 1000).toISOString();
     const jobs = this.db.database.prepare(`
       SELECT * FROM scrape_jobs 
-      WHERE status = 'PENDING' 
-        AND (locked_by IS NULL 
-             OR locked_at IS NULL 
-             OR locked_at < ?)
+      WHERE status = 'pending' 
+        AND (lockedBy IS NULL 
+             OR lockedAt IS NULL 
+             OR lockedAt < ?)
       ORDER BY created_at ASC 
       LIMIT 1
     `).all(expiredTime);
@@ -254,12 +268,12 @@ export class WebScrapingService {
       // Attempt to acquire lock
       const result = this.db.database.prepare(`
         UPDATE scrape_jobs 
-        SET status = 'IN_PROGRESS', started_at = datetime('now'), locked_by = ?, locked_at = datetime('now')
+        SET status = 'running', startedAt = datetime('now'), lockedBy = ?, lockedAt = datetime('now')
         WHERE id = ?
       `).run(this.workerConfig.worker_id, (job as any).id);
 
       if (result.changes > 0) {
-        return { ...(job as any), status: 'IN_PROGRESS', locked_by: this.workerConfig.worker_id };
+        return { ...(job as any), status: 'running', lockedBy: this.workerConfig.worker_id };
       } else {
         return null;
       }
