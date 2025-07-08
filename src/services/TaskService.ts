@@ -1,6 +1,7 @@
 import { DatabaseManager } from '../database/index.js';
 import { TaskRepository } from '../repositories/TaskRepository.js';
 import { AgentRepository } from '../repositories/AgentRepository.js';
+import { PathUtils } from '../utils/pathUtils.js';
 import type { Task, NewTask, TaskUpdate, TaskStatus, TaskType, AgentStatus } from '../schemas/index.js';
 
 export interface CreateTaskRequest {
@@ -36,10 +37,11 @@ export class TaskService {
 
   async createTask(request: CreateTaskRequest): Promise<Task> {
     const taskId = this.generateTaskId();
+    const resolvedRepositoryPath = PathUtils.resolveRepositoryPath(request.repositoryPath, 'task creation');
     
     const taskData: NewTask = {
       id: taskId,
-      repositoryPath: request.repositoryPath,
+      repositoryPath: resolvedRepositoryPath,
       taskType: request.taskType,
       status: 'pending',
       assignedAgentId: request.assignedAgentId,
@@ -65,7 +67,8 @@ export class TaskService {
   }
 
   async listTasks(repositoryPath: string, options: any = {}): Promise<Task[]> {
-    return await this.taskRepo.findByRepositoryPath(repositoryPath, options);
+    const resolvedRepositoryPath = PathUtils.resolveRepositoryPath(repositoryPath, 'list tasks');
+    return await this.taskRepo.findByRepositoryPath(resolvedRepositoryPath, options);
   }
 
   async getAgentTasks(agentId: string): Promise<Task[]> {
@@ -73,11 +76,13 @@ export class TaskService {
   }
 
   async getPendingTasks(repositoryPath: string): Promise<Task[]> {
-    return await this.taskRepo.findByRepositoryPath(repositoryPath, { status: 'pending' });
+    const resolvedRepositoryPath = PathUtils.resolveRepositoryPath(repositoryPath, 'get pending tasks');
+    return await this.taskRepo.findByRepositoryPath(resolvedRepositoryPath, { status: 'pending' });
   }
 
   async getReadyTasks(repositoryPath: string): Promise<Task[]> {
-    return await this.taskRepo.findByRepositoryPath(repositoryPath, { status: 'pending' });
+    const resolvedRepositoryPath = PathUtils.resolveRepositoryPath(repositoryPath, 'get ready tasks');
+    return await this.taskRepo.findByRepositoryPath(resolvedRepositoryPath, { status: 'pending' });
   }
 
   async updateTask(taskId: string, update: TaskServiceUpdate): Promise<void> {

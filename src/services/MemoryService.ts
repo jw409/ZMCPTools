@@ -1,5 +1,6 @@
 import { DatabaseManager } from '../database/index.js';
 import { MemoryRepository } from '../repositories/MemoryRepository.js';
+import { PathUtils } from '../utils/pathUtils.js';
 import { type Memory, type NewMemory, type MemoryType } from '../schemas/index.js';
 
 // MemoryData interface for database operations
@@ -61,10 +62,11 @@ export class MemoryService {
   // Core memory operations
   async createMemory(request: CreateMemoryRequest): Promise<Memory> {
     const memoryId = this.generateMemoryId();
+    const resolvedRepositoryPath = PathUtils.resolveRepositoryPath(request.repositoryPath, 'memory creation');
     
     const newMemory: NewMemory = {
       id: memoryId,
-      repositoryPath: request.repositoryPath,
+      repositoryPath: resolvedRepositoryPath,
       agentId: request.agentId,
       memoryType: request.memoryType,
       title: request.title,
@@ -399,7 +401,8 @@ export class MemoryService {
   }
 
   async cleanupOldMemories(repositoryPath: string, olderThanDays = 30): Promise<number> {
-    return await this.memoryRepo.cleanup(repositoryPath, { maxAgedays: olderThanDays });
+    const resolvedRepositoryPath = PathUtils.resolveRepositoryPath(repositoryPath, 'cleanup old memories');
+    return await this.memoryRepo.cleanup(resolvedRepositoryPath, { maxAgedays: olderThanDays });
   }
 
   async deleteAgentMemories(agentId: string, repositoryPath?: string): Promise<number> {

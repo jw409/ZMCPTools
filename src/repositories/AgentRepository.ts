@@ -38,7 +38,7 @@ export class AgentRepository extends BaseRepository<
   /**
    * Find agents by repository path with optional status filter
    */
-  async findByRepositoryPath(repositoryPath: string, status?: AgentStatus): Promise<AgentSession[]> {
+  async findByRepositoryPath(repositoryPath: string, status?: AgentStatus, limit: number = 5, offset: number = 0): Promise<AgentSession[]> {
     const conditions = [eq(agentSessions.repositoryPath, repositoryPath)];
     
     if (status) {
@@ -52,6 +52,8 @@ export class AgentRepository extends BaseRepository<
     }
     return queryBuilder
       .orderBy(agentSessions.lastHeartbeat, 'desc')
+      .limit(limit)
+      .offset(offset)
       .execute();
   }
 

@@ -131,7 +131,7 @@ export abstract class BaseRepository<
       
       this.logger.debug('Creating record', { table: this.table?._?.name || 'unknown-table', data: validatedData });
       
-      return await this.drizzleManager.transaction((tx) => {
+      return this.drizzleManager.transaction((tx) => {
         // Insert the record
         const result = tx.insert(this.table).values(validatedData as any).returning().all();
         
@@ -298,7 +298,7 @@ export abstract class BaseRepository<
         data: validatedData 
       });
       
-      return await this.drizzleManager.transaction((tx) => {
+      return this.drizzleManager.transaction((tx) => {
         // Check if record exists first (using tx for consistency)
         const existing = tx.select().from(this.table).where(eq(this.primaryKey, id)).get();
         if (!existing) {
@@ -364,7 +364,7 @@ export abstract class BaseRepository<
     try {
       this.logger.debug('Deleting record', { table: this.table?._?.name || 'unknown-table', id });
       
-      return await this.drizzleManager.transaction((tx) => {
+      return this.drizzleManager.transaction((tx) => {
         // Check if record exists first (using tx for consistency)
         const existing = tx.select().from(this.table).where(eq(this.primaryKey, id)).get();
         if (!existing) {
@@ -526,27 +526,42 @@ export abstract class BaseRepository<
   }
 
   /**
-   * Execute multiple operations in a transaction
+   * Execute multiple operations in a transaction with enhanced error handling
    */
   async transaction<T>(fn: (repository: this) => Promise<T>): Promise<T> {
+    const tableName = this.table?._?.name || 'unknown-table';
+    const startTime = Date.now();
+    
     try {
-      this.logger.debug('Starting transaction', { table: this.table?._?.name || 'unknown-table' });
+      this.logger.debug('Starting repository transaction', { table: tableName });
       
-      return await this.drizzleManager.transaction(async () => {
-        const result = await fn(this);
-        this.logger.debug('Transaction completed successfully', { table: this.table?._?.name || 'unknown-table' });
-        return result;
+      return await this.drizzleManager.transaction((tx) => {
+        // Create a transaction-scoped repository instance
+        const txRepository = Object.create(this);
+        txRepository.drizzle = tx;
+        
+        return fn(txRepository);
       });
     } catch (error) {
-      this.logger.error('Transaction failed', { 
-        table: this.table?._?.name || 'unknown-table',
-        error: error instanceof Error ? error.message : String(error)
+      const duration = Date.now() - startTime;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      this.logger.error('Repository transaction failed', { 
+        table: tableName,
+        duration,
+        error: errorMessage,
+        errorType: error instanceof Error ? error.constructor.name : 'unknown'
       });
       
+      // Re-throw specialized errors as-is
+      if (error instanceof RepositoryError || error instanceof ValidationError || error instanceof NotFoundError) {
+        throw error;
+      }
+      
       throw new RepositoryError(
-        `Transaction failed: ${error instanceof Error ? error.message : String(error)}`,
+        `Transaction failed: ${errorMessage}`,
         'transaction',
-        this.table?._?.name || 'unknown-table',
+        tableName,
         error
       );
     }
@@ -565,7 +580,7 @@ export abstract class BaseRepository<
         count: validatedData.length 
       });
       
-      return await this.drizzleManager.transaction((tx) => {
+      return this.drizzleManager.transaction((tx) => {
         const results = tx.insert(this.table).values(validatedData as any).returning().all();
         
         this.logger.info('Bulk create completed successfully', { 

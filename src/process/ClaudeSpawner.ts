@@ -64,12 +64,30 @@ export class ClaudeProcess extends EventEmitter {
       this.emit('error', { error, pid: this.pid });
     });
 
-    // Capture stdout/stderr to log files
+    // Capture stdout/stderr to log files with JSON filtering
     if (this.process.stdout) {
       this.process.stdout.on('data', (data) => {
         try {
-          writeFileSync(this.stdoutPath, data, { flag: 'a' });
-          this.emit('stdout', { data: data.toString(), pid: this.pid });
+          const output = data.toString();
+          writeFileSync(this.stdoutPath, output, { flag: 'a' });
+          
+          // Filter and emit only valid JSON lines to prevent parsing errors
+          const lines = output.split('\n');
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed && trimmed.startsWith('{')) {
+              try {
+                JSON.parse(trimmed); // Validate JSON
+                this.emit('stdout', { data: trimmed, pid: this.pid, isJson: true });
+              } catch {
+                // Invalid JSON, emit as plain text
+                this.emit('stdout', { data: trimmed, pid: this.pid, isJson: false });
+              }
+            } else if (trimmed) {
+              // Plain text output
+              this.emit('stdout', { data: trimmed, pid: this.pid, isJson: false });
+            }
+          }
         } catch (error) {
           console.error(`Failed to write stdout log for process ${this.pid}:`, error);
         }
@@ -172,6 +190,15 @@ export class ClaudeSpawner extends EventEmitter {
       cmd.push('--model', config.model);
     }
 
+    // Add tool restrictions if specified (CRITICAL: prevents MCP recursion)
+    if (config.allowedTools && config.allowedTools.length > 0) {
+      cmd.push('--allowedTools', config.allowedTools.join(','));
+    }
+
+    if (config.disallowedTools && config.disallowedTools.length > 0) {
+      cmd.push('--disallowedTools', config.disallowedTools.join(','));
+    }
+
     // Add session ID if provided for continuity (resume session)
     // Note: Claude CLI requires UUID format for session IDs, so we skip this for now
     // if (config.sessionId) {
@@ -188,6 +215,9 @@ export class ClaudeSpawner extends EventEmitter {
       MCPTOOLS_DOCUMENTATION_AUTO_BOOTSTRAP: 'false',
       CLAUDE_SESSION_ID: config.sessionId || `session_${Date.now()}`,
       CLAUDE_AGENT_CAPABILITIES: JSON.stringify(config.capabilities || []),
+      // Mark this as an agent process (not main MCP process)
+      MCP_AGENT_ID: config.sessionId || `agent_${Date.now()}`,
+      MCP_MAIN_PROCESS: 'false',
       ...config.environmentVars
     };
 

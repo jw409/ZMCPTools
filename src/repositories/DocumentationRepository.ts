@@ -48,21 +48,55 @@ export class DocumentationRepository extends BaseRepository<
   /**
    * Find documentation sources by source type
    */
-  async findBySourceType(sourceType: SourceType): Promise<DocumentationSource[]> {
-    return this.query()
+  async findBySourceType(sourceType: SourceType, limit?: number, offset?: number): Promise<DocumentationSource[]> {
+    let query = this.query()
       .where(eq(documentationSources.sourceType, sourceType))
-      .orderBy(documentationSources.updatedAt, 'desc')
-      .execute();
+      .orderBy(documentationSources.updatedAt, 'desc');
+    
+    if (limit !== undefined) query = query.limit(limit);
+    if (offset !== undefined) query = query.offset(offset);
+    
+    return query.execute();
   }
 
   /**
    * Find documentation sources by status
    */
-  async findByStatus(status: DocumentationStatus): Promise<DocumentationSource[]> {
-    return this.query()
+  async findByStatus(status: DocumentationStatus, limit?: number, offset?: number): Promise<DocumentationSource[]> {
+    let query = this.query()
       .where(eq(documentationSources.status, status))
-      .orderBy(documentationSources.updatedAt, 'desc')
-      .execute();
+      .orderBy(documentationSources.updatedAt, 'desc');
+    
+    if (limit !== undefined) query = query.limit(limit);
+    if (offset !== undefined) query = query.offset(offset);
+    
+    return query.execute();
+  }
+
+  /**
+   * Find all documentation sources with optional pagination
+   */
+  async findAll(limit?: number, offset?: number): Promise<DocumentationSource[]> {
+    let query = this.query()
+      .orderBy(documentationSources.updatedAt, 'desc');
+    
+    if (limit !== undefined) query = query.limit(limit);
+    if (offset !== undefined) query = query.offset(offset);
+    
+    return query.execute();
+  }
+
+  /**
+   * Find recently updated documentation sources
+   */
+  async findRecentlyUpdated(limit?: number, offset?: number): Promise<DocumentationSource[]> {
+    let query = this.query()
+      .orderBy(documentationSources.updatedAt, 'desc');
+    
+    if (limit !== undefined) query = query.limit(limit);
+    if (offset !== undefined) query = query.offset(offset);
+    
+    return query.execute();
   }
 
   /**

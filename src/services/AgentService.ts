@@ -1,21 +1,28 @@
 import { DatabaseManager } from '../database/index.js';
 import { AgentRepository } from '../repositories/AgentRepository.js';
-import type { AgentSession, NewAgentSession, AgentSessionUpdate, AgentStatus } from '../schemas/index.js';
+import { CommunicationRepository } from '../repositories/CommunicationRepository.js';
+import type { AgentSession, NewAgentSession, AgentSessionUpdate, AgentStatus, AgentType, ToolPermissions } from '../schemas/index.js';
 import { ClaudeSpawner } from '../process/ClaudeSpawner.js';
 import type { ClaudeSpawnConfig } from '../process/ClaudeSpawner.js';
 import { Logger } from '../utils/logger.js';
+import { AgentPermissionManager } from '../utils/agentPermissions.js';
+import { PathUtils } from '../utils/pathUtils.js';
 import { eq, and } from 'drizzle-orm';
 import { agentSessions } from '../schemas/index.js';
 import { resolve } from 'path';
 
 export interface CreateAgentRequest {
   agentName: string;
+  agentType?: AgentType;
   repositoryPath: string;
   taskDescription?: string;
   capabilities?: string[];
   dependsOn?: string[];
   metadata?: Record<string, any>;
   claudeConfig?: Partial<ClaudeSpawnConfig>;
+  toolPermissions?: Partial<ToolPermissions>;
+  autoCreateRoom?: boolean;
+  roomId?: string;
 }
 
 export interface AgentStatusUpdate {
@@ -25,20 +32,133 @@ export interface AgentStatusUpdate {
 
 export class AgentService {
   private agentRepo: AgentRepository;
+  private communicationRepo: CommunicationRepository;
   private spawner: ClaudeSpawner;
   private logger: Logger;
 
   constructor(private db: DatabaseManager) {
     this.agentRepo = new AgentRepository(db);
+    this.communicationRepo = new CommunicationRepository(db);
     this.spawner = ClaudeSpawner.getInstance();
     this.logger = new Logger('AgentService');
+    
+    // Set up event listeners for automatic agent status updates
+    this.setupProcessEventListeners();
+  }
+
+  /**
+   * Set up event listeners to automatically update agent status when processes exit
+   */
+  private setupProcessEventListeners(): void {
+    this.logger.info('Setting up process event listeners for automatic agent status updates');
+
+    // Listen for process exit events from ClaudeSpawner
+    this.spawner.on('process-exit', async ({ pid, code, signal }) => {
+      await this.handleProcessExit(pid, code, signal);
+    });
+
+    // Listen for process reaper events
+    this.spawner.on('process-reaped', async ({ pid, exitCode }) => {
+      await this.handleProcessReaped(pid, exitCode);
+    });
+
+    this.logger.info('Process event listeners configured successfully');
+  }
+
+  /**
+   * Handle process exit events and update agent status
+   */
+  private async handleProcessExit(pid: number, code: number | null, signal: string | null): Promise<void> {
+    try {
+      this.logger.info(`Handling process exit for PID ${pid}`, { pid, code, signal });
+
+      // Find the agent by PID
+      const agent = await this.agentRepo.findByPid(pid);
+      if (!agent) {
+        this.logger.warn(`No agent found for PID ${pid} on process exit`);
+        return;
+      }
+
+      this.logger.info(`Found agent for process exit`, {
+        agentId: agent.id,
+        agentName: agent.agentName,
+        pid,
+        currentStatus: agent.status,
+        exitCode: code,
+        signal
+      });
+
+      // Determine new status based on exit code and signal
+      let newStatus: AgentStatus;
+      if (signal === 'SIGTERM' || signal === 'SIGKILL') {
+        newStatus = 'terminated';
+      } else if (code === 0) {
+        newStatus = 'completed';
+      } else {
+        newStatus = 'failed';
+      }
+
+      // Update agent status in database
+      await this.agentRepo.updateStatus(agent.id, newStatus);
+
+      this.logger.info(`Agent status updated automatically`, {
+        agentId: agent.id,
+        agentName: agent.agentName,
+        pid,
+        oldStatus: agent.status,
+        newStatus,
+        exitCode: code,
+        signal
+      });
+
+    } catch (error) {
+      this.logger.error(`Error handling process exit for PID ${pid}`, {
+        pid,
+        code,
+        signal,
+        error: error,
+        errorMessage: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  /**
+   * Handle process reaper events for additional cleanup
+   */
+  private async handleProcessReaped(pid: number, exitCode: number | null): Promise<void> {
+    try {
+      this.logger.debug(`Process reaped for PID ${pid}`, { pid, exitCode });
+
+      // The main status update should have been handled by handleProcessExit
+      // This is primarily for additional cleanup or logging
+      const agent = await this.agentRepo.findByPid(pid);
+      if (agent) {
+        this.logger.debug(`Agent cleanup confirmed for reaped process`, {
+          agentId: agent.id,
+          agentName: agent.agentName,
+          pid,
+          status: agent.status,
+          exitCode
+        });
+      }
+
+    } catch (error) {
+      this.logger.error(`Error handling process reaper for PID ${pid}`, {
+        pid,
+        exitCode,
+        error: error,
+        errorMessage: error instanceof Error ? error.message : String(error)
+      });
+    }
   }
 
   async createAgent(request: CreateAgentRequest): Promise<AgentSession> {
     const agentId = this.generateAgentId();
+    const agentType = request.agentType || 'general_agent';
     
     this.logger.info(`Creating agent ${agentId}`, {
       agentName: request.agentName,
+      agentType: agentType,
       repositoryPath: request.repositoryPath,
       repositoryPathType: typeof request.repositoryPath,
       repositoryPathValue: request.repositoryPath,
@@ -47,40 +167,66 @@ export class AgentService {
       dependsOn: request.dependsOn
     });
     
-    // Validate repository path before creating agent
-    if (!request.repositoryPath) {
-      this.logger.error(`Invalid repository path for agent ${agentId}`, {
-        repositoryPath: request.repositoryPath,
-        repositoryPathType: typeof request.repositoryPath,
-        request: request
-      });
-      throw new Error(`Repository path is required and cannot be empty or undefined`);
-    }
-    
-    if (typeof request.repositoryPath !== 'string') {
-      this.logger.error(`Repository path must be a string for agent ${agentId}`, {
-        repositoryPath: request.repositoryPath,
-        repositoryPathType: typeof request.repositoryPath,
-        request: request
-      });
-      throw new Error(`Repository path must be a string, got ${typeof request.repositoryPath}`);
-    }
-    
     // Resolve repository path to absolute path for storage and agent context
-    const resolvedRepositoryPath = resolve(request.repositoryPath);
+    const resolvedRepositoryPath = PathUtils.resolveRepositoryPath(request.repositoryPath, `agent creation (${agentId})`);
+
+    // Generate tool permissions for the agent type
+    const toolPermissions = AgentPermissionManager.generateToolPermissions(agentType, request.toolPermissions);
     
-    this.logger.info(`Resolved repository path for agent ${agentId}`, {
-      originalPath: request.repositoryPath,
-      resolvedPath: resolvedRepositoryPath
-    });
+    // Validate permissions
+    const validation = AgentPermissionManager.validatePermissions(toolPermissions);
+    if (!validation.valid) {
+      this.logger.error(`Invalid tool permissions for agent ${agentId}`, {
+        agentType,
+        errors: validation.errors
+      });
+      throw new Error(`Invalid tool permissions: ${validation.errors.join(', ')}`);
+    }
+
+    // Handle room creation/assignment
+    let roomId = request.roomId;
+    const shouldAutoCreate = request.autoCreateRoom !== false && AgentPermissionManager.shouldAutoCreateRoom(agentType);
+    
+    if (!roomId && shouldAutoCreate) {
+      roomId = AgentPermissionManager.generateRoomName(agentType, agentId);
+      
+      // Create the room in the communication system
+      try {
+        await this.communicationRepo.createRoom({
+          name: roomId,
+          repositoryPath: resolvedRepositoryPath,
+          roomMetadata: {
+            agentType,
+            agentId,
+            autoCreated: true,
+            createdAt: new Date().toISOString()
+          }
+        });
+        
+        this.logger.info(`Auto-created room for agent ${agentId}`, {
+          roomId,
+          agentType
+        });
+      } catch (error) {
+        this.logger.warn(`Failed to create room for agent ${agentId}`, {
+          roomId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        // Continue without room - not critical for agent creation
+        roomId = undefined;
+      }
+    }
     
     // Create agent record first
     const agent = await this.agentRepo.create({
       id: agentId,
       agentName: request.agentName,
+      agentType: agentType,
       repositoryPath: resolvedRepositoryPath,
       status: 'active' as AgentStatus,
       capabilities: request.capabilities || [],
+      toolPermissions: toolPermissions,
+      roomId: roomId,
       agentMetadata: {
         taskDescription: request.taskDescription,
         dependsOn: request.dependsOn || [],
@@ -159,32 +305,11 @@ export class AgentService {
     const prompt = this.generateAgentPrompt(agent, taskDescription);
     
     // Validate and resolve working directory to absolute path
-    let workingDirectory = agent.repositoryPath;
-    
-    this.logger.info(`Initial working directory validation`, {
-      agentId: agent.id,
-      originalWorkingDirectory: workingDirectory,
-      workingDirectoryType: typeof workingDirectory,
-      isValid: !!(workingDirectory && typeof workingDirectory === 'string')
-    });
-    
-    if (!workingDirectory || typeof workingDirectory !== 'string') {
-      this.logger.warn(`Agent ${agent.id} has invalid repository_path, using process.cwd() as fallback`, {
-        agentId: agent.id,
-        originalRepositoryPath: workingDirectory,
-        repositoryPathType: typeof workingDirectory,
-        fallbackPath: process.cwd()
-      });
-      workingDirectory = process.cwd();
-    }
-    
-    // Resolve to absolute path so agent gets full context
-    workingDirectory = resolve(workingDirectory);
-    
-    this.logger.info(`Resolved working directory to absolute path`, {
-      agentId: agent.id,
-      resolvedWorkingDirectory: workingDirectory
-    });
+    let workingDirectory = PathUtils.resolveWorkingDirectory(
+      agent.repositoryPath, 
+      process.cwd(), 
+      `agent spawn (${agent.id})`
+    );
     
     // Verify the directory exists
     try {
@@ -213,17 +338,34 @@ export class AgentService {
       workingDirectory = process.cwd();
     }
     
+    // Generate allowed tools for Claude Code
+    let allowedTools: string[] | undefined;
+    let disallowedTools: string[] | undefined;
+    
+    if (agent.toolPermissions) {
+      const allowedToolsFlag = AgentPermissionManager.generateAllowedToolsFlag(agent.toolPermissions);
+      if (allowedToolsFlag) {
+        allowedTools = allowedToolsFlag.split(',');
+      }
+      
+      // Also get disallowed tools for additional safety
+      disallowedTools = agent.toolPermissions.disallowedTools;
+    }
+
     const config: ClaudeSpawnConfig = {
       workingDirectory,
       prompt,
       sessionId: `agent_${agent.id}`,
       capabilities: agent.capabilities,
+      allowedTools: allowedTools,
+      disallowedTools: disallowedTools,
       environmentVars: {
         AGENT_ID: agent.id,
         AGENT_NAME: agent.agentName,
-        AGENT_TYPE: agent.agentName,
+        AGENT_TYPE: agent.agentType || 'general_agent',
         TASK_DESCRIPTION: taskDescription,
-        REPOSITORY_PATH: workingDirectory
+        REPOSITORY_PATH: workingDirectory,
+        ROOM_ID: agent.roomId || ''
       },
       ...claudeConfig
     };
@@ -267,47 +409,72 @@ export class AgentService {
   }
 
   private generateAgentPrompt(agent: AgentSession, taskDescription: string): string {
-    return `You are a fully autonomous ${agent.agentName} agent with COMPLETE CLAUDE CODE CAPABILITIES.
+    const agentType = agent.agentType || 'general_agent';
+    const hasRoom = !!agent.roomId;
+    
+    let prompt = `You are a specialized ${agentType.replace('_', ' ')} agent (${agent.agentName}) with focused capabilities.
 
-AGENT ID: ${agent.id}
-TASK: ${taskDescription}
-REPOSITORY: ${agent.repositoryPath}
+AGENT DETAILS:
+- Agent ID: ${agent.id}
+- Agent Type: ${agentType}
+- Task: ${taskDescription}
+- Repository: ${agent.repositoryPath}`;
 
-You have access to ALL Claude Code tools:
-- File operations (Read, Write, Edit, Search, etc.)
-- Code analysis and refactoring
-- Web browsing and research
-- System commands and build tools
-- Git operations
-- Database queries
-- Agent coordination tools (spawn_agent, join_room, send_message, etc.)
-- Shared memory and communication (store_memory, search_memory, etc.)
+    if (hasRoom) {
+      prompt += `
+- Communication Room: ${agent.roomId}`;
+    }
+
+    prompt += `
+
+SPECIALIZED CAPABILITIES:
+You are a ${agentType.replace('_', ' ')} with specific tool permissions designed for your role.
+Your capabilities include: ${agent.capabilities?.join(', ') || 'general development tasks'}
 
 AUTONOMOUS OPERATION GUIDELINES:
-- Work independently to complete your assigned task
-- Use any tools necessary for success
+- Work independently within your specialized domain
+- Focus on tasks suited to your agent type (${agentType})
+- Use your permitted tools effectively
 - Coordinate with other agents when beneficial
 - Store insights and learnings in shared memory
-- Report progress in coordination rooms
-- Make decisions and take actions as needed
+- Make decisions and take actions within your expertise
 
-COMMUNICATION:
-- Use join_room() to join coordination rooms
-- Use send_message() to communicate with other agents
+COMMUNICATION PROTOCOL:`;
+
+    if (hasRoom) {
+      prompt += `
+- Your assigned room: ${agent.roomId}
+- Use join_room("${agent.roomId}") to join your coordination room
+- Use send_message() to communicate with other agents in your room`;
+    } else {
+      prompt += `
+- Use join_room() to join coordination rooms as needed
+- Use send_message() to communicate with other agents`;
+    }
+
+    prompt += `
 - Use store_memory() to share knowledge and insights
 - Use search_memory() to learn from previous work
+- Report progress and significant findings to coordinating agents
 
-CRITICAL: You are fully autonomous. Think, plan, and execute independently.
-Your goal is to successfully complete the task using all available capabilities.`;
+TERMINATION PROTOCOL:
+- When your task is complete, report to your room if you're not alone
+- Store final insights and learnings in shared memory
+- If you're the only agent in your room, you may terminate gracefully
+
+CRITICAL: You are an autonomous specialist. Work within your domain expertise.
+Focus on successfully completing your assigned task using your specialized capabilities.`;
+
+    return prompt;
   }
 
   async getAgent(agentId: string): Promise<AgentSession | null> {
     return await this.agentRepo.findById(agentId);
   }
 
-  async listAgents(repositoryPath?: string, status?: string): Promise<AgentSession[]> {
+  async listAgents(repositoryPath?: string, status?: string, limit: number = 5, offset: number = 0): Promise<AgentSession[]> {
     if (repositoryPath) {
-      return await this.agentRepo.findByRepositoryPath(repositoryPath, status as AgentStatus);
+      return await this.agentRepo.findByRepositoryPath(repositoryPath, status as AgentStatus, limit, offset);
     }
     
     // If no repository specified, we need a different query
@@ -339,10 +506,45 @@ Your goal is to successfully complete the task using all available capabilities.
     this.logger.info(`Agent found for termination`, {
       agentId: agentId,
       agentName: agent.agentName,
+      agentType: agent.agentType,
       repositoryPath: agent.repositoryPath,
       status: agent.status,
-      claudePid: agent.claudePid
+      claudePid: agent.claudePid,
+      roomId: agent.roomId
     });
+
+    // Handle room cleanup if agent has a room
+    if (agent.roomId) {
+      try {
+        // Check if this agent is alone in the room
+        const roomMembers = await this.communicationRepo.getRoomParticipants(agent.roomId);
+        const activeMembers = roomMembers.filter(member => 
+          member !== agentId
+        );
+
+        if (activeMembers.length === 0) {
+          // Agent is alone - safe to remove the room
+          this.logger.info(`Agent ${agentId} is alone in room ${agent.roomId}, cleaning up room`);
+          await this.communicationRepo.deleteRoom(agent.roomId);
+        } else {
+          // Send termination message to room
+          this.logger.info(`Agent ${agentId} leaving room ${agent.roomId} with ${activeMembers.length} remaining members`);
+          await this.communicationRepo.sendMessage({
+            id: `msg-${Date.now()}-${Math.random().toString(36).substring(2)}`,
+            roomName: agent.roomId,
+            agentName: agent.agentName,
+            message: `Agent ${agent.agentName} (${agent.agentType}) is terminating. Task status: ${agent.status}`,
+            messageType: 'system'
+          });
+        }
+      } catch (error) {
+        this.logger.warn(`Failed to handle room cleanup for agent ${agentId}`, {
+          roomId: agent.roomId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        // Continue with termination - room cleanup is not critical
+      }
+    }
 
     // Terminate the Claude process if it exists
     if (agent.claudePid) {
@@ -425,40 +627,54 @@ Your goal is to successfully complete the task using all available capabilities.
   // Convenience method for spawning agents with prompt-based interface
   async spawnAgent(config: {
     agentName: string;
+    agentType?: AgentType;
     repositoryPath: string;
     prompt: string;
     capabilities?: string[];
     agentMetadata?: Record<string, any>;
     claudeConfig?: Partial<ClaudeSpawnConfig>;
+    toolPermissions?: Partial<ToolPermissions>;
+    autoCreateRoom?: boolean;
+    roomId?: string;
   }): Promise<{
     agentId: string;
     agent: AgentSession;
   }> {
     this.logger.info(`spawnAgent called with config`, {
       agentName: config.agentName,
+      agentType: config.agentType,
       repositoryPath: config.repositoryPath,
       repositoryPathType: typeof config.repositoryPath,
       prompt: config.prompt,
       capabilities: config.capabilities,
       hasAgentMetadata: !!config.agentMetadata,
-      hasClaudeConfig: !!config.claudeConfig
+      hasClaudeConfig: !!config.claudeConfig,
+      hasToolPermissions: !!config.toolPermissions,
+      autoCreateRoom: config.autoCreateRoom,
+      roomId: config.roomId
     });
     
     const agent = await this.createAgent({
       agentName: config.agentName,
+      agentType: config.agentType,
       repositoryPath: config.repositoryPath,
       taskDescription: config.prompt,
       capabilities: config.capabilities,
       metadata: config.agentMetadata,
-      claudeConfig: config.claudeConfig
+      claudeConfig: config.claudeConfig,
+      toolPermissions: config.toolPermissions,
+      autoCreateRoom: config.autoCreateRoom,
+      roomId: config.roomId
     });
 
     this.logger.info(`spawnAgent completed successfully`, {
       agentId: agent.id,
       agentName: agent.agentName,
+      agentType: agent.agentType,
       repositoryPath: agent.repositoryPath,
       status: agent.status,
-      claudePid: agent.claudePid
+      claudePid: agent.claudePid,
+      roomId: agent.roomId
     });
 
     return {

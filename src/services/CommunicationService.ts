@@ -1,5 +1,6 @@
 import { DatabaseManager } from '../database/index.js';
 import { CommunicationRepository } from '../repositories/CommunicationRepository.js';
+import { PathUtils } from '../utils/pathUtils.js';
 import type { ChatRoom, ChatMessage, NewChatRoom, NewChatMessage, MessageType, MessageFilter, SendMessageRequest } from '../schemas/index.js';
 
 export interface CreateRoomRequest {
@@ -29,6 +30,9 @@ export class CommunicationService {
 
   // Room management
   async createRoom(request: CreateRoomRequest): Promise<ChatRoom> {
+    // Resolve repository path to absolute path
+    const resolvedRepositoryPath = PathUtils.resolveRepositoryPath(request.repositoryPath, 'room creation');
+    
     // Check if room already exists
     const existingRoom = await this.commRepo.getRoomByName(request.name);
     if (existingRoom) {
@@ -38,7 +42,7 @@ export class CommunicationService {
     const roomData: NewChatRoom = {
       name: request.name,
       description: request.description,
-      repositoryPath: request.repositoryPath,
+      repositoryPath: resolvedRepositoryPath,
       roomMetadata: request.metadata || {}
     };
 
@@ -50,7 +54,8 @@ export class CommunicationService {
   }
 
   async listRooms(repositoryPath: string): Promise<ChatRoom[]> {
-    return await this.commRepo.listRooms(repositoryPath);
+    const resolvedRepositoryPath = PathUtils.resolveRepositoryPath(repositoryPath, 'list rooms');
+    return await this.commRepo.listRooms(resolvedRepositoryPath);
   }
 
   async updateRoomMetadata(roomName: string, metadata: Record<string, any>): Promise<void> {
@@ -389,7 +394,8 @@ export class CommunicationService {
 
   // Clean up old messages
   async cleanupOldMessages(repositoryPath: string, olderThanDays = 7): Promise<number> {
-    const rooms = await this.commRepo.listRooms(repositoryPath);
+    const resolvedRepositoryPath = PathUtils.resolveRepositoryPath(repositoryPath, 'cleanup old messages');
+    const rooms = await this.commRepo.listRooms(resolvedRepositoryPath);
     let totalDeleted = 0;
 
     const cutoffDate = new Date();

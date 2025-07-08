@@ -3,13 +3,21 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema,
   ErrorCode,
   McpError
 } from '@modelcontextprotocol/sdk/types.js';
 import type {
   Tool,
   CallToolResult,
-  TextContent
+  TextContent,
+  Resource,
+  TextResourceContents,
+  Prompt,
+  GetPromptResult
 } from '@modelcontextprotocol/sdk/types.js';
 
 import { DatabaseManager } from '../database/index.js';
@@ -22,6 +30,8 @@ import { CacheMcpTools } from '../tools/CacheMcpTools.js';
 import { BrowserTools } from '../tools/BrowserTools.js';
 import { WebScrapingService } from '../services/WebScrapingService.js';
 import { AgentService, MemoryService, FileOperationsService, TreeSummaryService, fileOperationsService } from '../services/index.js';
+import { ResourceManager } from '../managers/ResourceManager.js';
+import { PromptManager } from '../managers/PromptManager.js';
 import type { OrchestrationResult } from '../tools/AgentOrchestrationTools.js';
 
 export interface McpServerOptions {
@@ -42,10 +52,15 @@ export class McpServer {
   private cacheMcpTools: CacheMcpTools;
   private fileOperationsService: FileOperationsService;
   private treeSummaryService: TreeSummaryService;
+  private resourceManager: ResourceManager;
+  private promptManager: PromptManager;
   private repositoryPath: string;
 
   constructor(private options: McpServerOptions) {
     this.repositoryPath = options.repositoryPath || process.cwd();
+    
+    // Mark this as the main MCP process for database initialization
+    process.env.MCP_MAIN_PROCESS = 'true';
     
     this.server = new Server(
       {
@@ -55,12 +70,20 @@ export class McpServer {
       {
         capabilities: {
           tools: {},
+          resources: {},
+          prompts: {},
         },
       }
     );
 
-    // Initialize database
-    this.db = new DatabaseManager({ path: options.databasePath });
+    // Initialize database with optimized settings for main process
+    this.db = new DatabaseManager({ 
+      path: options.databasePath,
+      wal: true,
+      busyTimeoutMs: 30000,
+      checkpointIntervalMs: 60000,
+      verbose: process.env.NODE_ENV === 'development'
+    });
     
     // Initialize services
     const agentService = new AgentService(this.db);
@@ -85,6 +108,10 @@ export class McpServer {
     this.analysisMcpTools = new AnalysisMcpTools(memoryService, this.repositoryPath);
     this.treeSummaryTools = new TreeSummaryTools();
     this.cacheMcpTools = new CacheMcpTools(this.db);
+
+    // Initialize managers
+    this.resourceManager = new ResourceManager(this.db, this.repositoryPath);
+    this.promptManager = new PromptManager();
 
     this.setupToolHandlers();
   }
@@ -119,6 +146,72 @@ export class McpServer {
         );
       }
     });
+
+    // List available resources
+    this.server.setRequestHandler(ListResourcesRequestSchema, async () => {
+      try {
+        const resources = await this.resourceManager.listResources();
+        return {
+          resources: resources,
+        };
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        throw new McpError(
+          ErrorCode.InternalError,
+          `Resource listing failed: ${errorMessage}`
+        );
+      }
+    });
+
+    // Read resource content
+    this.server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+      const { uri } = request.params;
+
+      try {
+        const content = await this.resourceManager.readResource(uri);
+        return {
+          contents: [content],
+        };
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        throw new McpError(
+          ErrorCode.InternalError,
+          `Resource reading failed: ${errorMessage}`
+        );
+      }
+    });
+
+    // List available prompts
+    this.server.setRequestHandler(ListPromptsRequestSchema, async () => {
+      try {
+        const prompts = await this.promptManager.listPrompts();
+        return {
+          prompts: prompts,
+        };
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        throw new McpError(
+          ErrorCode.InternalError,
+          `Prompt listing failed: ${errorMessage}`
+        );
+      }
+    });
+
+    // Get prompt content
+    this.server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+      const { name, arguments: args } = request.params;
+
+      try {
+        const result = await this.promptManager.getPrompt(name, args);
+        return result;
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        throw new McpError(
+          ErrorCode.InternalError,
+          `Prompt execution failed: ${errorMessage}`
+        );
+      }
+    });
   }
 
   private getAvailableTools(): Tool[] {
@@ -146,9 +239,13 @@ export class McpServer {
         inputSchema: {
           type: "object",
           properties: {
+            title: {
+              type: "string",
+              description: "Short title for the objective (max 200 chars)"
+            },
             objective: {
               type: "string",
-              description: "The high-level objective to accomplish"
+              description: "The detailed high-level objective to accomplish"
             },
             repository_path: {
               type: "string",
@@ -159,7 +256,7 @@ export class McpServer {
               description: "Optional foundation session ID for shared context"
             }
           },
-          required: ["objective", "repository_path"]
+          required: ["title", "objective", "repository_path"]
         }
       },
       {
@@ -377,6 +474,17 @@ export class McpServer {
               type: "string",
               enum: ["active", "idle", "completed", "terminated", "failed"],
               description: "Optional status filter"
+            },
+            limit: {
+              type: "number",
+              description: "Maximum number of agents to return (default: 5)",
+              minimum: 1,
+              maximum: 100
+            },
+            offset: {
+              type: "number",
+              description: "Number of agents to skip (default: 0)",
+              minimum: 0
             }
           },
           required: ["repository_path"]
@@ -435,6 +543,7 @@ export class McpServer {
     switch (name) {
       case "orchestrate_objective":
         return await this.orchestrationTools.orchestrateObjective(
+          args.title,
           args.objective,
           args.repository_path,
           args.foundation_session_id
@@ -502,7 +611,9 @@ export class McpServer {
       case "list_agents":
         return await this.orchestrationTools.listAgents(
           args.repository_path,
-          args.status
+          args.status,
+          args.limit || 5,
+          args.offset || 0
         );
 
       case "terminate_agent":

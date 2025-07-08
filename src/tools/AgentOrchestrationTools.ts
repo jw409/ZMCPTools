@@ -43,6 +43,7 @@ export class AgentOrchestrationTools {
    * Spawn architect agent to coordinate multi-agent objective completion
    */
   async orchestrateObjective(
+    title: string,
     objective: string,
     repositoryPath: string,
     foundationSessionId?: string
@@ -65,8 +66,8 @@ export class AgentOrchestrationTools {
       this.memoryService.storeInsight(
         repositoryPath,
         'system',
-        `Objective: ${objective}`,
-        `Multi-agent objective coordination started.\nRoom: ${roomName}\nFoundation Session: ${foundationSessionId || 'none'}`,
+        title,
+        `Objective: ${objective}\n\nMulti-agent objective coordination started.\nRoom: ${roomName}\nFoundation Session: ${foundationSessionId || 'none'}`,
         ['objective', 'orchestration', 'coordination']
       );
 
@@ -471,9 +472,9 @@ export class AgentOrchestrationTools {
   /**
    * Get list of active agents
    */
-  async listAgents(repositoryPath: string, status?: AgentStatus): Promise<OrchestrationResult> {
+  async listAgents(repositoryPath: string, status?: AgentStatus, limit: number = 5, offset: number = 0): Promise<OrchestrationResult> {
     try {
-      const agents = await this.agentService.listAgents(repositoryPath, status);
+      const agents = await this.agentService.listAgents(repositoryPath, status, limit, offset);
 
       return {
         success: true,

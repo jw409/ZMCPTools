@@ -28,6 +28,10 @@ export {
   type CacheStatistics, 
   type CacheConfig 
 } from './FoundationCacheService.js';
+export { 
+  DocumentationService,
+  type DocumentationSourceSummary
+} from './DocumentationService.js';
 
 // Repository exports
 export { AgentRepository } from '../repositories/AgentRepository.js';
