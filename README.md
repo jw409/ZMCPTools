@@ -8,8 +8,8 @@
 - **Intelligent Coordination**: Architect agents analyze objectives and spawn specialized teams
 - **Agent Dependencies**: Backend → Frontend → Testing → Documentation workflows
 - **Real-Time Communication**: Agents coordinate through dedicated chat rooms
-- **Foundation Sessions**: 85-90% cost reduction through shared context
-- **40 Enhanced Tools**: Complete orchestration with seamless Claude Code integration
+- **Foundation Sessions**: 85-90% cost reduction through shared context (automatic)
+- **43 Enhanced Tools**: Complete orchestration with seamless Claude Code integration
 
 ### 🎨 **TypeScript CLI Experience**
 - **Type-Safe Interface**: Built with Commander.js for robust command handling
@@ -48,14 +48,14 @@
 - **Documentation Sources**: Track and manage scraped documentation repositories
 - **Local Storage**: All data stored at `~/.mcptools/data/` with LanceDB at `~/.mcptools/lancedb/`
 
-### 🧠 Foundation Cache System (7 tools)
-- **Foundation Sessions**: Create shared context sessions for 85-90% cost reduction
-- **Session Derivation**: Derive new sessions from existing foundations
-- **Analysis Caching**: Cache and retrieve expensive analysis results
-- **Cache Statistics**: Monitor cache performance and hit rates
-- **Cache Maintenance**: Automated cleanup and invalidation management
+### 🧠 Foundation Cache System (Automatic)
+- **Foundation Sessions**: Automatically created for 85-90% cost reduction
+- **Session Derivation**: Seamlessly managed by agent orchestration
+- **Analysis Caching**: Built-in caching for expensive analysis operations
+- **Cache Statistics**: Internal monitoring and optimization
+- **Cache Maintenance**: Automated cleanup and management (no manual tools needed)
 
-### 🤖 Multi-Agent Orchestration (9 tools)
+### 🤖 Multi-Agent Orchestration (14 tools)
 - **Agent Spawning**: Specialized development agents with real-time communication
 - **Task Management**: Create, assign, and track complex development tasks
 - **Shared Memory**: Cross-agent collaboration and knowledge sharing

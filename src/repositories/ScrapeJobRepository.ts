@@ -55,6 +55,16 @@ export class ScrapeJobRepository extends BaseRepository<
   }
 
   /**
+   * Find jobs by priority level
+   */
+  async findByPriority(priority: number): Promise<ScrapeJob[]> {
+    return this.query()
+      .where(eq(scrapeJobs.priority, priority))
+      .orderBy(scrapeJobs.createdAt, 'desc')
+      .execute();
+  }
+
+  /**
    * Find jobs locked by a specific worker
    */
   async findLockedBy(lockerId: string): Promise<ScrapeJob[]> {
@@ -66,6 +76,7 @@ export class ScrapeJobRepository extends BaseRepository<
 
   /**
    * Find pending jobs that are available to be picked up
+   * Orders by priority (1 = highest priority) then by creation time
    */
   async findAvailablePending(): Promise<ScrapeJob[]> {
     return this.query()
@@ -73,6 +84,7 @@ export class ScrapeJobRepository extends BaseRepository<
         eq(scrapeJobs.status, 'pending'),
         isNull(scrapeJobs.lockedBy)
       ))
+      .orderBy(scrapeJobs.priority, 'asc')
       .orderBy(scrapeJobs.createdAt, 'asc')
       .execute();
   }
@@ -81,9 +93,18 @@ export class ScrapeJobRepository extends BaseRepository<
    * Find the next pending job and lock it for processing
    */
   async lockNextPendingJob(lockerId: string, lockTimeoutSeconds = 3600): Promise<ScrapeJob | null> {
-    return await this.transaction(async () => {
-      // Find the next available pending job
-      const availableJobs = await this.findAvailablePending();
+    return await this.drizzleManager.transaction((tx) => {
+      // Find the next available pending job using synchronous query
+      const availableJobs = tx
+        .select()
+        .from(scrapeJobs)
+        .where(and(
+          eq(scrapeJobs.status, 'pending'),
+          isNull(scrapeJobs.lockedBy)
+        ))
+        .orderBy(scrapeJobs.priority, scrapeJobs.createdAt)
+        .all();
+
       if (availableJobs.length === 0) {
         return null;
       }
@@ -91,16 +112,32 @@ export class ScrapeJobRepository extends BaseRepository<
       const job = availableJobs[0];
       const now = new Date().toISOString();
 
-      // Lock the job
-      const lockedJob = await this.update(job.id, {
-        status: 'running',
+      // Lock the job synchronously
+      const result = tx
+        .update(scrapeJobs)
+        .set({
+          status: 'running',
+          lockedBy: lockerId,
+          lockedAt: now,
+          startedAt: now,
+          lockTimeout: lockTimeoutSeconds,
+        })
+        .where(eq(scrapeJobs.id, job.id))
+        .run();
+
+      if (result.changes === 0) {
+        return null;
+      }
+
+      // Return the updated job
+      return {
+        ...job,
+        status: 'running' as const,
         lockedBy: lockerId,
         lockedAt: now,
-        lockTimeout: lockTimeoutSeconds,
         startedAt: now,
-      } as ScrapeJobUpdate);
-
-      return lockedJob;
+        lockTimeout: lockTimeoutSeconds,
+      };
     });
   }
 
@@ -254,6 +291,7 @@ export class ScrapeJobRepository extends BaseRepository<
   async getJobStats(): Promise<{
     total: number;
     byStatus: Record<ScrapeJobStatus, number>;
+    byPriority: Record<number, number>;
     avgExecutionTime: number;
     totalPagesScraped: number;
   }> {
@@ -262,6 +300,7 @@ export class ScrapeJobRepository extends BaseRepository<
     const stats = {
       total: jobs.data.length,
       byStatus: {} as Record<string, number>,
+      byPriority: {} as Record<number, number>,
       avgExecutionTime: 0,
       totalPagesScraped: 0,
     };
@@ -280,6 +319,9 @@ export class ScrapeJobRepository extends BaseRepository<
     jobs.data.forEach(job => {
       // Count by status
       stats.byStatus[job.status] = (stats.byStatus[job.status] || 0) + 1;
+      
+      // Count by priority
+      stats.byPriority[job.priority] = (stats.byPriority[job.priority] || 0) + 1;
       
       // Sum pages scraped
       stats.totalPagesScraped += job.pagesScraped || 0;
@@ -300,6 +342,7 @@ export class ScrapeJobRepository extends BaseRepository<
     return stats as {
       total: number;
       byStatus: Record<ScrapeJobStatus, number>;
+      byPriority: Record<number, number>;
       avgExecutionTime: number;
       totalPagesScraped: number;
     };

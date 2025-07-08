@@ -26,7 +26,7 @@ import { BrowserMcpTools } from '../tools/BrowserMcpTools.js';
 import { WebScrapingMcpTools } from '../tools/WebScrapingMcpTools.js';
 import { AnalysisMcpTools } from '../tools/AnalysisMcpTools.js';
 import { TreeSummaryTools } from '../tools/TreeSummaryTools.js';
-import { CacheMcpTools } from '../tools/CacheMcpTools.js';
+// CacheMcpTools removed - foundation caching now automatic
 import { BrowserTools } from '../tools/BrowserTools.js';
 import { WebScrapingService } from '../services/WebScrapingService.js';
 import { AgentService, MemoryService, FileOperationsService, TreeSummaryService, fileOperationsService } from '../services/index.js';
@@ -51,7 +51,7 @@ export class McpServer {
   private webScrapingMcpTools: WebScrapingMcpTools;
   private analysisMcpTools: AnalysisMcpTools;
   private treeSummaryTools: TreeSummaryTools;
-  private cacheMcpTools: CacheMcpTools;
+  // cacheMcpTools removed - foundation caching now automatic
   private fileOperationsService: FileOperationsService;
   private treeSummaryService: TreeSummaryService;
   private resourceManager: ResourceManager;
@@ -113,7 +113,7 @@ export class McpServer {
     this.webScrapingMcpTools = new WebScrapingMcpTools(webScrapingService, memoryService, this.repositoryPath);
     this.analysisMcpTools = new AnalysisMcpTools(memoryService, this.repositoryPath);
     this.treeSummaryTools = new TreeSummaryTools();
-    this.cacheMcpTools = new CacheMcpTools(this.db);
+    // Foundation caching is now automatic - no manual tools needed
 
     // Initialize managers
     this.resourceManager = new ResourceManager(this.db, this.repositoryPath);
@@ -249,9 +249,8 @@ export class McpServer {
       // Analysis and file operation tools
       ...this.analysisMcpTools.getTools(),
       // TreeSummary tools
-      ...this.treeSummaryTools.getTools(),
-      // Foundation Cache tools
-      ...this.cacheMcpTools.getTools()
+      ...this.treeSummaryTools.getTools()
+      // Foundation Cache tools removed - now automatic
     ];
   }
 
@@ -652,11 +651,7 @@ export class McpServer {
       return await this.treeSummaryTools.handleToolCall(name, args);
     }
 
-    // Check Foundation Cache tools
-    const cacheToolNames = this.cacheMcpTools.getTools().map(t => t.name);
-    if (cacheToolNames.includes(name)) {
-      return await this.cacheMcpTools.handleToolCall(name, args);
-    }
+    // Foundation Cache tools removed - now automatic
 
     // Handle orchestration tools
     switch (name) {

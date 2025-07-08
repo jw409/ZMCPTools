@@ -89,7 +89,8 @@ export { TaskRepository } from './TaskRepository.js';
 export { CommunicationRepository } from './CommunicationRepository.js';
 export { DocumentationRepository } from './DocumentationRepository.js';
 export { ScrapeJobRepository } from './ScrapeJobRepository.js';
-export { ScrapeJobEntryRepository } from './ScrapeJobEntryRepository.js';
+export { WebsiteRepository } from './WebsiteRepository.js';
+export { WebsitePagesRepository } from './WebsitePagesRepository.js';
 export { ToolCallLogRepository } from './ToolCallLogRepository.js';
 export { ErrorLogRepository } from './ErrorLogRepository.js';
 

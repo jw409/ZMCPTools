@@ -271,15 +271,15 @@ export class WebScrapingMcpTools {
     const result = await this.webScrapingService.queueScrapeJob(
       sourceId,
       {
-        source_url: params.url,
-        source_name: params.name || new URL(params.url).hostname,
-        crawl_depth: params.crawl_depth,
+        sourceUrl: params.url,
+        sourceName: params.name || new URL(params.url).hostname,
+        crawlDepth: params.crawl_depth,
         selectors: params.selectors,
-        allow_patterns: params.allow_patterns,
-        ignore_patterns: params.ignore_patterns,
-        include_subdomains: params.include_subdomains,
-        force_refresh: params.force_refresh,
-        agent_id: params.agent_id
+        allowPatterns: params.allow_patterns,
+        ignorePatterns: params.ignore_patterns,
+        includeSubdomains: params.include_subdomains,
+        forceRefresh: params.force_refresh,
+        agentId: params.agent_id
       },
       5 // Default priority
     );
@@ -290,7 +290,7 @@ export class WebScrapingMcpTools {
         params.agent_id,
         'shared',
         `Documentation scraping queued`,
-        `Queued scraping for ${params.name || params.url} - Job ID: ${result.job_id}`
+        `Queued scraping for ${params.name || params.url} - Job ID: ${result.jobId}`
       );
     }
 
@@ -315,12 +315,12 @@ export class WebScrapingMcpTools {
       return {
         success: true,
         summary: {
-          active_jobs: status.active_jobs.length,
-          pending_jobs: status.pending_jobs.length,
-          completed_jobs: status.completed_jobs.length,
-          failed_jobs: status.failed_jobs.length
+          activeJobs: status.activeJobs.length,
+          pendingJobs: status.pendingJobs.length,
+          completedJobs: status.completedJobs.length,
+          failedJobs: status.failedJobs.length
         },
-        worker_status: status.worker_status
+        workerStatus: status.workerStatus
       };
     }
 
@@ -351,8 +351,8 @@ export class WebScrapingMcpTools {
     try {
       // Update worker configuration
       if (this.webScrapingService['workerConfig']) {
-        this.webScrapingService['workerConfig'].max_concurrent_jobs = params.max_concurrent_jobs;
-        this.webScrapingService['workerConfig'].poll_interval_ms = params.poll_interval_ms;
+        this.webScrapingService['workerConfig'].maxConcurrentJobs = params.max_concurrent_jobs;
+        this.webScrapingService['workerConfig'].pollIntervalMs = params.poll_interval_ms;
       }
 
       // Start the worker (non-blocking)
@@ -394,13 +394,31 @@ export class WebScrapingMcpTools {
     const { include_stats = true } = args;
     
     try {
-      // This would integrate with DocumentationService in a real implementation
-      // For now, return a placeholder response
+      // List all websites and their page counts if stats are requested
+      const websites = await this.webScrapingService['websiteRepository'].listWebsites({ limit: 100 });
+      
+      const sources = await Promise.all(websites.map(async (website) => {
+        let pageCount = 0;
+        if (include_stats) {
+          pageCount = await this.webScrapingService['websitePagesRepository'].countByWebsiteId(website.id);
+        }
+        
+        return {
+          id: website.id,
+          name: website.name,
+          domain: website.domain,
+          metaDescription: website.metaDescription,
+          createdAt: website.createdAt,
+          updatedAt: website.updatedAt,
+          ...(include_stats && { pageCount })
+        };
+      }));
+      
       return {
         success: true,
-        sources: [],
-        total_sources: 0,
-        message: 'Documentation sources listing - integration with DocumentationService needed'
+        sources,
+        total_sources: websites.length,
+        message: `Found ${websites.length} documentation websites`
       };
     } catch (error) {
       return {
@@ -417,12 +435,12 @@ export class WebScrapingMcpTools {
     return this.webScrapingService.getOrCreateDocumentationSource({
       url: params.url,
       name: params.name,
-      source_type: params.source_type,
-      crawl_depth: params.crawl_depth,
+      sourceType: params.source_type,
+      crawlDepth: params.crawl_depth,
       selectors: params.selectors,
-      allow_patterns: params.allow_patterns,
-      ignore_patterns: params.ignore_patterns,
-      include_subdomains: params.include_subdomains
+      allowPatterns: params.allow_patterns,
+      ignorePatterns: params.ignore_patterns,
+      includeSubdomains: params.include_subdomains
     });
   }
 }

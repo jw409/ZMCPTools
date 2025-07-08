@@ -1,146 +1,215 @@
-import { z } from 'zod';
-import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
-import { relations } from 'drizzle-orm';
-import { createInsertSchema, createSelectSchema, createUpdateSchema, type GetZodType } from 'drizzle-zod';
+import { z } from "zod";
+import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
+import { relations } from "drizzle-orm";
+import {
+  createInsertSchema,
+  createSelectSchema,
+  createUpdateSchema,
+  type GetZodType,
+} from "drizzle-zod";
 
 // Zod v4 schemas for validation
 export const sourceTypeSchema = z.enum([
-  'api',
-  'guide', 
-  'reference',
-  'tutorial',
-  'documentation',
-  'blog',
-  'wiki'
+  "api",
+  "guide",
+  "reference",
+  "tutorial",
+  "documentation",
+  "blog",
+  "wiki",
 ]);
 
 export const updateFrequencySchema = z.enum([
-  'never',
-  'daily',
-  'weekly',
-  'monthly',
-  'on_demand'
+  "never",
+  "daily",
+  "weekly",
+  "monthly",
+  "on_demand",
 ]);
 
 export const scrapeJobStatusSchema = z.enum([
-  'pending',
-  'running',
-  'completed',
-  'failed',
-  'cancelled',
-  'timeout'
+  "pending",
+  "running",
+  "completed",
+  "failed",
+  "cancelled",
+  "timeout",
 ]);
 
 export const documentationStatusSchema = z.enum([
-  'not_started',
-  'scraping',
-  'completed',
-  'failed',
-  'stale'
+  "not_started",
+  "scraping",
+  "completed",
+  "failed",
+  "stale",
 ]);
 
 // Schema validation helpers
 export const selectorsSchema = z.record(z.string(), z.string()).optional();
 export const allowPatternsSchema = z.array(z.string()).default([]);
 export const ignorePatternsSchema = z.array(z.string()).default([]);
-export const sourceMetadataSchema = z.record(z.string(), z.unknown()).optional();
-export const jobDataSchema = z.record(z.string(), z.unknown());
-export const resultDataSchema = z.record(z.string(), z.unknown()).optional();
+export const sourceMetadataSchema = z.record(z.string(), z.any()).optional();
+export const jobDataSchema = z.record(z.string(), z.any());
+export const resultDataSchema = z.record(z.string(), z.any()).optional();
 
 const DocumentationSourceSchema = z.object({
   id: z.string(),
   name: z.string().min(1).max(200),
   url: z.string().url(),
-  sourceType: sourceTypeSchema.default('guide'),
+  sourceType: sourceTypeSchema.default("guide"),
   crawlDepth: z.number().int().min(1).max(10).default(3),
-  updateFrequency: updateFrequencySchema.default('daily'),
+  updateFrequency: updateFrequencySchema.default("daily"),
   selectors: selectorsSchema,
   allowPatterns: allowPatternsSchema,
   ignorePatterns: ignorePatternsSchema,
   includeSubdomains: z.boolean().default(false),
   lastScraped: z.string().datetime().optional(),
-  status: documentationStatusSchema.default('not_started'),
-  createdAt: z.string().datetime().default(() => new Date().toISOString()),
-  updatedAt: z.string().datetime().default(() => new Date().toISOString()),
+  status: documentationStatusSchema.default("not_started"),
+  createdAt: z
+    .string()
+    .datetime()
+    .default(() => new Date().toISOString()),
+  updatedAt: z
+    .string()
+    .datetime()
+    .default(() => new Date().toISOString()),
   sourceMetadata: sourceMetadataSchema,
 });
 
 // Drizzle table definitions
-export const documentationSources = sqliteTable('documentation_sources', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull(),
-  url: text('url').notNull(),
-  sourceType: text('sourceType', { enum: ['api', 'guide', 'reference', 'tutorial', 'documentation', 'blog', 'wiki'] }).notNull().default('guide'),
-  crawlDepth: integer('crawlDepth').notNull().default(3),
-  updateFrequency: text('updateFrequency', { enum: ['never', 'daily', 'weekly', 'monthly', 'on_demand'] }).notNull().default('daily'),
-  selectors: text('selectors', { mode: 'json' }).$type<Record<string, string>>(),
-  allowPatterns: text('allowPatterns', { mode: 'json' }).$type<string[]>().default([]),
-  ignorePatterns: text('ignorePatterns', { mode: 'json' }).$type<string[]>().default([]),
-  includeSubdomains: integer('includeSubdomains', { mode: 'boolean' }).default(false),
-  lastScraped: text('lastScraped'), // ISO datetime string
-  status: text('status', { enum: ['not_started', 'scraping', 'completed', 'failed', 'stale'] }).notNull().default('not_started'),
-  createdAt: text('createdAt').notNull().default('CURRENT_TIMESTAMP'),
-  updatedAt: text('updatedAt').notNull().default('CURRENT_TIMESTAMP'),
-  sourceMetadata: text('sourceMetadata', { mode: 'json' }).$type<Record<string, unknown>>(),
+export const documentationSources = sqliteTable("documentation_sources", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  url: text("url").notNull(),
+  sourceType: text("sourceType", {
+    enum: [
+      "api",
+      "guide",
+      "reference",
+      "tutorial",
+      "documentation",
+      "blog",
+      "wiki",
+    ],
+  })
+    .notNull()
+    .default("guide"),
+  crawlDepth: integer("crawlDepth").notNull().default(3),
+  updateFrequency: text("updateFrequency", {
+    enum: ["never", "daily", "weekly", "monthly", "on_demand"],
+  })
+    .notNull()
+    .default("daily"),
+  selectors: text("selectors", { mode: "json" }).$type<
+    Record<string, string>
+  >(),
+  allowPatterns: text("allowPatterns", { mode: "json" })
+    .$type<string[]>()
+    .default([]),
+  ignorePatterns: text("ignorePatterns", { mode: "json" })
+    .$type<string[]>()
+    .default([]),
+  includeSubdomains: integer("includeSubdomains", { mode: "boolean" }).default(
+    false
+  ),
+  lastScraped: text("lastScraped"), // ISO datetime string
+  status: text("status", {
+    enum: ["not_started", "scraping", "completed", "failed", "stale"],
+  })
+    .notNull()
+    .default("not_started"),
+  createdAt: text("createdAt").notNull().default("CURRENT_TIMESTAMP"),
+  updatedAt: text("updatedAt").notNull().default("CURRENT_TIMESTAMP"),
+  sourceMetadata: text("sourceMetadata", { mode: "json" }).$type<
+    Record<string, any>
+  >(),
 });
 
-export const scrapeJobs = sqliteTable('scrape_jobs', {
-  id: text('id').primaryKey(),
-  sourceId: text('sourceId').notNull(),
-  jobData: text('jobData', { mode: 'json' }).$type<Record<string, unknown>>().notNull(),
-  status: text('status', { enum: ['pending', 'running', 'completed', 'failed', 'cancelled', 'timeout'] }).notNull().default('pending'),
-  lockedBy: text('lockedBy'),
-  lockedAt: text('lockedAt'), // ISO datetime string
-  lockTimeout: integer('lockTimeout').notNull().default(3600), // seconds
-  createdAt: text('createdAt').notNull().default('CURRENT_TIMESTAMP'),
-  startedAt: text('startedAt'), // ISO datetime string
-  completedAt: text('completedAt'), // ISO datetime string
-  errorMessage: text('errorMessage'),
-  pagesScraped: integer('pagesScraped'),
-  resultData: text('resultData', { mode: 'json' }).$type<Record<string, unknown>>(),
+export const scrapeJobs = sqliteTable("scrape_jobs", {
+  id: text("id").primaryKey(),
+  sourceId: text("sourceId").notNull(),
+  jobData: text("jobData", { mode: "json" })
+    .$type<Record<string, any>>()
+    .notNull(),
+  status: text("status", {
+    enum: ["pending", "running", "completed", "failed", "cancelled", "timeout"],
+  })
+    .notNull()
+    .default("pending"),
+  priority: integer("priority").notNull().default(5), // 1-10 scale, 1 = highest priority
+  lockedBy: text("lockedBy"),
+  lockedAt: text("lockedAt"), // ISO datetime string
+  lockTimeout: integer("lockTimeout").notNull().default(3600), // seconds
+  createdAt: text("createdAt").notNull().default("CURRENT_TIMESTAMP"),
+  startedAt: text("startedAt"), // ISO datetime string
+  completedAt: text("completedAt"), // ISO datetime string
+  errorMessage: text("errorMessage"),
+  pagesScraped: integer("pagesScraped"),
+  resultData: text("resultData", { mode: "json" }).$type<Record<string, any>>(),
 });
 
-// Additional table for individual scraped entries/pages
-export const scrapeJobEntries = sqliteTable('scrape_job_entries', {
-  id: text('id').primaryKey(),
-  jobId: text('jobId').notNull(),
-  url: text('url').notNull(),
-  title: text('title'),
-  content: text('content'),
-  contentType: text('contentType').default('text/html'),
-  contentLength: integer('contentLength'),
-  relevanceScore: real('relevanceScore').default(1.0),
-  extractedData: text('extractedData', { mode: 'json' }).$type<Record<string, unknown>>(),
-  scrapedAt: text('scrapedAt').notNull().default('CURRENT_TIMESTAMP'),
-  httpStatus: integer('httpStatus'),
-  errorMessage: text('errorMessage'),
+// Website table - represents a documentation website/domain
+export const websites = sqliteTable("websites", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(), // User-friendly name/title
+  domain: text("domain").notNull().unique(), // Just domain.tld (unique)
+  metaDescription: text("metaDescription"), // Optional or generated description
+  createdAt: text("createdAt").notNull().default("CURRENT_TIMESTAMP"),
+  updatedAt: text("updatedAt").notNull().default("CURRENT_TIMESTAMP"),
 });
+
+// Website pages table - individual pages within a website
+export const websitePages = sqliteTable("website_pages", {
+  id: text("id").primaryKey(),
+  websiteId: text("websiteId").notNull(), // Foreign key to websites
+  url: text("url").notNull(), // Cleaned URL (no fragments, tracking params)
+  contentHash: text("contentHash").notNull(), // Unique per domain for change detection
+  htmlContent: text("htmlContent"), // Full HTML including JS-rendered content
+  markdownContent: text("markdownContent"), // Converted markdown (scripts/styles removed)
+  selector: text("selector"), // Optional CSS selector used for extraction
+  title: text("title"), // Page title
+  httpStatus: integer("httpStatus"),
+  errorMessage: text("errorMessage"),
+  createdAt: text("createdAt").notNull().default("CURRENT_TIMESTAMP"),
+  updatedAt: text("updatedAt").notNull().default("CURRENT_TIMESTAMP"),
+});
+
 
 // Drizzle relations
-export const documentationSourcesRelations = relations(documentationSources, ({ many }) => ({
-  scrapeJobs: many(scrapeJobs),
-}));
+export const documentationSourcesRelations = relations(
+  documentationSources,
+  ({ many }) => ({
+    scrapeJobs: many(scrapeJobs),
+  })
+);
 
-export const scrapeJobsRelations = relations(scrapeJobs, ({ one, many }) => ({
+export const scrapeJobsRelations = relations(scrapeJobs, ({ one }) => ({
   source: one(documentationSources, {
     fields: [scrapeJobs.sourceId],
     references: [documentationSources.id],
   }),
-  entries: many(scrapeJobEntries),
 }));
 
-export const scrapeJobEntriesRelations = relations(scrapeJobEntries, ({ one }) => ({
-  job: one(scrapeJobs, {
-    fields: [scrapeJobEntries.jobId],
-    references: [scrapeJobs.id],
+export const websitesRelations = relations(websites, ({ many }) => ({
+  pages: many(websitePages),
+}));
+
+export const websitePagesRelations = relations(websitePages, ({ one }) => ({
+  website: one(websites, {
+    fields: [websitePages.websiteId],
+    references: [websites.id],
   }),
 }));
 
-// Generated Zod schemas using drizzle-zod
-export const insertDocumentationSourceSchema = createInsertSchema(documentationSources);
 
-export const selectDocumentationSourceSchema = createSelectSchema(documentationSources);
-export const updateDocumentationSourceSchema = createUpdateSchema(documentationSources);
+// Generated Zod schemas using drizzle-zod
+export const insertDocumentationSourceSchema =
+  createInsertSchema(documentationSources);
+
+export const selectDocumentationSourceSchema =
+  createSelectSchema(documentationSources);
+export const updateDocumentationSourceSchema =
+  createUpdateSchema(documentationSources);
 
 export const insertScrapeJobSchema = createInsertSchema(scrapeJobs, {
   sourceId: (schema) => schema.min(1),
@@ -150,46 +219,73 @@ export const insertScrapeJobSchema = createInsertSchema(scrapeJobs, {
 export const selectScrapeJobSchema = createSelectSchema(scrapeJobs);
 export const updateScrapeJobSchema = createUpdateSchema(scrapeJobs);
 
-export const insertScrapeJobEntrySchema = createInsertSchema(scrapeJobEntries, {
-  jobId: (schema) => schema.min(1),
-  url: (schema) => schema.min(1),
-  relevanceScore: (schema) => schema.min(0).max(1),
+export const insertWebsiteSchema = createInsertSchema(websites, {
+  name: (schema) => schema.min(1).max(200),
+  domain: (schema) => schema.min(1).max(255),
 });
 
-export const selectScrapeJobEntrySchema = createSelectSchema(scrapeJobEntries);
-export const updateScrapeJobEntrySchema = createUpdateSchema(scrapeJobEntries);
+export const selectWebsiteSchema = createSelectSchema(websites);
+export const updateWebsiteSchema = createUpdateSchema(websites);
+
+export const insertWebsitePageSchema = createInsertSchema(websitePages, {
+  websiteId: (schema) => schema.min(1),
+  url: (schema) => schema.min(1),
+  contentHash: (schema) => schema.min(1),
+});
+
+export const selectWebsitePageSchema = createSelectSchema(websitePages);
+export const updateWebsitePageSchema = createUpdateSchema(websitePages);
 
 // Type exports - Simple TypeScript interfaces matching camelCase table fields
 export type DocumentationSource = {
   id: string;
   name: string;
   url: string;
-  sourceType: 'api' | 'guide' | 'reference' | 'tutorial' | 'documentation' | 'blog' | 'wiki';
+  sourceType:
+    | "api"
+    | "guide"
+    | "reference"
+    | "tutorial"
+    | "documentation"
+    | "blog"
+    | "wiki";
   crawlDepth: number;
-  updateFrequency: 'never' | 'daily' | 'weekly' | 'monthly' | 'on_demand';
+  updateFrequency: "never" | "daily" | "weekly" | "monthly" | "on_demand";
   selectors?: Record<string, string>;
   allowPatterns: string[];
   ignorePatterns: string[];
   includeSubdomains: boolean;
   lastScraped?: string;
-  status: 'not_started' | 'scraping' | 'completed' | 'failed' | 'stale';
+  status: "not_started" | "scraping" | "completed" | "failed" | "stale";
   createdAt: string;
   updatedAt: string;
-  sourceMetadata?: Record<string, unknown>;
+  sourceMetadata?: Record<string, any>;
 };
 
-export type NewDocumentationSource = Omit<DocumentationSource, 'createdAt' | 'updatedAt'> & {
+export type NewDocumentationSource = Omit<
+  DocumentationSource,
+  "createdAt" | "updatedAt"
+> & {
   createdAt?: string;
   updatedAt?: string;
 };
 
-export type DocumentationSourceUpdate = Partial<Omit<DocumentationSource, 'id'>>;
+export type DocumentationSourceUpdate = Partial<
+  Omit<DocumentationSource, "id">
+>;
 
 export type ScrapeJob = {
   id: string;
   sourceId: string;
-  jobData: Record<string, unknown>;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'timeout';
+  jobData: Record<string, any>;
+  status:
+    | "pending"
+    | "running"
+    | "completed"
+    | "failed"
+    | "cancelled"
+    | "timeout";
+  priority: number;
   lockedBy?: string;
   lockedAt?: string;
   lockTimeout: number;
@@ -198,35 +294,52 @@ export type ScrapeJob = {
   completedAt?: string;
   errorMessage?: string;
   pagesScraped?: number;
-  resultData?: Record<string, unknown>;
+  resultData?: Record<string, any>;
 };
 
-export type NewScrapeJob = Omit<ScrapeJob, 'createdAt'> & {
+export type NewScrapeJob = Omit<ScrapeJob, "createdAt"> & {
   createdAt?: string;
 };
 
-export type ScrapeJobUpdate = Partial<Omit<ScrapeJob, 'id'>>;
+export type ScrapeJobUpdate = Partial<Omit<ScrapeJob, "id">>;
 
-export type ScrapeJobEntry = {
+export type Website = {
   id: string;
-  jobId: string;
+  name: string;
+  domain: string;
+  metaDescription?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type NewWebsite = Omit<Website, "createdAt" | "updatedAt"> & {
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type WebsiteUpdate = Partial<Omit<Website, "id">>;
+
+export type WebsitePage = {
+  id: string;
+  websiteId: string;
   url: string;
+  contentHash: string;
+  htmlContent?: string;
+  markdownContent?: string;
+  selector?: string;
   title?: string;
-  content?: string;
-  contentType: string;
-  contentLength?: number;
-  relevanceScore: number;
-  extractedData?: Record<string, unknown>;
-  scrapedAt: string;
   httpStatus?: number;
   errorMessage?: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
-export type NewScrapeJobEntry = Omit<ScrapeJobEntry, 'scrapedAt'> & {
-  scrapedAt?: string;
+export type NewWebsitePage = Omit<WebsitePage, "createdAt" | "updatedAt"> & {
+  createdAt?: string;
+  updatedAt?: string;
 };
 
-export type ScrapeJobEntryUpdate = Partial<Omit<ScrapeJobEntry, 'id'>>;
+export type WebsitePageUpdate = Partial<Omit<WebsitePage, "id">>;
 
 export type SourceType = z.infer<typeof sourceTypeSchema>;
 export type UpdateFrequency = z.infer<typeof updateFrequencySchema>;
@@ -237,8 +350,9 @@ export type DocumentationStatus = z.infer<typeof documentationStatusSchema>;
 export const scrapeDocumentationRequestSchema = z.object({
   url: z.string().url(),
   name: z.string().min(1).max(200).optional(),
-  sourceType: sourceTypeSchema.default('guide'),
+  sourceType: sourceTypeSchema.default("guide"),
   crawlDepth: z.number().int().min(1).max(10).default(3),
+  updateFrequency: updateFrequencySchema.default("weekly"),
   allowPatterns: allowPatternsSchema,
   ignorePatterns: ignorePatternsSchema,
   includeSubdomains: z.boolean().default(false),
@@ -266,6 +380,10 @@ export const scrapeJobFilterSchema = z.object({
   offset: z.number().int().min(0).default(0),
 });
 
-export type ScrapeDocumentationRequest = z.infer<typeof scrapeDocumentationRequestSchema>;
-export type SearchDocumentationRequest = z.infer<typeof searchDocumentationRequestSchema>;
+export type ScrapeDocumentationRequest = z.infer<
+  typeof scrapeDocumentationRequestSchema
+>;
+export type SearchDocumentationRequest = z.infer<
+  typeof searchDocumentationRequestSchema
+>;
 export type ScrapeJobFilter = z.infer<typeof scrapeJobFilterSchema>;

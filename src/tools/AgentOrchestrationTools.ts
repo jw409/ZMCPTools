@@ -62,19 +62,34 @@ export class AgentOrchestrationTools {
         }
       });
 
-      // 2. Store objective in shared memory
+      // 2. AUTO-CREATE MASTER TASK for the objective
+      const masterTask = await this.taskService.createTask({
+        repositoryPath,
+        taskType: 'feature' as TaskType,
+        description: `${title}: ${objective}`,
+        requirements: {
+          objective,
+          roomName,
+          foundationSessionId,
+          isOrchestrationTask: true,
+          createdBy: 'orchestrateObjective'
+        },
+        priority: 10 // High priority for orchestration tasks
+      });
+
+      // 3. Store objective in shared memory with task reference
       this.memoryService.storeInsight(
         repositoryPath,
         'system',
         title,
-        `Objective: ${objective}\n\nMulti-agent objective coordination started.\nRoom: ${roomName}\nFoundation Session: ${foundationSessionId || 'none'}`,
-        ['objective', 'orchestration', 'coordination']
+        `Objective: ${objective}\n\nMulti-agent objective coordination started.\nRoom: ${roomName}\nFoundation Session: ${foundationSessionId || 'none'}\nMaster Task: ${masterTask.id}`,
+        ['objective', 'orchestration', 'coordination', 'task-creation']
       );
 
-      // 3. Generate architect prompt
-      const architectPrompt = this.generateArchitectPrompt(objective, repositoryPath, roomName, foundationSessionId);
+      // 4. Generate architect prompt with task-first approach
+      const architectPrompt = this.generateArchitectPrompt(objective, repositoryPath, roomName, foundationSessionId, masterTask.id);
 
-      // 4. Spawn architect agent with full autonomy
+      // 5. Spawn architect agent with full autonomy and task assignment
       const architectAgent = await this.agentService.createAgent({
         agentName: 'architect',
         repositoryPath,
@@ -85,7 +100,8 @@ export class AgentOrchestrationTools {
           objective,
           roomName,
           foundationSessionId,
-          fullAutonomy: true
+          fullAutonomy: true,
+          assignedTaskId: masterTask.id
         },
         claudeConfig: {
           prompt: architectPrompt,
@@ -93,26 +109,31 @@ export class AgentOrchestrationTools {
           environmentVars: {
             ORCHESTRATION_MODE: 'architect',
             TARGET_ROOM: roomName,
-            OBJECTIVE: objective
+            OBJECTIVE: objective,
+            MASTER_TASK_ID: masterTask.id
           }
         }
       });
 
-      // 5. Send welcome message to room
+      // 6. Assign master task to architect agent
+      await this.taskService.assignTask(masterTask.id, architectAgent.id);
+
+      // 7. Send welcome message to room with task info
       this.communicationService.sendMessage({
         roomName,
         agentName: 'system',
-        message: `🏗️ Architect agent ${architectAgent.id} has been spawned to coordinate objective: "${objective}"`,
+        message: `🏗️ Architect agent ${architectAgent.id} has been spawned to coordinate objective: "${objective}"\n📋 Master task ${masterTask.id} created and assigned`,
         messageType: 'system' as MessageType
       });
 
       return {
         success: true,
-        message: 'Architect agent spawned successfully',
+        message: 'Architect agent spawned successfully with master task',
         data: {
           architectAgentId: architectAgent.id,
           roomName,
-          objective
+          objective,
+          masterTaskId: masterTask.id
         }
       };
 
@@ -576,7 +597,8 @@ export class AgentOrchestrationTools {
     objective: string,
     repositoryPath: string,
     roomName: string,
-    foundationSessionId?: string
+    foundationSessionId?: string,
+    masterTaskId?: string
   ): string {
     return `🏗️ ARCHITECT AGENT - Strategic Orchestration Leader
 
@@ -584,37 +606,43 @@ OBJECTIVE: ${objective}
 REPOSITORY: ${repositoryPath}
 COORDINATION ROOM: ${roomName}
 FOUNDATION SESSION: ${foundationSessionId || 'none'}
+MASTER TASK: ${masterTaskId || 'none'}
 
 You are an autonomous architect agent with COMPLETE CLAUDE CODE CAPABILITIES.
 You can use ALL tools: file operations, web browsing, code analysis, agent spawning, etc.
 
+🎯 TASK-FIRST APPROACH:
+Your orchestration centers around task management. You have been assigned master task ${masterTaskId || 'TBD'}.
+
 PHASES:
 1. RESEARCH & DISCOVERY
-   - Join coordination room: orchestrate_objective() and join_room("${roomName}", "architect")
+   - Join coordination room: join_room("${roomName}", "architect")
    - Search shared memory for relevant patterns: search_memory()
    - Analyze repository structure thoroughly
    
-2. STRATEGIC PLANNING
-   - Break objective into specialized tasks
-   - Identify required agent types and capabilities
-   - Define dependency relationships
+2. STRATEGIC PLANNING & TASK BREAKDOWN
+   - Break objective into specialized sub-tasks using create_task()
+   - Create hierarchical task structure with dependencies
+   - Identify required agent types and capabilities for each task
+   - Define dependency relationships between tasks
    - Store complete plan in shared memory: store_memory()
    
 3. COORDINATED EXECUTION
-   - spawn_agent() specialist agents in dependency order
+   - spawn_agent() specialist agents with specific task assignments
    - Monitor progress through room messages: wait_for_messages()
+   - Create sub-tasks as needed for complex work
    - Handle conflicts and dependencies
    - Ensure quality gates and completion criteria
    
 4. COMPLETION & HANDOFF
-   - Verify all objectives met
+   - Verify all tasks completed successfully
+   - Update master task status
    - Document learnings in shared memory
    - Provide final status report
 
 AVAILABLE ORCHESTRATION TOOLS:
-- orchestrate_objective() - Spawn coordinator agents
-- spawn_agent() - Create specialized agents
-- create_task() - Define and assign work
+- create_task() - Create sub-tasks with dependencies and requirements
+- spawn_agent() - Create specialized agents (they'll be prompted to use task tools)
 - join_room() - Join coordination rooms
 - send_message() - Communicate with agents
 - wait_for_messages() - Monitor conversations
@@ -622,8 +650,15 @@ AVAILABLE ORCHESTRATION TOOLS:
 - search_memory() - Learn from previous work
 - list_agents() - Check agent status
 
+CRITICAL TASK MANAGEMENT:
+- Always use create_task() to break down work into manageable pieces
+- Create sub-tasks for complex objectives
+- Assign tasks to agents when spawning them
+- Monitor task completion and update statuses
+- Use task dependencies to coordinate agent work
+
 CRITICAL: You have COMPLETE autonomy. Use any tools needed to succeed.
-Start by joining the coordination room and analyzing the objective.`;
+Start by joining the coordination room and creating a task breakdown for the objective.`;
   }
 
   private generateAgentPrompt(agentType: string, taskDescription: string, repositoryPath: string): string {
@@ -641,6 +676,14 @@ You have access to ALL tools:
 - Database queries
 - Agent coordination tools (spawn_agent, join_room, send_message, etc.)
 - Shared memory and communication (store_memory, search_memory, etc.)
+- Task management tools (create_task, list_tasks, update_task, etc.)
+
+🎯 TASK-DRIVEN OPERATION:
+- You are expected to work in a task-driven manner
+- Use create_task() to break down complex work into manageable pieces
+- Create sub-tasks when your assigned work is complex
+- Update task progress regularly and report completion
+- Use task dependencies to coordinate with other agents
 
 AUTONOMOUS OPERATION GUIDELINES:
 - Work independently to complete your assigned task
@@ -651,11 +694,18 @@ AUTONOMOUS OPERATION GUIDELINES:
 - Make decisions and take actions as needed
 
 COORDINATION TOOLS AVAILABLE:
+- create_task() - Break down complex work into sub-tasks
 - join_room() - Join project coordination rooms
 - send_message() - Communicate with other agents
 - store_memory() - Share knowledge and insights
 - search_memory() - Learn from previous work
 - spawn_agent() - Create helper agents if needed
+
+CRITICAL TASK MANAGEMENT:
+- Always assess if your work needs to be broken into sub-tasks
+- Create sub-tasks for complex implementations
+- Report progress and completion status
+- Use task dependencies to coordinate sequencing with other agents
 
 CRITICAL: You are fully autonomous. Think, plan, and execute independently.`;
 

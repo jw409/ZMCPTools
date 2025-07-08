@@ -1,5 +1,5 @@
 {
-  "name": "claude-mcp-tools-ts",
+  "name": "claude-mcp-tools",
   "version": "0.1.0",
   "description": "TypeScript implementation of ClaudeMcpTools with enhanced MCP tools and multi-agent orchestration",
   "main": "dist/lib.js",

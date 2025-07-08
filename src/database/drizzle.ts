@@ -15,7 +15,8 @@ import {
   chatMessages,
   documentationSources,
   scrapeJobs,
-  scrapeJobEntries,
+  websites,
+  websitePages,
   errorLogs,
   toolCallLogs,
 } from '../schemas/index.js';

@@ -3,13 +3,14 @@
 This document lists ALL MCP tools available in the ClaudeMcpTools project, organized by category.
 
 ## Summary
-- **Total Tools**: 50
-- **Categories**: 7
+- **Total Tools**: 43
+- **Categories**: 6
 - **Tool Prefix**: `mcp__claude-mcp-tools__`
+- **Foundation Caching**: Automatically integrated (no manual tools needed)
 
 ## Tool Categories
 
-### 1. Agent Orchestration Tools (10 tools)
+### 1. Agent Orchestration Tools (14 tools)
 *Defined in McpServer.ts - Multi-agent coordination and communication*
 
 1. `mcp__claude-mcp-tools__orchestrate_objective` - Spawn architect agent to coordinate multi-agent objective completion
@@ -21,6 +22,11 @@ This document lists ALL MCP tools available in the ClaudeMcpTools project, organ
 7. `mcp__claude-mcp-tools__store_memory` - Store insights and learnings in shared memory
 8. `mcp__claude-mcp-tools__search_memory` - Search shared memory for insights
 9. `mcp__claude-mcp-tools__list_agents` - Get list of active agents
+10. `mcp__claude-mcp-tools__terminate_agent` - Terminate one or more agents
+11. `mcp__claude-mcp-tools__close_room` - Close a communication room (soft delete, keeps data)
+12. `mcp__claude-mcp-tools__delete_room` - Permanently delete a communication room and all messages
+13. `mcp__claude-mcp-tools__list_rooms` - List communication rooms with filtering and pagination
+14. `mcp__claude-mcp-tools__list_room_messages` - List messages from a specific room with pagination
 
 ### 2. Browser Automation Tools (6 tools)
 *Defined in BrowserMcpTools.ts - Web browser automation with intelligent session management*
@@ -75,16 +81,14 @@ This document lists ALL MCP tools available in the ClaudeMcpTools project, organ
 4. `mcp__claude-mcp-tools__get_project_overview` - Get comprehensive project overview from TreeSummary analysis
 5. `mcp__claude-mcp-tools__cleanup_stale_analyses` - Clean up stale analysis files older than specified days
 
-### 7. Foundation Cache Tools (7 tools)
-*Defined in CacheMcpTools.ts - Intelligent caching for 85-90% token cost reduction*
+### 7. Foundation Caching
+*Automatically integrated into agent creation and spawning - no manual tools needed*
 
-1. `mcp__claude-mcp-tools__create_foundation_session` - Create a foundation caching session for 85-90% token cost reduction across derived sessions
-2. `mcp__claude-mcp-tools__derive_session_from_foundation` - Create a derived session that inherits cached context from a foundation session
-3. `mcp__claude-mcp-tools__get_cached_analysis` - Retrieve cached analysis result using deterministic content hashing
-4. `mcp__claude-mcp-tools__cache_analysis_result` - Cache analysis result with token usage tracking for future reuse
-5. `mcp__claude-mcp-tools__get_cache_statistics` - Get comprehensive cache performance statistics and metrics
-6. `mcp__claude-mcp-tools__invalidate_cache` - Invalidate cache entries based on various criteria
-7. `mcp__claude-mcp-tools__perform_cache_maintenance` - Perform cache cleanup and maintenance operations
+Foundation caching is now **automatically handled** by the system:
+- 85-90% token cost reduction through shared context
+- Seamless integration with agent spawning and orchestration
+- Intelligent session management and cache optimization
+- No manual cache management required
 
 ## Tool Implementation Details
 
@@ -95,20 +99,20 @@ This document lists ALL MCP tools available in the ClaudeMcpTools project, organ
 - **VectorSearchService** - LanceDB vector database and semantic search
 - **AnalysisMcpTools** - Project analysis and file operations
 - **TreeSummaryTools** - Advanced project caching and analysis
-- **CacheMcpTools** - Foundation caching for token cost reduction
+- **FoundationCacheService** - Automatic foundation caching (integrated)
 
 ### Tool Registration
 All tools are registered in `McpServer.ts` through the `getAvailableTools()` method:
 ```typescript
 private getAvailableTools(): Tool[] {
   return [
-    ...this.getOrchestrationTools(),      // 10 tools
+    ...this.getOrchestrationTools(),      // 14 tools
     ...this.browserMcpTools.getTools(),   // 6 tools
     ...this.webScrapingMcpTools.getTools(), // 6 tools
     ...this.vectorSearchTools.getTools(), // 9 tools
     ...this.analysisMcpTools.getTools(),  // 7 tools
     ...this.treeSummaryTools.getTools(),  // 5 tools
-    ...this.cacheMcpTools.getTools()      // 7 tools
+    // Foundation caching now automatic - no manual tools
   ];
 }
 ```
@@ -129,15 +133,15 @@ private getAvailableTools(): Tool[] {
 8. **Embeddings**: Configure providers with `manage_embeddings` for optimal search performance
 
 ## Tool Count by Category
-- Agent Orchestration: 10 tools
+- Agent Orchestration: 14 tools
 - Browser Automation: 6 tools 
 - Web Scraping: 6 tools
 - LanceDB Vector Search: 9 tools
 - Project Analysis: 7 tools
 - TreeSummary: 5 tools
-- Foundation Cache: 7 tools
+- Foundation Cache: **Automatic** (no manual tools)
 
-**Total: 50 MCP tools** (including 10 orchestration tools defined inline)
+**Total: 43 MCP tools** (including 14 orchestration tools defined inline)
 
 ---
 *Generated on 2025-07-07*

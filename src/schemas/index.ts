@@ -63,8 +63,12 @@ export type {
   ScrapeJob,
   NewScrapeJob,
   ScrapeJobUpdate,
-  ScrapeJobEntry,
-  NewScrapeJobEntry,
+  Website,
+  NewWebsite,
+  WebsiteUpdate,
+  WebsitePage,
+  NewWebsitePage,
+  WebsitePageUpdate,
   SourceType,
   UpdateFrequency,
   ScrapeJobStatus,
@@ -168,8 +172,12 @@ export {
   insertScrapeJobSchema,
   selectScrapeJobSchema,
   updateScrapeJobSchema,
-  insertScrapeJobEntrySchema,
-  selectScrapeJobEntrySchema,
+  insertWebsiteSchema,
+  selectWebsiteSchema,
+  updateWebsiteSchema,
+  insertWebsitePageSchema,
+  selectWebsitePageSchema,
+  updateWebsitePageSchema,
   scrapeDocumentationRequestSchema,
   searchDocumentationRequestSchema,
   scrapeJobFilterSchema,
@@ -202,7 +210,7 @@ export { memories } from './memories.js';
 export { agentSessions } from './agents.js';
 export { tasks, taskDependencies } from './tasks.js';
 export { chatRooms, chatMessages } from './communication.js';
-export { documentationSources, scrapeJobs, scrapeJobEntries } from './scraping.js';
+export { documentationSources, scrapeJobs, websites, websitePages } from './scraping.js';
 export { errorLogs, toolCallLogs } from './logs.js';
 
 // Import tables and schemas for collections
@@ -239,15 +247,20 @@ import {
 import { 
   documentationSources, 
   scrapeJobs, 
-  scrapeJobEntries,
+  websites,
+  websitePages,
   insertDocumentationSourceSchema,
   selectDocumentationSourceSchema,
   updateDocumentationSourceSchema,
   insertScrapeJobSchema,
   selectScrapeJobSchema,
   updateScrapeJobSchema,
-  insertScrapeJobEntrySchema,
-  selectScrapeJobEntrySchema
+  insertWebsiteSchema,
+  selectWebsiteSchema,
+  updateWebsiteSchema,
+  insertWebsitePageSchema,
+  selectWebsitePageSchema,
+  updateWebsitePageSchema
 } from './scraping.js';
 import { 
   errorLogs, 
@@ -274,7 +287,8 @@ export const allTables = {
   // Scraping tables
   documentationSources,
   scrapeJobs,
-  scrapeJobEntries,
+  websites,
+  websitePages,
   
   // Log tables
   errorLogs,
@@ -291,7 +305,8 @@ export const insertSchemas = {
   chatMessages: insertChatMessageSchema,
   documentationSources: insertDocumentationSourceSchema,
   scrapeJobs: insertScrapeJobSchema,
-  scrapeJobEntries: insertScrapeJobEntrySchema,
+  websites: insertWebsiteSchema,
+  websitePages: insertWebsitePageSchema,
   errorLogs: insertErrorLogSchema,
   toolCallLogs: insertToolCallLogSchema,
 } as const;
@@ -305,7 +320,8 @@ export const selectSchemas = {
   chatMessages: selectChatMessageSchema,
   documentationSources: selectDocumentationSourceSchema,
   scrapeJobs: selectScrapeJobSchema,
-  scrapeJobEntries: selectScrapeJobEntrySchema,
+  websites: selectWebsiteSchema,
+  websitePages: selectWebsitePageSchema,
   errorLogs: selectErrorLogSchema,
   toolCallLogs: selectToolCallLogSchema,
 } as const;
@@ -317,6 +333,8 @@ export const updateSchemas = {
   chatRooms: updateChatRoomSchema,
   documentationSources: updateDocumentationSourceSchema,
   scrapeJobs: updateScrapeJobSchema,
+  websites: updateWebsiteSchema,
+  websitePages: updateWebsitePageSchema,
   errorLogs: updateErrorLogSchema,
 } as const;
 

@@ -16,35 +16,38 @@ import { Logger } from '../utils/logger.js';
 import { PatternMatcher } from '../utils/patternMatcher.js';
 import { ScrapeJobRepository } from '../repositories/ScrapeJobRepository.js';
 import { DocumentationRepository } from '../repositories/DocumentationRepository.js';
+import { WebsiteRepository } from '../repositories/WebsiteRepository.js';
+import { WebsitePagesRepository } from '../repositories/WebsitePagesRepository.js';
+import type { DocumentationSource } from '../lib.js';
 
 export interface ScrapeJobParams {
-  force_refresh?: boolean;
+  forceRefresh?: boolean;
   selectors?: Record<string, string>;
-  crawl_depth?: number;
-  allow_patterns?: string[];
-  ignore_patterns?: string[];
-  include_subdomains?: boolean;
-  agent_id?: string;
-  source_url: string;
-  source_name: string;
+  crawlDepth?: number;
+  allowPatterns?: string[];
+  ignorePatterns?: string[];
+  includeSubdomains?: boolean;
+  agentId?: string;
+  sourceUrl: string;
+  sourceName: string;
 }
 
 export interface ScrapeJobResult {
   success: boolean;
-  job_id?: string;
-  pages_scraped?: number;
-  documentation_entries_created?: number;
+  jobId?: string;
+  pagesScraped?: number;
+  entriesCreated?: number;
   error?: string;
   skipped?: boolean;
   reason?: string;
 }
 
 export interface ScrapingWorkerConfig {
-  worker_id: string;
-  max_concurrent_jobs: number;
-  browser_pool_size: number;
-  job_timeout_seconds: number;
-  poll_interval_ms: number;
+  workerId: string;
+  maxConcurrentJobs: number;
+  browserPoolSize: number;
+  jobTimeoutSeconds: number;
+  pollIntervalMs: number;
 }
 
 export class WebScrapingService {
@@ -52,6 +55,8 @@ export class WebScrapingService {
   private vectorSearchService: VectorSearchService;
   private scrapeJobRepository: ScrapeJobRepository;
   private documentationRepository: DocumentationRepository;
+  private websiteRepository: WebsiteRepository;
+  private websitePagesRepository: WebsitePagesRepository;
   private isWorkerRunning = false;
   private workerConfig: ScrapingWorkerConfig;
   private logger: Logger;
@@ -67,6 +72,8 @@ export class WebScrapingService {
     this.vectorSearchService = new VectorSearchService(this.db);
     this.scrapeJobRepository = new ScrapeJobRepository(this.db);
     this.documentationRepository = new DocumentationRepository(this.db);
+    this.websiteRepository = new WebsiteRepository(this.db);
+    this.websitePagesRepository = new WebsitePagesRepository(this.db);
     this.logger = new Logger('webscraping');
     
     // Initialize Turndown service for HTML to Markdown conversion
@@ -91,11 +98,11 @@ export class WebScrapingService {
     });
     
     this.workerConfig = {
-      worker_id: `scraper_worker_${Date.now()}_${randomBytes(4).toString('hex')}`,
-      max_concurrent_jobs: 2,
-      browser_pool_size: 3,
-      job_timeout_seconds: 3600,
-      poll_interval_ms: 5000
+      workerId: `scraper_worker_${Date.now()}_${randomBytes(4).toString('hex')}`,
+      maxConcurrentJobs: 2,
+      browserPoolSize: 3,
+      jobTimeoutSeconds: 3600,
+      pollIntervalMs: 5000
     };
   }
 
@@ -103,13 +110,13 @@ export class WebScrapingService {
    * Queue a scraping job for background processing
    */
   async queueScrapeJob(
-    source_id: string,
-    job_params: ScrapeJobParams,
+    sourceId: string,
+    jobParams: ScrapeJobParams,
     priority: number = 5
   ): Promise<ScrapeJobResult> {
     try {
       // Check for existing jobs
-      const existingJobs = await this.scrapeJobRepository.findBySourceId(source_id);
+      const existingJobs = await this.scrapeJobRepository.findBySourceId(sourceId);
       const existing = existingJobs.find(job => 
         job.status === 'pending' || job.status === 'running'
       );
@@ -117,21 +124,22 @@ export class WebScrapingService {
       if (existing) {
         return {
           success: true,
-          job_id: existing.id,
+          jobId: existing.id,
           skipped: true,
           reason: 'Job already exists for this source'
         };
       }
 
       // Create new job
-      const job_id = `scrape_job_${Date.now()}_${randomBytes(8).toString('hex')}`;
+      const jobId = `scrape_job_${Date.now()}_${randomBytes(8).toString('hex')}`;
       
       const newJob = await this.scrapeJobRepository.create({
-        id: job_id,
-        sourceId: source_id,
-        jobData: job_params,
+        id: jobId,
+        sourceId: sourceId,
+        jobData: jobParams,
         status: 'pending',
-        lockTimeout: this.workerConfig.job_timeout_seconds
+        priority: priority,
+        lockTimeout: this.workerConfig.jobTimeoutSeconds,
       });
 
       if (!newJob) {
@@ -141,15 +149,15 @@ export class WebScrapingService {
       // Store job info in memory for coordination
       await this.memoryService.storeMemory(
         this.repositoryPath,
-        job_params.agent_id || 'system',
+        jobParams.agentId || 'system',
         'shared',
-        `Scraping job queued: ${job_id}`,
-        `Queued scraping job for ${job_params.source_name} (${job_params.source_url})`
+        `Scraping job queued: ${jobId}`,
+        `Queued scraping job for ${jobParams.sourceName} (${jobParams.sourceUrl})`
       );
 
       return {
         success: true,
-        job_id
+        jobId
       };
 
     } catch (error) {
@@ -169,16 +177,16 @@ export class WebScrapingService {
     }
 
     this.isWorkerRunning = true;
-    process.stderr.write(`🤖 Starting scraping worker: ${this.workerConfig.worker_id}\n`);
+    process.stderr.write(`🤖 Starting scraping worker: ${this.workerConfig.workerId}\n`);
 
     // Main worker loop
     while (this.isWorkerRunning) {
       try {
         await this.processNextJob();
-        await this.sleep(this.workerConfig.poll_interval_ms);
+        await this.sleep(this.workerConfig.pollIntervalMs);
       } catch (error) {
         console.error('Worker error:', error);
-        await this.sleep(this.workerConfig.poll_interval_ms * 2); // Back off on error
+        await this.sleep(this.workerConfig.pollIntervalMs * 2); // Back off on error
       }
     }
   }
@@ -189,7 +197,7 @@ export class WebScrapingService {
   async stopScrapingWorker(): Promise<void> {
     this.isWorkerRunning = false;
     await this.browserTools.shutdown();
-    process.stderr.write(`🛑 Stopped scraping worker: ${this.workerConfig.worker_id}\n`);
+    process.stderr.write(`🛑 Stopped scraping worker: ${this.workerConfig.workerId}\n`);
   }
 
   /**
@@ -198,8 +206,8 @@ export class WebScrapingService {
   private async processNextJob(): Promise<void> {
     // Find next available job
     const job = await this.scrapeJobRepository.lockNextPendingJob(
-      this.workerConfig.worker_id,
-      this.workerConfig.job_timeout_seconds
+      this.workerConfig.workerId,
+      this.workerConfig.jobTimeoutSeconds
     );
     
     if (!job) {
@@ -240,48 +248,6 @@ export class WebScrapingService {
     }
   }
 
-  /**
-   * Acquire and lock the next available job
-   */
-  private async acquireNextJob(): Promise<any | null> {
-    const now = new Date();
-    
-    // Find jobs that are not locked or have expired locks
-    const expiredTime = new Date(now.getTime() - this.workerConfig.job_timeout_seconds * 1000).toISOString();
-    const jobs = this.db.database.prepare(`
-      SELECT * FROM scrape_jobs 
-      WHERE status = 'pending' 
-        AND (lockedBy IS NULL 
-             OR lockedAt IS NULL 
-             OR lockedAt < ?)
-      ORDER BY created_at ASC 
-      LIMIT 1
-    `).all(expiredTime);
-
-    if (jobs.length === 0) {
-      return null;
-    }
-
-    const job = jobs[0];
-
-    try {
-      // Attempt to acquire lock
-      const result = this.db.database.prepare(`
-        UPDATE scrape_jobs 
-        SET status = 'running', startedAt = datetime('now'), lockedBy = ?, lockedAt = datetime('now')
-        WHERE id = ?
-      `).run(this.workerConfig.worker_id, (job as any).id);
-
-      if (result.changes > 0) {
-        return { ...(job as any), status: 'running', lockedBy: this.workerConfig.worker_id };
-      } else {
-        return null;
-      }
-    } catch (error) {
-      // Lock acquisition failed (race condition)
-      return null;
-    }
-  }
 
   /**
    * Determine if job should use a sub-agent
@@ -294,8 +260,8 @@ export class WebScrapingService {
     // 4. Multiple content types to extract
 
     const hasComplexSelectors = jobParams.selectors && Object.keys(jobParams.selectors).length > 3;
-    const hasDeepCrawling = (jobParams.crawl_depth || 1) > 2;
-    const hasPatternFiltering = (jobParams.allow_patterns?.length || 0) > 0 || (jobParams.ignore_patterns?.length || 0) > 0;
+    const hasDeepCrawling = (jobParams.crawlDepth || 1) > 2;
+    const hasPatternFiltering = (jobParams.allowPatterns?.length || 0) > 0 || (jobParams.ignorePatterns?.length || 0) > 0;
 
     return hasComplexSelectors || hasDeepCrawling || hasPatternFiltering;
   }
@@ -311,19 +277,19 @@ export class WebScrapingService {
 🕷️ WEB SCRAPING SUB-AGENT - Specialized Documentation Crawler
 
 MISSION: Complete web scraping task for documentation source
-SOURCE: ${jobParams.source_name} (${jobParams.source_url})
+SOURCE: ${jobParams.sourceName} (${jobParams.sourceUrl})
 JOB ID: ${job.id}
 
 You are an autonomous web scraping specialist with COMPLETE CLAUDE CODE CAPABILITIES.
 Your task is to scrape and process documentation from the specified source.
 
 CONFIGURATION:
-- Crawl Depth: ${jobParams.crawl_depth || 3}
-- Include Subdomains: ${jobParams.include_subdomains ? 'Yes' : 'No'}
-- Force Refresh: ${jobParams.force_refresh ? 'Yes' : 'No'}
+- Crawl Depth: ${jobParams.crawlDepth || 3}
+- Include Subdomains: ${jobParams.includeSubdomains ? 'Yes' : 'No'}
+- Force Refresh: ${jobParams.forceRefresh ? 'Yes' : 'No'}
 ${jobParams.selectors ? `- Content Selectors: ${JSON.stringify(jobParams.selectors, null, 2)}` : ''}
-${jobParams.allow_patterns ? `- Allow Patterns: ${JSON.stringify(jobParams.allow_patterns)}` : ''}
-${jobParams.ignore_patterns ? `- Ignore Patterns: ${JSON.stringify(jobParams.ignore_patterns)}` : ''}
+${jobParams.allowPatterns ? `- Allow Patterns: ${JSON.stringify(jobParams.allowPatterns)}` : ''}
+${jobParams.ignorePatterns ? `- Ignore Patterns: ${JSON.stringify(jobParams.ignorePatterns)}` : ''}
 
 SCRAPING PROTOCOL:
 1. CREATE BROWSER SESSION
@@ -331,7 +297,7 @@ SCRAPING PROTOCOL:
    - Set appropriate viewport and user agent
    
 2. INTELLIGENT CRAWLING
-   - Start with base URL: ${jobParams.source_url}
+   - Start with base URL: ${jobParams.sourceUrl}
    - Follow same-domain links respecting patterns
    - Extract content using specified selectors
    - Respect robots.txt and rate limiting
@@ -341,10 +307,10 @@ SCRAPING PROTOCOL:
    - Process headers, links, code blocks, and lists properly
    - Remove navigation, scripts, styles, and boilerplate
    - Apply URL filtering using allow/ignore patterns:
-     ${jobParams.allow_patterns?.length ? `   * Allow patterns: ${JSON.stringify(jobParams.allow_patterns)}` : ''}
-     ${jobParams.ignore_patterns?.length ? `   * Ignore patterns: ${JSON.stringify(jobParams.ignore_patterns)}` : ''}
+     ${jobParams.allowPatterns?.length ? `   * Allow patterns: ${JSON.stringify(jobParams.allowPatterns)}` : ''}
+     ${jobParams.ignorePatterns?.length ? `   * Ignore patterns: ${JSON.stringify(jobParams.ignorePatterns)}` : ''}
    - Generate content hashes for deduplication
-   - Store in documentation_entries table with both HTML and Markdown
+   - Store in websites and website_pages tables with both HTML and Markdown
    
 4. PROGRESS TRACKING
    - Update scrape job status regularly
@@ -375,8 +341,8 @@ CRITICAL: You have full autonomy. Take any actions needed to complete the scrapi
       repositoryPathLength: this.repositoryPath?.length,
       capabilities: ['browser_automation', 'database_access', 'file_operations'],
       jobId: job.id,
-      sourceId: job.source_id,
-      sourceUrl: jobParams.source_url
+      sourceId: job.sourceId,
+      sourceUrl: jobParams.sourceUrl
     });
 
     // Spawn the sub-agent
@@ -388,8 +354,8 @@ CRITICAL: You have full autonomy. Take any actions needed to complete the scrapi
       agentMetadata: {
         job_id: job.id,
         job_type: 'web_scraping',
-        source_id: job.source_id,
-        source_url: jobParams.source_url,
+        sourceId: job.sourceId,
+        sourceUrl: jobParams.sourceUrl,
         started_at: new Date().toISOString()
       }
     });
@@ -423,23 +389,21 @@ CRITICAL: You have full autonomy. Take any actions needed to complete the scrapi
     // Store sub-agent info
     await this.memoryService.storeMemory(
       this.repositoryPath,
-      jobParams.agent_id || 'system',
+      jobParams.agentId || 'system',
       'shared',
       `Web scraping sub-agent spawned`,
-      `Sub-agent ${subAgentResult.agentId} handling scraping job ${job.id} for ${jobParams.source_name}`
+      `Sub-agent ${subAgentResult.agentId} handling scraping job ${job.id} for ${jobParams.sourceName}`
     );
 
     // Update job with sub-agent info
-    this.db.database.prepare(`
-      UPDATE scrape_jobs 
-      SET result_data = ?
-      WHERE id = ?
-    `).run(JSON.stringify({
-      sub_agent_id: subAgentResult.agentId,
-      sub_agent_pid: subAgentResult.agent.claudePid,
-      processing_method: 'sub_agent',
-      started_at: new Date().toISOString()
-    }), job.id);
+    await this.scrapeJobRepository.update(job.id, {
+      resultData: {
+        sub_agent_id: subAgentResult.agentId,
+        sub_agent_pid: subAgentResult.agent.claudePid,
+        processing_method: 'sub_agent',
+        started_at: new Date().toISOString()
+      }
+    });
   }
 
   /**
@@ -452,7 +416,7 @@ CRITICAL: You have full autonomy. Take any actions needed to complete the scrapi
     const browserResult = await this.browserTools.createBrowserSession('chromium', {
       headless: true,
       viewport: { width: 1920, height: 1080 },
-      agentId: jobParams.agent_id
+      agentId: jobParams.agentId
     });
 
     if (!browserResult.success) {
@@ -465,9 +429,9 @@ CRITICAL: You have full autonomy. Take any actions needed to complete the scrapi
 
     try {
       // Navigate to source URL
-      const navResult = await this.browserTools.navigateToUrl(sessionId, jobParams.source_url);
+      const navResult = await this.browserTools.navigateToUrl(sessionId, jobParams.sourceUrl);
       if (!navResult.success) {
-        throw new Error(`Failed to navigate to ${jobParams.source_url}: ${navResult.error}`);
+        throw new Error(`Failed to navigate to ${jobParams.sourceUrl}: ${navResult.error}`);
       }
 
       // Scrape initial page
@@ -479,79 +443,90 @@ CRITICAL: You have full autonomy. Take any actions needed to complete the scrapi
       });
 
       // Apply URL filtering if patterns are specified
-      if (jobParams.allow_patterns?.length || jobParams.ignore_patterns?.length) {
+      if (jobParams.allowPatterns?.length || jobParams.ignorePatterns?.length) {
         const urlCheck = PatternMatcher.shouldAllowUrl(
-          jobParams.source_url,
-          jobParams.allow_patterns,
-          jobParams.ignore_patterns
+          jobParams.sourceUrl,
+          jobParams.allowPatterns,
+          jobParams.ignorePatterns
         );
         
         if (!urlCheck.allowed) {
-          process.stderr.write(`🚫 URL blocked by pattern: ${jobParams.source_url} - ${urlCheck.reason}\n`);
+          process.stderr.write(`🚫 URL blocked by pattern: ${jobParams.sourceUrl} - ${urlCheck.reason}\n`);
           return; // Skip this page
         } else {
-          process.stderr.write(`✅ URL allowed: ${jobParams.source_url} - ${urlCheck.reason}\n`);
+          process.stderr.write(`✅ URL allowed: ${jobParams.sourceUrl} - ${urlCheck.reason}\n`);
         }
       }
 
       if (scrapeResult.success && scrapeResult.content) {
-        // Create documentation entry
-        const entryId = `doc_entry_${Date.now()}_${randomBytes(8).toString('hex')}`;
+        // Normalize URL for consistent storage
+        const normalizedUrl = this.websitePagesRepository.normalizeUrl(jobParams.sourceUrl);
+        
+        // Get or create website for this domain
+        const domain = this.websiteRepository.extractDomainFromUrl(jobParams.sourceUrl);
+        const website = await this.websiteRepository.findOrCreateByDomain(domain, {
+          name: jobParams.sourceName || domain,
+          metaDescription: `Documentation for ${domain}`
+        });
         
         // Convert HTML to Markdown for better text processing
         const htmlContent = scrapeResult.content.html || '';
         const markdownContent = htmlContent ? this.convertHtmlToMarkdown(htmlContent) : '';
         const contentText = markdownContent || scrapeResult.content.text || '';
-        const contentHash = this.generateContentHash(contentText);
+        const contentHash = this.websitePagesRepository.generateContentHash(contentText);
         
-        // Store in documentation_entries table
-        try {
-          this.db.database.prepare(`
-            INSERT OR REPLACE INTO documentation_entries (
-              id, source_id, url, title, content, content_hash, 
-              html_content, links, images, metadata, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
-          `).run(
-            entryId,
-            job.source_id,
-            jobParams.source_url,
-            new URL(jobParams.source_url).pathname,
-            contentText,
-            contentHash,
-            scrapeResult.content.html || '',
-            JSON.stringify(scrapeResult.content.links || []),
-            JSON.stringify(scrapeResult.content.images || []),
-            JSON.stringify({ scraped_at: new Date().toISOString() })
-          );
+        // Apply selector if provided
+        let processedHtml = htmlContent;
+        let processedMarkdown = markdownContent;
+        
+        if (jobParams.selectors && Object.keys(jobParams.selectors).length > 0) {
+          // TODO: Apply selector-based extraction here
+          // For now, using full content
+        }
+        
+        // Create or update website page
+        const pageResult = await this.websitePagesRepository.createOrUpdate({
+          id: `page_${Date.now()}_${randomBytes(8).toString('hex')}`,
+          websiteId: website.id,
+          url: normalizedUrl,
+          contentHash,
+          htmlContent: processedHtml,
+          markdownContent: processedMarkdown,
+          selector: jobParams.selectors ? JSON.stringify(jobParams.selectors) : undefined,
+          title: new URL(jobParams.sourceUrl).pathname,
+          httpStatus: 200
+        });
 
+        if (pageResult.isNew) {
           // Add to vector collection for semantic search
-          await this.addToVectorCollection(entryId, contentText, {
-            url: jobParams.source_url,
-            title: new URL(jobParams.source_url).pathname,
-            source_id: job.source_id,
-            documentation_entry_id: entryId
+          await this.addToVectorCollection(pageResult.page.id, processedMarkdown, {
+            url: normalizedUrl,
+            title: pageResult.page.title,
+            websiteId: website.id,
+            websiteName: website.name,
+            domain: website.domain,
+            pageId: pageResult.page.id
           });
 
-          this.logger.info(`Created documentation entry with vectorization: ${entryId}`);
-        } catch (error) {
-          this.logger.warn(`Failed to create documentation entry: ${entryId}`, error);
+          this.logger.info(`Created new website page with vectorization: ${pageResult.page.id}`);
+          entriesCreated++;
+        } else {
+          this.logger.info(`Updated existing website page: ${pageResult.page.id}`);
         }
 
         pagesScraped++;
-        entriesCreated++;
       }
 
       // Update job results
-      this.db.database.prepare(`
-        UPDATE scrape_jobs 
-        SET pages_scraped = ?, result_data = ?
-        WHERE id = ?
-      `).run(pagesScraped, JSON.stringify({
-        processing_method: 'direct',
-        pages_scraped: pagesScraped,
-        entries_created: entriesCreated,
-        completed_at: new Date().toISOString()
-      }), job.id);
+      await this.scrapeJobRepository.update(job.id, {
+        pagesScraped: pagesScraped,
+        resultData: {
+          processing_method: 'direct',
+          pages_scraped: pagesScraped,
+          entries_created: entriesCreated,
+          completed_at: new Date().toISOString()
+        }
+      });
 
     } finally {
       // Clean up browser session
@@ -562,48 +537,41 @@ CRITICAL: You have full autonomy. Take any actions needed to complete the scrapi
   /**
    * Get status of scraping jobs
    */
-  async getScrapingStatus(source_id?: string): Promise<{
-    active_jobs: any[];
-    pending_jobs: any[];
-    completed_jobs: any[];
-    failed_jobs: any[];
-    worker_status: {
-      worker_id: string;
-      is_running: boolean;
+  async getScrapingStatus(sourceId?: string): Promise<{
+    activeJobs: any[];
+    pendingJobs: any[];
+    completedJobs: any[];
+    failedJobs: any[];
+    workerStatus: {
+      workerId: string;
+      isRunning: boolean;
       config: ScrapingWorkerConfig;
     };
   }> {
-    const whereClause = source_id ? { source_id } : {};
-
-    const baseQuery = source_id ? 'WHERE source_id = ?' : '';
-    const params = source_id ? [source_id] : [];
+    const activeJobs = sourceId ? 
+      await this.scrapeJobRepository.findBySourceId(sourceId).then(jobs => jobs.filter(j => j.status === 'running')) :
+      await this.scrapeJobRepository.findByStatus('running');
     
-    const activeJobs = this.db.database.prepare(`
-      SELECT * FROM scrape_jobs ${baseQuery} ${source_id ? 'AND' : 'WHERE'} status = 'IN_PROGRESS'
-    `).all(...params);
+    const pendingJobs = sourceId ? 
+      await this.scrapeJobRepository.findBySourceId(sourceId).then(jobs => jobs.filter(j => j.status === 'pending')) :
+      await this.scrapeJobRepository.findByStatus('pending');
     
-    const pendingJobs = this.db.database.prepare(`
-      SELECT * FROM scrape_jobs ${baseQuery} ${source_id ? 'AND' : 'WHERE'} status = 'PENDING'
-    `).all(...params);
+    const completedJobs = sourceId ? 
+      await this.scrapeJobRepository.findBySourceId(sourceId).then(jobs => jobs.filter(j => j.status === 'completed').slice(0, 10)) :
+      await this.scrapeJobRepository.findByStatus('completed');
     
-    const completedJobs = this.db.database.prepare(`
-      SELECT * FROM scrape_jobs ${baseQuery} ${source_id ? 'AND' : 'WHERE'} status = 'COMPLETED' 
-      ORDER BY completed_at DESC LIMIT 10
-    `).all(...params);
-    
-    const failedJobs = this.db.database.prepare(`
-      SELECT * FROM scrape_jobs ${baseQuery} ${source_id ? 'AND' : 'WHERE'} status = 'FAILED' 
-      ORDER BY completed_at DESC LIMIT 10
-    `).all(...params);
+    const failedJobs = sourceId ? 
+      await this.scrapeJobRepository.findBySourceId(sourceId).then(jobs => jobs.filter(j => j.status === 'failed').slice(0, 10)) :
+      await this.scrapeJobRepository.findByStatus('failed');
 
     return {
-      active_jobs: activeJobs,
-      pending_jobs: pendingJobs,
-      completed_jobs: completedJobs,
-      failed_jobs: failedJobs,
-      worker_status: {
-        worker_id: this.workerConfig.worker_id,
-        is_running: this.isWorkerRunning,
+      activeJobs,
+      pendingJobs,
+      completedJobs,
+      failedJobs,
+      workerStatus: {
+        workerId: this.workerConfig.workerId,
+        isRunning: this.isWorkerRunning,
         config: this.workerConfig
       }
     };
@@ -612,22 +580,18 @@ CRITICAL: You have full autonomy. Take any actions needed to complete the scrapi
   /**
    * Cancel a scraping job
    */
-  async cancelScrapeJob(job_id: string): Promise<{ success: boolean; error?: string }> {
+  async cancelScrapeJob(jobId: string): Promise<{ success: boolean; error?: string }> {
     try {
-      const job = this.db.database.prepare('SELECT * FROM scrape_jobs WHERE id = ?').get(job_id);
+      const job = await this.scrapeJobRepository.findById(jobId);
       if (!job) {
         return { success: false, error: 'Job not found' };
       }
 
-      if ((job as any).status === 'COMPLETED' || (job as any).status === 'FAILED') {
+      if (job.status === 'completed' || job.status === 'failed') {
         return { success: false, error: 'Job already finished' };
       }
 
-      this.db.database.prepare(`
-        UPDATE scrape_jobs 
-        SET status = 'FAILED', completed_at = datetime('now'), error_message = 'Cancelled by user', locked_by = NULL, locked_at = NULL
-        WHERE id = ?
-      `).run(job_id);
+      await this.scrapeJobRepository.cancelJob(jobId, 'Cancelled by user');
 
       return { success: true };
     } catch (error) {
@@ -644,6 +608,38 @@ CRITICAL: You have full autonomy. Take any actions needed to complete the scrapi
   private generateContentHash(content: string): string {
     return createHash('sha256').update(content).digest('hex');
   }
+
+  /**
+   * Normalize URL for consistent storage and deduplication
+   */
+  private normalizeUrl(url: string): string {
+    try {
+      const urlObj = new URL(url);
+      
+      // Remove hash fragments
+      urlObj.hash = '';
+      
+      // Remove common tracking parameters
+      const trackingParams = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'fbclid', 'gclid', 'ref'];
+      trackingParams.forEach(param => {
+        urlObj.searchParams.delete(param);
+      });
+      
+      // Sort search parameters for consistency
+      urlObj.searchParams.sort();
+      
+      // Remove trailing slash from pathname unless it's the root
+      if (urlObj.pathname.length > 1 && urlObj.pathname.endsWith('/')) {
+        urlObj.pathname = urlObj.pathname.slice(0, -1);
+      }
+      
+      return urlObj.toString();
+    } catch (error) {
+      this.logger.warn(`Failed to normalize URL: ${url}`, error);
+      return url;
+    }
+  }
+
 
   /**
    * Convert HTML content to clean Markdown format
@@ -691,47 +687,46 @@ CRITICAL: You have full autonomy. Take any actions needed to complete the scrapi
   /**
    * Get or create a documentation source
    */
-  getOrCreateDocumentationSource(params: {
+  async getOrCreateDocumentationSource(params: {
     url: string;
     name?: string;
-    source_type?: string;
-    crawl_depth?: number;
+    sourceType?: string;
+    crawlDepth?: number;
     selectors?: Record<string, string>;
-    allow_patterns?: string[];
-    ignore_patterns?: string[];
-    include_subdomains?: boolean;
-  }): string {
+    allowPatterns?: string[];
+    ignorePatterns?: string[];
+    includeSubdomains?: boolean;
+    updateFrequency?: DocumentationSource['updateFrequency'];
+  }): Promise<string> {
     // Generate a source ID based on URL
     const urlHash = createHash('sha256').update(params.url).digest('hex').substring(0, 16);
     const sourceId = `source_${urlHash}`;
     
     // Check if source already exists
-    const existing = this.db.database.prepare(
-      'SELECT id FROM documentation_sources WHERE id = ?'
-    ).get(sourceId);
+    const existing = await this.documentationRepository.findById(sourceId);
     
     if (existing) {
       return sourceId;
     }
     
     // Create new documentation source
-    this.db.database.prepare(`
-      INSERT INTO documentation_sources (
-        id, name, url, source_type, crawl_depth, selectors, 
-        allow_patterns, ignore_patterns, include_subdomains, 
-        status, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'NOT_STARTED', datetime('now'), datetime('now'))
-    `).run(
-      sourceId,
-      params.name || new URL(params.url).hostname,
-      params.url,
-      (params.source_type || 'guide').toUpperCase(),
-      params.crawl_depth || 3,
-      JSON.stringify(params.selectors || {}),
-      JSON.stringify(params.allow_patterns || []),
-      JSON.stringify(params.ignore_patterns || []),
-      params.include_subdomains ? 1 : 0
-    );
+    const newSource = await this.documentationRepository.create({
+      id: sourceId,
+      name: params.name || new URL(params.url).hostname,
+      url: params.url,
+      sourceType: (params.sourceType || 'guide') as any,
+      crawlDepth: params.crawlDepth || 3,
+      selectors: params.selectors || {},
+      allowPatterns: params.allowPatterns || [],
+      ignorePatterns: params.ignorePatterns || [],
+      includeSubdomains: params.includeSubdomains || false,
+      status: 'not_started',
+      updateFrequency: params.updateFrequency || 'weekly',
+    });
+    
+    if (!newSource) {
+      throw new Error('Failed to create documentation source');
+    }
     
     return sourceId;
   }
@@ -751,8 +746,8 @@ CRITICAL: You have full autonomy. Take any actions needed to complete the scrapi
         return;
       }
 
-      // Determine collection name based on source
-      const collectionName = metadata.source_id ? `source_${metadata.source_id}` : 'documentation';
+      // Determine collection name based on website
+      const collectionName = metadata.websiteId ? `website_${metadata.websiteId}` : 'documentation';
       
       // Add to vector collection
       const result = await this.vectorSearchService.addDocuments(collectionName, [{

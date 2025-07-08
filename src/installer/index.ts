@@ -249,7 +249,10 @@ function createProjectConfig(): void {
   // Required permissions for ClaudeMcpTools
   const requiredPermissions = [
     // Core Claude Code tools
-    "Bash(*)",
+    "Bash(find:*)",
+    "Bash(read:*)",
+    "Bash(grep:*)",
+    "Bash(ls:*)",
     "Edit",
     "MultiEdit",
     "Read(*)",
@@ -258,6 +261,8 @@ function createProjectConfig(): void {
     "Glob",
     "Grep",
     "LS(*)",
+    "List",
+    "Search",
     "TodoRead",
     "TodoWrite",
     "WebFetch(*)",
@@ -265,8 +270,8 @@ function createProjectConfig(): void {
     "Task",
     "exit_plan_mode",
 
-    // ALL 44 MCP tools for full autonomous operation
-    // Agent Orchestration Tools (13 tools)
+    // ALL 43 MCP tools for full autonomous operation
+    // Agent Orchestration Tools (14 tools)
     "mcp__claude-mcp-tools__orchestrate_objective",
     "mcp__claude-mcp-tools__spawn_agent",
     "mcp__claude-mcp-tools__create_task",
@@ -314,14 +319,7 @@ function createProjectConfig(): void {
     "mcp__claude-mcp-tools__get_project_overview",
     "mcp__claude-mcp-tools__cleanup_stale_analyses",
 
-    // Foundation Cache Tools (7 tools)
-    "mcp__claude-mcp-tools__create_foundation_session",
-    "mcp__claude-mcp-tools__derive_session_from_foundation",
-    "mcp__claude-mcp-tools__get_cached_analysis",
-    "mcp__claude-mcp-tools__cache_analysis_result",
-    "mcp__claude-mcp-tools__get_cache_statistics",
-    "mcp__claude-mcp-tools__invalidate_cache",
-    "mcp__claude-mcp-tools__perform_cache_maintenance",
+    // Foundation Cache Tools - Now automatically integrated (no manual tools needed)
   ];
   
   // Merge permissions using Set to avoid duplicates
@@ -577,7 +575,7 @@ export async function install(options: { globalOnly?: boolean; projectOnly?: boo
   if (!options.globalOnly) {
     console.log(`│ • Project config: ./.claude/settings.local.json  │`);
     console.log(`│ • Project integration: ./CLAUDE.md               │`);
-    console.log(`│ • ALL 44 MCP tools: Fully enabled               │`);
+    console.log(`│ • ALL 43 MCP tools: Fully enabled               │`);
     console.log(`│ • Bash permissions: Full autonomous access       │`);
     console.log(`│ • 80+ commands: Pre-authorized for operation     │`);
   }
@@ -591,7 +589,7 @@ export async function install(options: { globalOnly?: boolean; projectOnly?: boo
   console.log('│                                                   │');
   console.log('│ 🚀 Next steps:                                    │');
   console.log('│ 1. Restart Claude Code                            │');
-  console.log('│ 2. Use /mcp to see all 44 available tools        │');
+  console.log('│ 2. Use /mcp to see all 43 available tools        │');
   console.log('│ 3. Try: orchestrate_objective() for workflows    │');
   console.log('│ 4. Check: ./CLAUDE.md for TypeScript examples    │');
   console.log('╰───────────────────────────────────────────────────╯');

@@ -27,7 +27,7 @@ async function mainServer() {
 
   // Create the MCP server
   const server = new McpServer({
-    name: 'claude-mcp-tools-ts',
+    name: 'claude-mcp-tools',
     version: '1.0.0',
     databasePath
   });
