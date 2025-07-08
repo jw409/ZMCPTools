@@ -233,88 +233,116 @@ function createProjectConfig(): void {
   const projectClaudeDir = path.join(process.cwd(), '.claude');
   fs.mkdirSync(projectClaudeDir, { recursive: true });
   
-  // Create settings.local.json with comprehensive tool permissions
+  const settingsPath = path.join(projectClaudeDir, 'settings.local.json');
+  
+  // Load existing settings if they exist
+  let existingSettings: any = {};
+  if (fs.existsSync(settingsPath)) {
+    try {
+      const existingContent = fs.readFileSync(settingsPath, 'utf8');
+      existingSettings = JSON.parse(existingContent);
+    } catch (error) {
+      logWarning('Failed to parse existing settings.local.json, creating new');
+    }
+  }
+  
+  // Required permissions for ClaudeMcpTools
+  const requiredPermissions = [
+    // Core Claude Code tools
+    "Bash(*)",
+    "Edit",
+    "MultiEdit",
+    "Read(*)",
+    "Find(*)",
+    "Write",
+    "Glob",
+    "Grep",
+    "LS(*)",
+    "TodoRead",
+    "TodoWrite",
+    "WebFetch(*)",
+    "WebSearch",
+    "Task",
+    "exit_plan_mode",
+
+    // ALL 44 MCP tools for full autonomous operation
+    // Agent Orchestration Tools (13 tools)
+    "mcp__claude-mcp-tools__orchestrate_objective",
+    "mcp__claude-mcp-tools__spawn_agent",
+    "mcp__claude-mcp-tools__create_task",
+    "mcp__claude-mcp-tools__join_room",
+    "mcp__claude-mcp-tools__send_message",
+    "mcp__claude-mcp-tools__wait_for_messages",
+    "mcp__claude-mcp-tools__store_memory",
+    "mcp__claude-mcp-tools__search_memory",
+    "mcp__claude-mcp-tools__list_agents",
+    "mcp__claude-mcp-tools__terminate_agent",
+    "mcp__claude-mcp-tools__close_room",
+    "mcp__claude-mcp-tools__delete_room",
+    "mcp__claude-mcp-tools__list_rooms",
+    "mcp__claude-mcp-tools__list_room_messages",
+
+    // Browser Automation Tools (6 tools)
+    "mcp__claude-mcp-tools__create_browser_session",
+    "mcp__claude-mcp-tools__navigate_and_scrape",
+    "mcp__claude-mcp-tools__interact_with_page",
+    "mcp__claude-mcp-tools__manage_browser_sessions",
+    "mcp__claude-mcp-tools__navigate_to_url",
+    "mcp__claude-mcp-tools__scrape_content",
+
+    // Web Scraping & Documentation Tools (6 tools)
+    "mcp__claude-mcp-tools__scrape_documentation",
+    "mcp__claude-mcp-tools__get_scraping_status",
+    "mcp__claude-mcp-tools__cancel_scrape_job",
+    "mcp__claude-mcp-tools__start_scraping_worker",
+    "mcp__claude-mcp-tools__stop_scraping_worker",
+    "mcp__claude-mcp-tools__list_documentation_sources",
+
+    // Project Analysis & File Operations Tools (7 tools)
+    "mcp__claude-mcp-tools__analyze_project_structure",
+    "mcp__claude-mcp-tools__generate_project_summary",
+    "mcp__claude-mcp-tools__analyze_file_symbols",
+    "mcp__claude-mcp-tools__list_files",
+    "mcp__claude-mcp-tools__find_files",
+    "mcp__claude-mcp-tools__easy_replace",
+    "mcp__claude-mcp-tools__cleanup_orphaned_projects",
+
+    // TreeSummary Tools (5 tools)
+    "mcp__claude-mcp-tools__update_file_analysis",
+    "mcp__claude-mcp-tools__remove_file_analysis",
+    "mcp__claude-mcp-tools__update_project_metadata",
+    "mcp__claude-mcp-tools__get_project_overview",
+    "mcp__claude-mcp-tools__cleanup_stale_analyses",
+
+    // Foundation Cache Tools (7 tools)
+    "mcp__claude-mcp-tools__create_foundation_session",
+    "mcp__claude-mcp-tools__derive_session_from_foundation",
+    "mcp__claude-mcp-tools__get_cached_analysis",
+    "mcp__claude-mcp-tools__cache_analysis_result",
+    "mcp__claude-mcp-tools__get_cache_statistics",
+    "mcp__claude-mcp-tools__invalidate_cache",
+    "mcp__claude-mcp-tools__perform_cache_maintenance",
+  ];
+  
+  // Merge permissions using Set to avoid duplicates
+  const existingPermissions = existingSettings.permissions?.allow || [];
+  const mergedPermissions = Array.from(new Set([...existingPermissions, ...requiredPermissions]));
+  
+  // Create merged settings
   const settings = {
+    ...existingSettings,
     env: {
       CLAUDE_CODE_MAX_OUTPUT_TOKENS: "64000",
       MAX_MCP_OUTPUT_TOKENS: "64000",
       MCP_TIMEOUT: "60000",
+      ...existingSettings.env,
     },
     permissions: {
-      allow: [
-        // Core Claude Code tools
-        "Bash(*)",
-        "Edit",
-        "MultiEdit",
-        "Read(*)",
-        "Find(*)",
-        "Write",
-        "Glob",
-        "Grep",
-        "LS(*)",
-        "TodoRead",
-        "TodoWrite",
-        "WebFetch(*)",
-        "WebSearch",
-        "Task",
-        "exit_plan_mode",
-
-        // ALL 40 MCP tools for full autonomous operation
-        // Agent Orchestration Tools (9 tools)
-        "mcp__claude-mcp-tools__orchestrate_objective",
-        "mcp__claude-mcp-tools__spawn_agent",
-        "mcp__claude-mcp-tools__create_task",
-        "mcp__claude-mcp-tools__join_room",
-        "mcp__claude-mcp-tools__send_message",
-        "mcp__claude-mcp-tools__wait_for_messages",
-        "mcp__claude-mcp-tools__store_memory",
-        "mcp__claude-mcp-tools__search_memory",
-        "mcp__claude-mcp-tools__list_agents",
-        "mcp__claude-mcp-tools__terminate_agent",
-
-        // Browser Automation Tools (6 tools)
-        "mcp__claude-mcp-tools__create_browser_session",
-        "mcp__claude-mcp-tools__navigate_and_scrape",
-        "mcp__claude-mcp-tools__interact_with_page",
-        "mcp__claude-mcp-tools__manage_browser_sessions",
-        "mcp__claude-mcp-tools__navigate_to_url",
-        "mcp__claude-mcp-tools__scrape_content",
-
-        // Web Scraping & Documentation Tools (6 tools)
-        "mcp__claude-mcp-tools__scrape_documentation",
-        "mcp__claude-mcp-tools__get_scraping_status",
-        "mcp__claude-mcp-tools__cancel_scrape_job",
-        "mcp__claude-mcp-tools__start_scraping_worker",
-        "mcp__claude-mcp-tools__stop_scraping_worker",
-        "mcp__claude-mcp-tools__list_documentation_sources",
-
-        // Project Analysis & File Operations Tools (7 tools)
-        "mcp__claude-mcp-tools__analyze_project_structure",
-        "mcp__claude-mcp-tools__generate_project_summary",
-        "mcp__claude-mcp-tools__analyze_file_symbols",
-        "mcp__claude-mcp-tools__list_files",
-        "mcp__claude-mcp-tools__find_files",
-        "mcp__claude-mcp-tools__easy_replace",
-        "mcp__claude-mcp-tools__cleanup_orphaned_projects",
-
-        // TreeSummary Tools (5 tools)
-        "mcp__claude-mcp-tools__update_file_analysis",
-        "mcp__claude-mcp-tools__remove_file_analysis",
-        "mcp__claude-mcp-tools__update_project_metadata",
-        "mcp__claude-mcp-tools__get_project_overview",
-        "mcp__claude-mcp-tools__cleanup_stale_analyses",
-
-        // Foundation Cache Tools (7 tools)
-        "mcp__claude-mcp-tools__create_foundation_session",
-        "mcp__claude-mcp-tools__derive_session_from_foundation",
-        "mcp__claude-mcp-tools__get_cached_analysis",
-        "mcp__claude-mcp-tools__cache_analysis_result",
-        "mcp__claude-mcp-tools__get_cache_statistics",
-        "mcp__claude-mcp-tools__invalidate_cache",
-        "mcp__claude-mcp-tools__perform_cache_maintenance",
-      ],
+      ...existingSettings.permissions,
+      allow: mergedPermissions,
     },
     mcpServers: {
+      ...existingSettings.mcpServers,
       "claude-mcp-tools": {
         command: "claude-mcp-tools",
         allowed: true,
@@ -323,10 +351,9 @@ function createProjectConfig(): void {
     },
   };
   
-  const settingsPath = path.join(projectClaudeDir, 'settings.local.json');
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
   
-  logSuccess('Project configuration created');
+  logSuccess('Project configuration created/updated');
 }
 
 function createClaudeMd(): void {
@@ -355,6 +382,10 @@ This project uses the TypeScript implementation of ClaudeMcpTools for enhanced M
 - \`search_memory(repository_path, query_text)\` - Search previous work
 - \`join_room(room_name, agent_name)\` - Real-time agent communication
 - \`send_message(room_name, message, mentions)\` - Coordinate via chat
+- \`list_rooms(repository_path, status, limit, offset)\` - List communication rooms
+- \`list_room_messages(room_name, limit, offset)\` - View room chat history
+- \`close_room(room_name, terminate_agents)\` - Close room and cleanup agents
+- \`delete_room(room_name, force_delete)\` - Permanently delete room
 
 ### Enhanced File Operations
 - \`list_files(directory, show_hidden, max_depth)\` - Smart file listing
@@ -546,7 +577,7 @@ export async function install(options: { globalOnly?: boolean; projectOnly?: boo
   if (!options.globalOnly) {
     console.log(`│ • Project config: ./.claude/settings.local.json  │`);
     console.log(`│ • Project integration: ./CLAUDE.md               │`);
-    console.log(`│ • ALL 40 MCP tools: Fully enabled               │`);
+    console.log(`│ • ALL 44 MCP tools: Fully enabled               │`);
     console.log(`│ • Bash permissions: Full autonomous access       │`);
     console.log(`│ • 80+ commands: Pre-authorized for operation     │`);
   }
@@ -560,7 +591,7 @@ export async function install(options: { globalOnly?: boolean; projectOnly?: boo
   console.log('│                                                   │');
   console.log('│ 🚀 Next steps:                                    │');
   console.log('│ 1. Restart Claude Code                            │');
-  console.log('│ 2. Use /mcp to see all 40 available tools        │');
+  console.log('│ 2. Use /mcp to see all 44 available tools        │');
   console.log('│ 3. Try: orchestrate_objective() for workflows    │');
   console.log('│ 4. Check: ./CLAUDE.md for TypeScript examples    │');
   console.log('╰───────────────────────────────────────────────────╯');

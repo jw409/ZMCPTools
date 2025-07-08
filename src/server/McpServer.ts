@@ -32,6 +32,8 @@ import { WebScrapingService } from '../services/WebScrapingService.js';
 import { AgentService, MemoryService, FileOperationsService, TreeSummaryService, fileOperationsService } from '../services/index.js';
 import { ResourceManager } from '../managers/ResourceManager.js';
 import { PromptManager } from '../managers/PromptManager.js';
+import { PathUtils } from '../utils/pathUtils.js';
+import { LanceDBManager } from '../services/LanceDBManager.js';
 import type { OrchestrationResult } from '../tools/AgentOrchestrationTools.js';
 
 export interface McpServerOptions {
@@ -54,10 +56,14 @@ export class McpServer {
   private treeSummaryService: TreeSummaryService;
   private resourceManager: ResourceManager;
   private promptManager: PromptManager;
+  private lanceDBManager: LanceDBManager;
   private repositoryPath: string;
 
   constructor(private options: McpServerOptions) {
-    this.repositoryPath = options.repositoryPath || process.cwd();
+    this.repositoryPath = PathUtils.resolveRepositoryPath(
+      options.repositoryPath || process.cwd(), 
+      'McpServer'
+    );
     
     // Mark this as the main MCP process for database initialization
     process.env.MCP_MAIN_PROCESS = 'true';
@@ -112,8 +118,26 @@ export class McpServer {
     // Initialize managers
     this.resourceManager = new ResourceManager(this.db, this.repositoryPath);
     this.promptManager = new PromptManager();
+    this.lanceDBManager = new LanceDBManager({
+      // LanceDB is embedded - no server configuration needed
+    });
 
     this.setupToolHandlers();
+
+    // Setup graceful shutdown handlers
+    this.setupShutdownHandlers();
+  }
+
+  private setupShutdownHandlers(): void {
+    // Handle process termination signals
+    const shutdown = async () => {
+      await this.stop();
+      process.exit(0);
+    };
+
+    process.on('SIGINT', shutdown);
+    process.on('SIGTERM', shutdown);
+    process.on('SIGQUIT', shutdown);
   }
 
   private setupToolHandlers(): void {
@@ -504,6 +528,101 @@ export class McpServer {
           },
           required: ["agent_ids"]
         }
+      },
+      {
+        name: "close_room",
+        description: "Close a communication room (soft delete, keeps data)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            room_name: {
+              type: "string",
+              description: "Name of the room to close"
+            },
+            terminate_agents: {
+              type: "boolean",
+              description: "Whether to terminate agents in the room (default: true)"
+            }
+          },
+          required: ["room_name"]
+        }
+      },
+      {
+        name: "delete_room",
+        description: "Permanently delete a communication room and all messages",
+        inputSchema: {
+          type: "object",
+          properties: {
+            room_name: {
+              type: "string",
+              description: "Name of the room to delete"
+            },
+            force_delete: {
+              type: "boolean",
+              description: "Force delete even if room is not closed (default: false)"
+            }
+          },
+          required: ["room_name"]
+        }
+      },
+      {
+        name: "list_rooms",
+        description: "List communication rooms with filtering and pagination",
+        inputSchema: {
+          type: "object",
+          properties: {
+            repository_path: {
+              type: "string",
+              description: "Path to the repository"
+            },
+            status: {
+              type: "string",
+              enum: ["active", "closed", "all"],
+              description: "Filter rooms by status (default: all)"
+            },
+            limit: {
+              type: "number",
+              description: "Maximum number of rooms to return (default: 20)",
+              minimum: 1,
+              maximum: 100
+            },
+            offset: {
+              type: "number",
+              description: "Number of rooms to skip (default: 0)",
+              minimum: 0
+            }
+          },
+          required: ["repository_path"]
+        }
+      },
+      {
+        name: "list_room_messages", 
+        description: "List messages from a specific room with pagination",
+        inputSchema: {
+          type: "object",
+          properties: {
+            room_name: {
+              type: "string",
+              description: "Name of the room"
+            },
+            limit: {
+              type: "number", 
+              description: "Maximum number of messages to return (default: 50)",
+              minimum: 1,
+              maximum: 200
+            },
+            offset: {
+              type: "number",
+              description: "Number of messages to skip (default: 0)", 
+              minimum: 0
+            },
+            since_timestamp: {
+              type: "string",
+              description: "ISO timestamp to get messages since (optional)"
+            }
+          },
+          required: ["room_name"]
+        }
       }
     ];
   }
@@ -621,30 +740,77 @@ export class McpServer {
           args.agent_ids
         );
 
+      case "close_room":
+        return await this.orchestrationTools.closeRoom(
+          args.room_name,
+          args.terminate_agents ?? true
+        );
+
+      case "delete_room":
+        return await this.orchestrationTools.deleteRoom(
+          args.room_name,
+          args.force_delete ?? false
+        );
+
+      case "list_rooms":
+        return await this.orchestrationTools.listRooms(
+          args.repository_path,
+          args.status || 'all',
+          args.limit || 20,
+          args.offset || 0
+        );
+
+      case "list_room_messages":
+        return await this.orchestrationTools.listRoomMessages(
+          args.room_name,
+          args.limit || 50,
+          args.offset || 0,
+          args.since_timestamp
+        );
+
       default:
         throw new Error(`Unknown tool: ${name}`);
     }
   }
 
   async start(): Promise<void> {
-    console.log('🚀 Starting Claude MCP Tools Server...');
+    // MCP servers must not output to stdout - using stderr for startup messages
+    process.stderr.write('🚀 Starting Claude MCP Tools Server...\n');
     
     // Initialize database
     await this.db.initialize();
-    console.log('✅ Database initialized');
+    process.stderr.write('✅ Database initialized\n');
+
+    // Initialize LanceDB connection
+    process.stderr.write('🔍 Connecting to LanceDB...\n');
+    const lanceResult = await this.lanceDBManager.connect();
+    if (lanceResult.success) {
+      process.stderr.write('✅ LanceDB connected successfully\n');
+    } else {
+      process.stderr.write(`⚠️ LanceDB failed to connect: ${lanceResult.error}\n`);
+      process.stderr.write('📝 Vector search features will be unavailable\n');
+    }
 
     // Start the MCP server
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
     
-    console.log('✅ MCP Server started successfully');
-    console.log('📡 Listening for MCP requests on stdio...');
+    process.stderr.write('✅ MCP Server started successfully\n');
+    process.stderr.write('📡 Listening for MCP requests on stdio...\n');
   }
 
   async stop(): Promise<void> {
-    console.log('🛑 Stopping MCP Server...');
+    process.stderr.write('🛑 Stopping MCP Server...\n');
+    
+    // Close LanceDB connection
+    if (this.lanceDBManager.isConnected()) {
+      process.stderr.write('🔍 Closing LanceDB connection...\n');
+      await this.lanceDBManager.close();
+      process.stderr.write('✅ LanceDB connection closed\n');
+    }
+    
     await this.server.close();
-    console.log('✅ MCP Server stopped');
+    process.stderr.write('✅ MCP Server stopped\n');
   }
 
   // Health check method
@@ -653,12 +819,14 @@ export class McpServer {
     database: string;
     tools: number;
     uptime: number;
+    chromaDB: string;
   } {
     return {
       status: 'running',
       database: this.db.isInitialized() ? 'connected' : 'disconnected',
       tools: this.getAvailableTools().length,
-      uptime: process.uptime()
-    };
+      uptime: process.uptime(),
+      vectorDB: this.lanceDBManager.isConnected() ? 'connected' : 'disconnected'
+    } as any;
   }
 }

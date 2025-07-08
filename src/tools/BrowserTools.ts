@@ -130,11 +130,11 @@ export class BrowserTools {
           } while (attempts < 10 && !generatedAgent.toString().includes('Chrome'));
           
           userAgent = generatedAgent.toString();
-          console.log(`Generated user agent via user-agents package for session ${sessionId}: ${userAgent}`);
+          process.stderr.write(`Generated user agent via user-agents package for session ${sessionId}: ${userAgent}\n`);
         } catch (error) {
           // Fallback to our custom generator if user-agents package fails
           userAgent = UserAgentGenerator.generateChromeUserAgent(deviceCategory);
-          console.log(`Generated user agent via fallback for session ${sessionId}: ${userAgent}`);
+          process.stderr.write(`Generated user agent via fallback for session ${sessionId}: ${userAgent}\n`);
         }
       }
       

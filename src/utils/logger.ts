@@ -47,19 +47,22 @@ export class Logger {
   error(message: string, data?: any): void {
     const logEntry = this.formatLogEntry('ERROR', message, data);
     this.writeLog(logEntry);
-    console.error(`[${this.category}] ERROR: ${message}`, data || '');
+    // Use stderr for console output to avoid interfering with MCP stdio transport
+    process.stderr.write(`[${this.category}] ERROR: ${message}${data ? ' ' + JSON.stringify(data) : ''}\n`);
   }
 
   warn(message: string, data?: any): void {
     const logEntry = this.formatLogEntry('WARN', message, data);
     this.writeLog(logEntry);
-    console.warn(`[${this.category}] WARN: ${message}`, data || '');
+    // Use stderr for console output to avoid interfering with MCP stdio transport
+    process.stderr.write(`[${this.category}] WARN: ${message}${data ? ' ' + JSON.stringify(data) : ''}\n`);
   }
 
   info(message: string, data?: any): void {
     const logEntry = this.formatLogEntry('INFO', message, data);
     this.writeLog(logEntry);
-    console.log(`[${this.category}] INFO: ${message}`, data || '');
+    // Use stderr for console output to avoid interfering with MCP stdio transport
+    process.stderr.write(`[${this.category}] INFO: ${message}${data ? ' ' + JSON.stringify(data) : ''}\n`);
   }
 
   debug(message: string, data?: any): void {
@@ -67,7 +70,8 @@ export class Logger {
     this.writeLog(logEntry);
     // Only console.log debug in debug mode
     if (process.env.NODE_ENV === 'development' || process.env.DEBUG) {
-      console.log(`[${this.category}] DEBUG: ${message}`, data || '');
+      // Use stderr for console output to avoid interfering with MCP stdio transport
+      process.stderr.write(`[${this.category}] DEBUG: ${message}${data ? ' ' + JSON.stringify(data) : ''}\n`);
     }
   }
 
@@ -76,7 +80,7 @@ export class Logger {
       const logFile = join(this.logDir, this.getLogFileName());
       writeFileSync(logFile, entry, { flag: 'a' });
     } catch (error) {
-      console.error('Failed to write log entry:', error);
+      process.stderr.write(`Failed to write log entry: ${error}\n`);
     }
   }
 }

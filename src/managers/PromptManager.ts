@@ -241,6 +241,166 @@ OPTIMIZATION PROCESS:
 
 Focus on measurable improvements while maintaining code quality and functionality.`
     });
+
+    // Vector search and documentation analyzer
+    this.prompts.set('semantic-search', {
+      name: 'semantic-search',
+      description: 'Perform semantic search across documentation using vector embeddings',
+      arguments: [
+        {
+          name: 'query',
+          description: 'Search query for semantic similarity matching',
+          required: true
+        },
+        {
+          name: 'collection',
+          description: 'Vector collection to search (default: documentation)',
+          required: false
+        },
+        {
+          name: 'limit',
+          description: 'Maximum number of results (default: 10)',
+          required: false
+        },
+        {
+          name: 'threshold',
+          description: 'Similarity threshold 0-1 (default: 0.7)',
+          required: false
+        }
+      ],
+      template: `You are performing semantic search across documentation using vector embeddings.
+
+**Query:** {{query}}
+**Collection:** {{collection || "documentation"}}
+**Result Limit:** {{limit || "10"}}
+**Similarity Threshold:** {{threshold || "0.7"}}
+
+SEMANTIC SEARCH PROCESS:
+1. **Query Analysis**: Understand the semantic intent of the search query
+2. **Vector Search**: Use embedding similarity to find relevant content
+3. **Result Ranking**: Order results by semantic relevance and similarity score
+4. **Context Extraction**: Extract key information from similar documents
+5. **Answer Synthesis**: Combine relevant findings into a comprehensive response
+
+Focus on semantic meaning rather than keyword matching. Provide contextual answers based on the most relevant documentation found.`
+    });
+
+    // ChromaDB setup and management
+    this.prompts.set('vector-db-setup', {
+      name: 'vector-db-setup',
+      description: 'Set up and configure ChromaDB vector database for semantic search',
+      arguments: [
+        {
+          name: 'server_url',
+          description: 'ChromaDB server URL (default: localhost:8000)',
+          required: false
+        },
+        {
+          name: 'embedding_provider',
+          description: 'Embedding provider (openai, default)',
+          required: false
+        },
+        {
+          name: 'collection_name',
+          description: 'Vector collection name to create/manage',
+          required: false
+        }
+      ],
+      template: `You are setting up ChromaDB vector database for semantic search capabilities.
+
+**Server URL:** {{server_url || "http://localhost:8000"}}
+**Embedding Provider:** {{embedding_provider || "default (Sentence Transformers)"}}
+**Collection:** {{collection_name || "documentation"}}
+
+SETUP PROCESS:
+1. **Server Connection**: Verify ChromaDB server is running and accessible
+2. **Collection Setup**: Create or configure vector collections
+3. **Embedding Configuration**: Set up embedding function (OpenAI or default)
+4. **Data Ingestion**: Import existing documentation into vector collections
+5. **Search Testing**: Verify semantic search functionality works correctly
+6. **Performance Tuning**: Optimize for search speed and accuracy
+
+Ensure vector database is properly configured for production use with appropriate indexing and embedding strategies.`
+    });
+
+    // API documentation generator
+    this.prompts.set('api-documenter', {
+      name: 'api-documenter',
+      description: 'Generate comprehensive API documentation with examples and schemas',
+      arguments: [
+        {
+          name: 'api_files',
+          description: 'API files or endpoints to document',
+          required: true
+        },
+        {
+          name: 'format',
+          description: 'Documentation format (openapi, markdown, json)',
+          required: false
+        },
+        {
+          name: 'include_examples',
+          description: 'Include request/response examples (true/false)',
+          required: false
+        }
+      ],
+      template: `You are generating comprehensive API documentation with examples and schemas.
+
+**API Files:** {{api_files}}
+**Format:** {{format || "markdown"}}
+**Include Examples:** {{include_examples || "true"}}
+
+DOCUMENTATION STRUCTURE:
+1. **API Overview**: Purpose, authentication, base URLs
+2. **Endpoint Reference**: Methods, paths, parameters, responses
+3. **Schema Definitions**: Request/response models and types
+4. **Authentication**: API keys, tokens, OAuth flows
+5. **Examples**: Real request/response examples for each endpoint
+6. **Error Handling**: Error codes, messages, troubleshooting
+7. **Rate Limiting**: Throttling policies and best practices
+8. **SDK/Client Examples**: Code samples in multiple languages
+
+Create clear, comprehensive documentation that helps developers successfully integrate with the API.`
+    });
+
+    // Database migration assistant
+    this.prompts.set('db-migration', {
+      name: 'db-migration',
+      description: 'Plan and execute database schema migrations safely',
+      arguments: [
+        {
+          name: 'migration_type',
+          description: 'Type of migration (schema, data, index, cleanup)',
+          required: true
+        },
+        {
+          name: 'database_type',
+          description: 'Database type (sqlite, postgres, mysql)',
+          required: false
+        },
+        {
+          name: 'backwards_compatible',
+          description: 'Require backwards compatibility (true/false)',
+          required: false
+        }
+      ],
+      template: `You are planning and executing database migrations safely and efficiently.
+
+**Migration Type:** {{migration_type}}
+**Database:** {{database_type || "sqlite"}}
+**Backwards Compatible:** {{backwards_compatible || "true"}}
+
+MIGRATION PROCESS:
+1. **Analysis**: Review current schema and identify changes needed
+2. **Planning**: Design migration steps with rollback strategy
+3. **Backup**: Create database backup before migration
+4. **Testing**: Test migration on copy of production data
+5. **Execution**: Run migration with progress monitoring
+6. **Validation**: Verify data integrity and application functionality
+7. **Cleanup**: Remove temporary migration artifacts
+
+Focus on data safety, minimal downtime, and complete rollback capability if issues arise.`
+    });
   }
 
   /**

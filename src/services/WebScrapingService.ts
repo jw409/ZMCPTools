@@ -9,6 +9,7 @@ import { performance } from 'perf_hooks';
 import type { DatabaseManager } from '../database/index.js';
 import type { AgentService } from './AgentService.js';
 import type { MemoryService } from './MemoryService.js';
+import { VectorSearchService } from './VectorSearchService.js';
 import { BrowserTools } from '../tools/BrowserTools.js';
 import { Logger } from '../utils/logger.js';
 
@@ -44,6 +45,7 @@ export interface ScrapingWorkerConfig {
 
 export class WebScrapingService {
   private browserTools: BrowserTools;
+  private vectorSearchService: VectorSearchService;
   private isWorkerRunning = false;
   private workerConfig: ScrapingWorkerConfig;
   private logger: Logger;
@@ -55,6 +57,7 @@ export class WebScrapingService {
     private repositoryPath: string
   ) {
     this.browserTools = new BrowserTools(memoryService, repositoryPath);
+    this.vectorSearchService = new VectorSearchService(this.db);
     this.logger = new Logger('webscraping');
     
     // Log constructor parameters for debugging
@@ -141,7 +144,7 @@ export class WebScrapingService {
     }
 
     this.isWorkerRunning = true;
-    console.log(`🤖 Starting scraping worker: ${this.workerConfig.worker_id}`);
+    process.stderr.write(`🤖 Starting scraping worker: ${this.workerConfig.worker_id}\n`);
 
     // Main worker loop
     while (this.isWorkerRunning) {
@@ -161,7 +164,7 @@ export class WebScrapingService {
   async stopScrapingWorker(): Promise<void> {
     this.isWorkerRunning = false;
     await this.browserTools.shutdown();
-    console.log(`🛑 Stopped scraping worker: ${this.workerConfig.worker_id}`);
+    process.stderr.write(`🛑 Stopped scraping worker: ${this.workerConfig.worker_id}\n`);
   }
 
   /**
@@ -175,7 +178,7 @@ export class WebScrapingService {
     }
 
     const startTime = performance.now();
-    console.log(`🔄 Processing scrape job: ${job.id}`);
+    process.stderr.write(`🔄 Processing scrape job: ${job.id}\n`);
 
     try {
       // Parse job parameters
@@ -196,7 +199,7 @@ export class WebScrapingService {
       `).run(job.id);
 
       const duration = performance.now() - startTime;
-      console.log(`✅ Completed scrape job: ${job.id} (${duration.toFixed(2)}ms)`);
+      process.stderr.write(`✅ Completed scrape job: ${job.id} (${duration.toFixed(2)}ms)\n`);
 
     } catch (error) {
       console.error(`❌ Failed scrape job: ${job.id}`, error);
@@ -274,7 +277,7 @@ export class WebScrapingService {
    * Process job using a specialized sub-agent
    */
   private async processJobWithSubAgent(job: any, jobParams: ScrapeJobParams): Promise<void> {
-    console.log(`🤖 Spawning sub-agent for complex scraping job: ${job.id}`);
+    process.stderr.write(`🤖 Spawning sub-agent for complex scraping job: ${job.id}\n`);
 
     // Create specialized web scraping sub-agent prompt
     const subAgentPrompt = `
@@ -412,7 +415,7 @@ CRITICAL: You have full autonomy. Take any actions needed to complete the scrapi
    * Process job directly (for simple scraping tasks)
    */
   private async processJobDirectly(job: any, jobParams: ScrapeJobParams): Promise<void> {
-    console.log(`🔧 Processing simple scraping job directly: ${job.id}`);
+    process.stderr.write(`🔧 Processing simple scraping job directly: ${job.id}\n`);
 
     // Create browser session
     const browserResult = await this.browserTools.createBrowserSession('chromium', {
@@ -447,10 +450,41 @@ CRITICAL: You have full autonomy. Take any actions needed to complete the scrapi
       if (scrapeResult.success && scrapeResult.content) {
         // Create documentation entry
         const entryId = `doc_entry_${Date.now()}_${randomBytes(8).toString('hex')}`;
+        const contentText = scrapeResult.content.text || '';
+        const contentHash = this.generateContentHash(contentText);
         
-        // Note: documentation_entries table needs to be created in schema
-        // For now, we'll skip this part and just log
-        console.log(`Would create documentation entry: ${entryId}`);
+        // Store in documentation_entries table
+        try {
+          this.db.database.prepare(`
+            INSERT OR REPLACE INTO documentation_entries (
+              id, source_id, url, title, content, content_hash, 
+              html_content, links, images, metadata, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+          `).run(
+            entryId,
+            job.source_id,
+            jobParams.source_url,
+            new URL(jobParams.source_url).pathname,
+            contentText,
+            contentHash,
+            scrapeResult.content.html || '',
+            JSON.stringify(scrapeResult.content.links || []),
+            JSON.stringify(scrapeResult.content.images || []),
+            JSON.stringify({ scraped_at: new Date().toISOString() })
+          );
+
+          // Add to vector collection for semantic search
+          await this.addToVectorCollection(entryId, contentText, {
+            url: jobParams.source_url,
+            title: new URL(jobParams.source_url).pathname,
+            source_id: job.source_id,
+            documentation_entry_id: entryId
+          });
+
+          this.logger.info(`Created documentation entry with vectorization: ${entryId}`);
+        } catch (error) {
+          this.logger.warn(`Failed to create documentation entry: ${entryId}`, error);
+        }
 
         pagesScraped++;
         entriesCreated++;
@@ -613,5 +647,128 @@ CRITICAL: You have full autonomy. Take any actions needed to complete the scrapi
     );
     
     return sourceId;
+  }
+
+  /**
+   * Add scraped content to vector collection for semantic search
+   */
+  private async addToVectorCollection(
+    entryId: string, 
+    content: string, 
+    metadata: Record<string, any>
+  ): Promise<void> {
+    try {
+      // Skip empty content
+      if (!content || content.trim().length < 50) {
+        this.logger.debug(`Skipping vectorization for short content: ${entryId}`);
+        return;
+      }
+
+      // Determine collection name based on source
+      const collectionName = metadata.source_id ? `source_${metadata.source_id}` : 'documentation';
+      
+      // Add to vector collection
+      const result = await this.vectorSearchService.addDocuments(collectionName, [{
+        id: entryId,
+        content: content.trim(),
+        metadata
+      }]);
+
+      if (result.success) {
+        this.logger.info(`Added document to vector collection ${collectionName}: ${entryId}`);
+      } else {
+        this.logger.warn(`Failed to add document to vector collection: ${result.error}`);
+      }
+
+    } catch (error) {
+      this.logger.error(`Vector collection addition failed for ${entryId}`, error);
+      // Don't throw - vectorization failure shouldn't break scraping
+    }
+  }
+
+  /**
+   * Search scraped documentation using semantic similarity
+   */
+  async searchDocumentation(
+    query: string, 
+    options: {
+      collection?: string;
+      limit?: number;
+      threshold?: number;
+    } = {}
+  ): Promise<{
+    success: boolean;
+    results?: Array<{
+      id: string;
+      content: string;
+      url?: string;
+      title?: string;
+      similarity: number;
+    }>;
+    error?: string;
+  }> {
+    try {
+      const {
+        collection = 'documentation',
+        limit = 10,
+        threshold = 0.7
+      } = options;
+
+      const results = await this.vectorSearchService.searchSimilar(
+        collection,
+        query,
+        limit,
+        threshold
+      );
+
+      return {
+        success: true,
+        results: results.map(result => ({
+          id: result.id,
+          content: result.content,
+          url: result.metadata?.url,
+          title: result.metadata?.title,
+          similarity: result.similarity
+        }))
+      };
+
+    } catch (error) {
+      this.logger.error('Documentation search failed', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Search failed'
+      };
+    }
+  }
+
+  /**
+   * Get vector collection statistics
+   */
+  async getVectorStats(): Promise<{
+    success: boolean;
+    collections?: Array<{
+      name: string;
+      documentCount: number;
+    }>;
+    error?: string;
+  }> {
+    try {
+      const collections = await this.vectorSearchService.listCollections();
+      
+      return {
+        success: true,
+        collections: collections.map(col => ({
+          name: col.name,
+          documentCount: col.count
+        }))
+      };
+
+    } catch (error) {
+      this.logger.error('Failed to get vector stats', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Stats failed'
+      };
+    }
   }
 }

@@ -455,7 +455,7 @@ export class CommunicationService {
     // - Trigger webhooks or events
     // - Update agent attention/priority systems
     
-    console.log(`Processing mentions in ${roomName}: ${mentions.join(', ')}`);
+    process.stderr.write(`Processing mentions in ${roomName}: ${mentions.join(', ')}\\n`);
   }
 
   private generateMessageId(): string {

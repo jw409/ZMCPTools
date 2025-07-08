@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-This document provides comprehensive documentation for our TypeScript implementation of the Model Context Protocol (MCP) server, which powers ClaudeMcpTools with agent orchestration capabilities. Our implementation showcases advanced MCP capabilities including 31+ specialized tools, agent orchestration, foundation caching, and multi-agent coordination systems.
+This document provides comprehensive documentation for our TypeScript implementation of the Model Context Protocol (MCP) server, which powers ClaudeMcpTools with agent orchestration capabilities. Our implementation showcases advanced MCP capabilities including 50+ specialized tools, LanceDB vector search, agent orchestration, foundation caching, and multi-agent coordination systems.
 
 ## Table of Contents
 
@@ -45,7 +45,7 @@ MCP defines three fundamental primitives that servers can expose:
 - **Purpose**: Enable LLMs to perform actions and computations
 - **Model-Controlled**: Designed for AI models to automatically invoke
 - **Examples**: File operations, API calls, data processing, browser automation
-- **Our Implementation**: 31+ specialized tools across 6 categories
+- **Our Implementation**: 50+ specialized tools across 7 categories including LanceDB vector search
 
 #### 2. **Resources** 📄
 - **Purpose**: Expose data and content to LLMs for context
@@ -132,14 +132,15 @@ Our implementation includes six core service categories:
 
 ### Tool Categories Overview
 
-Our implementation provides 31+ specialized tools organized into 6 categories:
+Our implementation provides 50+ specialized tools organized into 7 categories:
 
 | Category | Tools Count | Primary Purpose |
 |----------|-------------|-----------------|
-| **Agent Orchestration** | 9 | Multi-agent coordination and task management |
+| **Agent Orchestration** | 10 | Multi-agent coordination and task management |
 | **File & Analysis** | 7 | Project analysis and file operations |
 | **Browser Automation** | 6 | Web interaction and content extraction |
 | **Web Scraping** | 6 | Documentation scraping and indexing |
+| **LanceDB Vector Search** | 9 | Native TypeScript vector database with semantic search |
 | **Foundation Caching** | 7 | Token optimization and caching |
 | **Tree Summary** | 5 | Project structure analysis |
 
@@ -293,6 +294,45 @@ Multi-agent documentation scraping with intelligent sub-agent coordination:
 #### 3. Documentation Management
 - `list_documentation_sources`: Source inventory
 - Automatic categorization and indexing
+
+### LanceDB Vector Search Tools (9 Tools)
+
+Native TypeScript vector database providing high-performance semantic search:
+
+#### 1. `create_vector_collection`
+**Purpose**: Create LanceDB collections for custom embeddings
+
+**Features**:
+- Support for multiple embedding providers (OpenAI, HuggingFace, local)
+- Configurable vector dimensions and metadata schemas
+- Automatic index optimization for search performance
+- Local storage at `~/.mcptools/lancedb/`
+
+#### 2. `search_vectors`
+**Purpose**: Advanced vector similarity search with configurable thresholds
+
+**Capabilities**:
+- Cosine and Euclidean distance metrics
+- Configurable similarity thresholds
+- Metadata filtering and inclusion
+- Fast search with vector indices
+
+#### 3. Vector Collection Management
+- `add_documents_to_collection`: Batch document addition with automatic embedding
+- `get_collection_stats`: Collection size and performance metrics
+- `list_vector_collections`: Enumerate all available collections
+- `delete_vector_collection`: Collection cleanup and data removal
+
+#### 4. Embedding Provider Management
+- `manage_embeddings`: Configure OpenAI, HuggingFace, or local embedding providers
+- `test_vector_connection`: Verify LanceDB connection and performance
+- `search_documentation_vectors`: Specialized documentation search with vector embeddings
+
+**Key Benefits**:
+- **No Python Dependencies**: Pure TypeScript implementation
+- **Local Storage**: Complete data privacy and offline capability
+- **High Performance**: Optimized vector indices for fast similarity search
+- **Multi-Provider Support**: Flexible embedding provider configuration
 
 ### Foundation Caching Tools (7 Tools)
 
@@ -1081,7 +1121,7 @@ Our TypeScript MCP server implementation represents a sophisticated and comprehe
 
 🚀 **Performance Innovation**: Foundation caching system with 85-90% token cost reduction
 
-🔧 **Comprehensive Tool Suite**: 31+ specialized tools across 6 categories
+🔧 **Comprehensive Tool Suite**: 50+ specialized tools across 7 categories including LanceDB vector search
 
 🏗️ **Scalable Architecture**: Modular, service-oriented design with SQLite persistence
 

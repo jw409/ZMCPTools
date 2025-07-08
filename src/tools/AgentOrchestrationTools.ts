@@ -130,6 +130,26 @@ export class AgentOrchestrationTools {
    */
   async spawnAgent(options: SpawnAgentOptions): Promise<OrchestrationResult> {
     try {
+      // Add detailed logging to track what architects are passing
+      const logger = new (await import('../utils/logger.js')).Logger('AgentOrchestration');
+      
+      logger.info('[SPAWN_AGENT] Called with options', {
+        agentType: options.agentType,
+        repositoryPath: options.repositoryPath,
+        taskDescriptionType: typeof options.taskDescription,
+        taskDescriptionLength: options.taskDescription?.length,
+        taskDescriptionPreview: options.taskDescription?.substring(0, 100),
+        capabilitiesType: typeof options.capabilities,
+        capabilitiesIsArray: Array.isArray(options.capabilities),
+        capabilitiesValue: options.capabilities,
+        dependsOnType: typeof options.dependsOn,
+        dependsOnIsArray: Array.isArray(options.dependsOn),
+        dependsOnValue: options.dependsOn,
+        metadataType: typeof options.metadata,
+        metadataKeys: options.metadata ? Object.keys(options.metadata) : [],
+        rawOptionsStringified: JSON.stringify(options)
+      });
+
       const {
         agentType,
         repositoryPath,
@@ -738,5 +758,232 @@ SPECIALIST AGENT:
     }
 
     return { success: true, message: 'All dependencies satisfied' };
+  }
+
+  /**
+   * Close a communication room (soft delete - marks as closed but keeps data)
+   */
+  async closeRoom(roomName: string, terminateAgents: boolean = true): Promise<OrchestrationResult> {
+    try {
+      // Get room info to find associated agents
+      const room = await this.communicationService.getRoom(roomName);
+      if (!room) {
+        return {
+          success: false,
+          message: `Room '${roomName}' not found`,
+          data: { roomName }
+        };
+      }
+
+      let terminatedAgents: string[] = [];
+      
+      if (terminateAgents) {
+        // Find agents in this room and terminate them
+        const agents = await this.agentService.listAgents(room.repositoryPath);
+        const roomAgents = agents.filter(agent => 
+          agent.agentMetadata?.roomName === roomName || 
+          agent.status === 'active' // Terminate active agents as safety measure
+        );
+        
+        if (roomAgents.length > 0) {
+          const agentIds = roomAgents.map(a => a.id);
+          const terminationResult = await this.terminateAgent(agentIds);
+          terminatedAgents = agentIds;
+        }
+      }
+
+      // Mark room as closed by updating metadata
+      await this.communicationService.updateRoomMetadata(roomName, {
+        ...room.roomMetadata,
+        status: 'closed',
+        closedAt: new Date().toISOString(),
+        terminatedAgents
+      });
+      
+      return {
+        success: true,
+        message: `Room '${roomName}' closed successfully${terminateAgents ? ` and ${terminatedAgents.length} agents terminated` : ''}`,
+        data: { 
+          roomName, 
+          terminatedAgents,
+          agentCount: terminatedAgents.length
+        }
+      };
+
+    } catch (error) {
+      return {
+        success: false,
+        message: `Failed to close room '${roomName}': ${error}`,
+        data: { error: String(error), roomName }
+      };
+    }
+  }
+
+  /**
+   * Permanently delete a communication room and all its messages
+   */
+  async deleteRoom(roomName: string, forceDelete: boolean = false): Promise<OrchestrationResult> {
+    try {
+      const room = await this.communicationService.getRoom(roomName);
+      if (!room) {
+        return {
+          success: false,
+          message: `Room '${roomName}' not found`,
+          data: { roomName }
+        };
+      }
+
+      // Check if room is closed or force delete
+      const isClosed = room.roomMetadata?.status === 'closed';
+      if (!isClosed && !forceDelete) {
+        return {
+          success: false,
+          message: `Room '${roomName}' must be closed before deletion. Use force_delete=true to override.`,
+          data: { roomName, suggestion: 'close_room_first' }
+        };
+      }
+
+      // Terminate any remaining agents
+      const agents = await this.agentService.listAgents(room.repositoryPath);
+      const roomAgents = agents.filter(agent => 
+        agent.agentMetadata?.roomName === roomName
+      );
+      
+      if (roomAgents.length > 0) {
+        await this.terminateAgent(roomAgents.map(a => a.id));
+      }
+
+      // Delete the room
+      await this.communicationService.deleteRoom(roomName);
+      
+      return {
+        success: true,
+        message: `Room '${roomName}' permanently deleted`,
+        data: { 
+          roomName,
+          messagesDeleted: true,
+          agentsTerminated: roomAgents.length
+        }
+      };
+
+    } catch (error) {
+      return {
+        success: false,
+        message: `Failed to delete room '${roomName}': ${error}`,
+        data: { error: String(error), roomName }
+      };
+    }
+  }
+
+  /**
+   * List communication rooms with filtering and pagination
+   */
+  async listRooms(
+    repositoryPath: string, 
+    status?: 'active' | 'closed' | 'all',
+    limit: number = 20,
+    offset: number = 0
+  ): Promise<OrchestrationResult> {
+    try {
+      const allRooms = await this.communicationService.listRooms(repositoryPath);
+      
+      // Filter by status
+      let filteredRooms = allRooms;
+      if (status && status !== 'all') {
+        filteredRooms = allRooms.filter(room => {
+          const roomStatus = room.roomMetadata?.status || 'active';
+          return roomStatus === status;
+        });
+      }
+
+      // Apply pagination
+      const total = filteredRooms.length;
+      const paginatedRooms = filteredRooms.slice(offset, offset + limit);
+
+      return {
+        success: true,
+        message: `Found ${total} rooms${status ? ` with status '${status}'` : ''}`,
+        data: {
+          rooms: paginatedRooms.map(room => ({
+            name: room.name,
+            description: room.description,
+            repositoryPath: room.repositoryPath,
+            status: room.roomMetadata?.status || 'active',
+            createdAt: room.createdAt,
+            closedAt: room.roomMetadata?.closedAt,
+            metadata: room.roomMetadata
+          })),
+          pagination: {
+            total,
+            limit,
+            offset,
+            hasMore: offset + limit < total
+          }
+        }
+      };
+
+    } catch (error) {
+      return {
+        success: false,
+        message: `Failed to list rooms: ${error}`,
+        data: { error: String(error) }
+      };
+    }
+  }
+
+  /**
+   * List messages from a specific room with pagination
+   */
+  async listRoomMessages(
+    roomName: string,
+    limit: number = 50,
+    offset: number = 0,
+    sinceTimestamp?: string
+  ): Promise<OrchestrationResult> {
+    try {
+      const room = await this.communicationService.getRoom(roomName);
+      if (!room) {
+        return {
+          success: false,
+          message: `Room '${roomName}' not found`,
+          data: { roomName }
+        };
+      }
+
+      const since = sinceTimestamp ? new Date(sinceTimestamp) : undefined;
+      const messages = await this.communicationService.getMessages(roomName, limit + offset, since);
+      
+      // Apply offset manually since the service doesn't support it
+      const paginatedMessages = messages.slice(offset, offset + limit);
+
+      return {
+        success: true,
+        message: `Retrieved ${paginatedMessages.length} messages from room '${roomName}'`,
+        data: {
+          roomName,
+          messages: paginatedMessages.map(msg => ({
+            id: msg.id,
+            agentName: msg.agentName,
+            message: msg.message,
+            mentions: msg.mentions,
+            messageType: msg.messageType,
+            timestamp: msg.timestamp
+          })),
+          pagination: {
+            total: messages.length,
+            limit,
+            offset,
+            hasMore: offset + limit < messages.length
+          }
+        }
+      };
+
+    } catch (error) {
+      return {
+        success: false,
+        message: `Failed to list messages: ${error}`,
+        data: { error: String(error) }
+      };
+    }
   }
 }

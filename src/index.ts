@@ -20,9 +20,10 @@ async function mainServer() {
   const dataDir = process.env.MCPTOOLS_DATA_DIR || DEFAULT_DATA_DIR;
   const databasePath = path.join(dataDir, 'claude_mcp_tools.db');
 
-  console.log('🚀 Starting Claude MCP Tools TypeScript Server...');
-  console.log(`📁 Data directory: ${dataDir}`);
-  console.log(`🗃️ Database path: ${databasePath}`);
+  // MCP servers must not output to stdout - using stderr for startup messages
+  process.stderr.write('🚀 Starting Claude MCP Tools TypeScript Server...\n');
+  process.stderr.write(`📁 Data directory: ${dataDir}\n`);
+  process.stderr.write(`🗃️ Database path: ${databasePath}\n`);
 
   // Create the MCP server
   const server = new McpServer({
@@ -33,10 +34,10 @@ async function mainServer() {
 
   // Handle graceful shutdown
   const shutdown = async () => {
-    console.log('\n🛑 Shutting down gracefully...');
+    process.stderr.write('\n🛑 Shutting down gracefully...\n');
     try {
       await server.stop();
-      console.log('✅ Server stopped successfully');
+      process.stderr.write('✅ Server stopped successfully\n');
       process.exit(0);
     } catch (error) {
       console.error('❌ Error during shutdown:', error);
@@ -54,10 +55,10 @@ async function mainServer() {
   process.on('SIGTERM', shutdown);
 
   // Start the server
-  console.log('🔌 Connecting to MCP transport...');
+  process.stderr.write('🔌 Connecting to MCP transport...\n');
   await server.start();
-  console.log('✅ Claude MCP Tools server started successfully');
-  console.log('📡 Ready to receive MCP requests');
+  process.stderr.write('✅ Claude MCP Tools server started successfully\n');
+  process.stderr.write('📡 Ready to receive MCP requests\n');
 }
 
 async function main() {
@@ -66,7 +67,7 @@ async function main() {
     const crashHandler = CrashHandler.getInstance();
     crashHandler.setupGlobalHandlers();
     
-    console.log(`💾 Crash logs will be stored in: ${crashHandler.getCrashLogDir()}`);
+    process.stderr.write(`💾 Crash logs will be stored in: ${crashHandler.getCrashLogDir()}\n`);
 
     // Wrap the main server function with crash handling
     const wrappedMainServer = wrapMainServer(mainServer, 'claude-mcp-tools-ts');
@@ -75,7 +76,7 @@ async function main() {
     await wrappedMainServer();
 
   } catch (error) {
-    console.error('❌ Failed to start Claude MCP Tools server:', error);
+    process.stderr.write(`❌ Failed to start Claude MCP Tools server: ${error}\n`);
     
     // Log the startup error
     const crashHandler = CrashHandler.getInstance();

@@ -3,8 +3,8 @@
 This document lists ALL MCP tools available in the ClaudeMcpTools project, organized by category.
 
 ## Summary
-- **Total Tools**: 33
-- **Categories**: 6
+- **Total Tools**: 50
+- **Categories**: 7
 - **Tool Prefix**: `mcp__claude-mcp-tools__`
 
 ## Tool Categories
@@ -42,7 +42,20 @@ This document lists ALL MCP tools available in the ClaudeMcpTools project, organ
 5. `mcp__claude-mcp-tools__stop_scraping_worker` - Stop the background scraping worker
 6. `mcp__claude-mcp-tools__list_documentation_sources` - List all configured documentation sources
 
-### 4. Project Analysis & File Operations Tools (7 tools)
+### 4. LanceDB Vector Search Tools (9 tools)
+*Defined in VectorSearchService.ts - Native TypeScript vector database with LanceDB*
+
+1. `mcp__claude-mcp-tools__create_vector_collection` - Create LanceDB collections for custom embeddings
+2. `mcp__claude-mcp-tools__search_vectors` - Advanced vector similarity search with configurable thresholds
+3. `mcp__claude-mcp-tools__manage_embeddings` - Configure embedding providers (OpenAI, HuggingFace, local)
+4. `mcp__claude-mcp-tools__add_documents_to_collection` - Add documents to vector collection with embeddings
+5. `mcp__claude-mcp-tools__get_collection_stats` - Get statistics for vector collections
+6. `mcp__claude-mcp-tools__list_vector_collections` - List all available vector collections
+7. `mcp__claude-mcp-tools__delete_vector_collection` - Delete vector collection and associated data
+8. `mcp__claude-mcp-tools__search_documentation_vectors` - Search documentation using vector embeddings
+9. `mcp__claude-mcp-tools__test_vector_connection` - Test LanceDB connection and performance
+
+### 5. Project Analysis & File Operations Tools (7 tools)
 *Defined in AnalysisMcpTools.ts - Project structure analysis and smart file operations*
 
 1. `mcp__claude-mcp-tools__analyze_project_structure` - Analyze project structure and generate a comprehensive overview
@@ -53,7 +66,7 @@ This document lists ALL MCP tools available in the ClaudeMcpTools project, organ
 6. `mcp__claude-mcp-tools__easy_replace` - Fuzzy string replacement in files with smart matching
 7. `mcp__claude-mcp-tools__cleanup_orphaned_projects` - Clean up orphaned or unused project directories
 
-### 5. TreeSummary Tools (5 tools)
+### 6. TreeSummary Tools (5 tools)
 *Defined in TreeSummaryTools.ts - Advanced project analysis and caching system*
 
 1. `mcp__claude-mcp-tools__update_file_analysis` - Update or create analysis data for a specific file in the TreeSummary system
@@ -62,7 +75,7 @@ This document lists ALL MCP tools available in the ClaudeMcpTools project, organ
 4. `mcp__claude-mcp-tools__get_project_overview` - Get comprehensive project overview from TreeSummary analysis
 5. `mcp__claude-mcp-tools__cleanup_stale_analyses` - Clean up stale analysis files older than specified days
 
-### 6. Foundation Cache Tools (7 tools)
+### 7. Foundation Cache Tools (7 tools)
 *Defined in CacheMcpTools.ts - Intelligent caching for 85-90% token cost reduction*
 
 1. `mcp__claude-mcp-tools__create_foundation_session` - Create a foundation caching session for 85-90% token cost reduction across derived sessions
@@ -79,6 +92,7 @@ This document lists ALL MCP tools available in the ClaudeMcpTools project, organ
 - **AgentOrchestrationTools** (inline in McpServer.ts) - Multi-agent coordination
 - **BrowserMcpTools** - Browser automation with session management
 - **WebScrapingMcpTools** - Documentation scraping with sub-agents
+- **VectorSearchService** - LanceDB vector database and semantic search
 - **AnalysisMcpTools** - Project analysis and file operations
 - **TreeSummaryTools** - Advanced project caching and analysis
 - **CacheMcpTools** - Foundation caching for token cost reduction
@@ -91,6 +105,7 @@ private getAvailableTools(): Tool[] {
     ...this.getOrchestrationTools(),      // 10 tools
     ...this.browserMcpTools.getTools(),   // 6 tools
     ...this.webScrapingMcpTools.getTools(), // 6 tools
+    ...this.vectorSearchTools.getTools(), // 9 tools
     ...this.analysisMcpTools.getTools(),  // 7 tools
     ...this.treeSummaryTools.getTools(),  // 5 tools
     ...this.cacheMcpTools.getTools()      // 7 tools
@@ -106,20 +121,23 @@ private getAvailableTools(): Tool[] {
 
 1. **Multi-Agent Workflows**: Start with `orchestrate_objective` for complex tasks
 2. **Browser Automation**: Use `navigate_and_scrape` for most browser operations
-3. **Documentation**: Use `scrape_documentation` for intelligent doc crawling
-4. **Project Analysis**: Begin with `analyze_project_structure` for overview
-5. **Caching**: Use foundation sessions for significant token cost reduction
-6. **TreeSummary**: Integrated with project analysis for enhanced caching
+3. **Documentation**: Use `scrape_documentation` for intelligent doc crawling with LanceDB indexing
+4. **Vector Search**: Use `search_vectors` for semantic similarity search across documents
+5. **Project Analysis**: Begin with `analyze_project_structure` for overview
+6. **Caching**: Use foundation sessions for significant token cost reduction
+7. **TreeSummary**: Integrated with project analysis for enhanced caching
+8. **Embeddings**: Configure providers with `manage_embeddings` for optimal search performance
 
 ## Tool Count by Category
-- Agent Orchestration: 9 tools
+- Agent Orchestration: 10 tools
 - Browser Automation: 6 tools 
 - Web Scraping: 6 tools
+- LanceDB Vector Search: 9 tools
 - Project Analysis: 7 tools
 - TreeSummary: 5 tools
 - Foundation Cache: 7 tools
 
-**Total: 40 MCP tools** (including 9 orchestration tools defined inline)
+**Total: 50 MCP tools** (including 10 orchestration tools defined inline)
 
 ---
 *Generated on 2025-07-07*

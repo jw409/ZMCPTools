@@ -163,8 +163,17 @@ export class AgentService {
       repositoryPathType: typeof request.repositoryPath,
       repositoryPathValue: request.repositoryPath,
       hasTaskDescription: !!request.taskDescription,
+      taskDescriptionType: typeof request.taskDescription,
+      taskDescriptionLength: request.taskDescription?.length,
       capabilities: request.capabilities,
-      dependsOn: request.dependsOn
+      capabilitiesType: typeof request.capabilities,
+      capabilitiesIsArray: Array.isArray(request.capabilities),
+      dependsOn: request.dependsOn,
+      dependsOnType: typeof request.dependsOn,
+      dependsOnIsArray: Array.isArray(request.dependsOn),
+      metadata: request.metadata,
+      metadataType: typeof request.metadata,
+      fullRequestStringified: JSON.stringify(request, null, 2)
     });
     
     // Resolve repository path to absolute path for storage and agent context
@@ -218,7 +227,8 @@ export class AgentService {
     }
     
     // Create agent record first
-    const agent = await this.agentRepo.create({
+    // Log the exact data being inserted before validation
+    const agentData = {
       id: agentId,
       agentName: request.agentName,
       agentType: agentType,
@@ -232,7 +242,33 @@ export class AgentService {
         dependsOn: request.dependsOn || [],
         ...request.metadata
       }
+    };
+
+    this.logger.info(`About to create agent record with data`, {
+      agentId,
+      agentDataStringified: JSON.stringify(agentData, null, 2),
+      agentMetadataKeys: Object.keys(agentData.agentMetadata),
+      capabilitiesLength: agentData.capabilities.length,
+      toolPermissionsKeys: Object.keys(agentData.toolPermissions || {})
     });
+
+    try {
+      const agent = await this.agentRepo.create(agentData);
+      this.logger.info(`Agent record created successfully`, { agentId });
+    } catch (createError) {
+      this.logger.error(`Failed to create agent record`, {
+        agentId,
+        error: createError,
+        errorMessage: createError instanceof Error ? createError.message : String(createError),
+        agentDataStringified: JSON.stringify(agentData, null, 2)
+      });
+      throw createError;
+    }
+
+    const agent = await this.agentRepo.findById(agentId);
+    if (!agent) {
+      throw new Error(`Agent ${agentId} was not found after creation`);
+    }
     
     this.logger.info(`Agent record created successfully`, {
       agentId: agentId,
@@ -580,7 +616,7 @@ Focus on successfully completing your assigned task using your specialized capab
     const staleAgents = await this.findStaleAgents(staleMinutes);
     
     for (const agent of staleAgents) {
-      console.log(`Cleaning up stale agent ${agent.id} (${agent.agentName})`);
+      process.stderr.write(`Cleaning up stale agent ${agent.id} (${agent.agentName})\n`);
       await this.terminateAgent(agent.id);
     }
 
@@ -616,7 +652,7 @@ Focus on successfully completing your assigned task using your specialized capab
         const agent = await this.createAgent(request);
         results.push(agent);
       } catch (error) {
-        console.error(`Failed to create agent ${request.agentName}:`, error);
+        process.stderr.write(`Failed to create agent ${request.agentName}: ${error}\n`);
         // Continue with other agents
       }
     }

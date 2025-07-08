@@ -41,7 +41,7 @@ export class ClaudeProcess extends EventEmitter {
       this.stdoutPath = join(logDir, `claude-${this.pid}-stdout.log`);
       this.stderrPath = join(logDir, `claude-${this.pid}-stderr.log`);
     } catch (error) {
-      console.warn(`Failed to create log directory ${logDir}, using temp directory:`, error);
+      process.stderr.write(`Failed to create log directory ${logDir}, using temp directory: ${error}\n`);
       const tempDir = join(tmpdir(), '.claude-logs');
       if (!existsSync(tempDir)) {
         mkdirSync(tempDir, { recursive: true });
@@ -89,7 +89,7 @@ export class ClaudeProcess extends EventEmitter {
             }
           }
         } catch (error) {
-          console.error(`Failed to write stdout log for process ${this.pid}:`, error);
+          process.stderr.write(`Failed to write stdout log for process ${this.pid}: ${error}\n`);
         }
       });
     }
@@ -100,7 +100,7 @@ export class ClaudeProcess extends EventEmitter {
           writeFileSync(this.stderrPath, data, { flag: 'a' });
           this.emit('stderr', { data: data.toString(), pid: this.pid });
         } catch (error) {
-          console.error(`Failed to write stderr log for process ${this.pid}:`, error);
+          process.stderr.write(`Failed to write stderr log for process ${this.pid}: ${error}\n`);
         }
       });
     }
@@ -156,7 +156,7 @@ export class ClaudeSpawner extends EventEmitter {
     });
 
     process.on('SIGINT', () => {
-      console.log('Received SIGINT, cleaning up Claude processes...');
+      process.stderr.write('Received SIGINT, cleaning up Claude processes...\n');
       if (ClaudeSpawner.instance) {
         ClaudeSpawner.instance.cleanup();
       }
@@ -164,7 +164,7 @@ export class ClaudeSpawner extends EventEmitter {
     });
 
     process.on('SIGTERM', () => {
-      console.log('Received SIGTERM, cleaning up Claude processes...');
+      process.stderr.write('Received SIGTERM, cleaning up Claude processes...\n');
       if (ClaudeSpawner.instance) {
         ClaudeSpawner.instance.cleanup();
       }
@@ -227,9 +227,9 @@ export class ClaudeSpawner extends EventEmitter {
       throw new Error(`Working directory does not exist: ${workingDir}`);
     }
 
-    console.log(`Spawning Claude agent with PID context in: ${workingDir}`);
-    console.log(`Command: ${cmd.join(' ')}`);
-    console.log(`Prompt: ${config.prompt.substring(0, 100)}...`);
+    process.stderr.write(`Spawning Claude agent with PID context in: ${workingDir}\n`);
+    process.stderr.write(`Command: ${cmd.join(' ')}\n`);
+    process.stderr.write(`Prompt: ${config.prompt.substring(0, 100)}...\n`);
 
     // Spawn the Claude process - matching claude-code-mcp stdio setup
     const childProcess = spawn(cmd[0], cmd.slice(1), {
@@ -252,13 +252,13 @@ export class ClaudeSpawner extends EventEmitter {
 
     // Set up cleanup on process exit
     claudeProcess.on('exit', ({ code, signal, pid }) => {
-      console.log(`Claude process ${pid} exited with code ${code}, signal ${signal}`);
+      process.stderr.write(`Claude process ${pid} exited with code ${code}, signal ${signal}\n`);
       this.processRegistry.delete(pid);
       this.emit('process-exit', { pid, code, signal });
     });
 
     claudeProcess.on('error', ({ error, pid }) => {
-      console.error(`Claude process ${pid} error:`, error);
+      process.stderr.write(`Claude process ${pid} error: ${error}\n`);
       this.emit('process-error', { pid, error });
     });
 
@@ -266,7 +266,7 @@ export class ClaudeSpawner extends EventEmitter {
     if (config.timeout) {
       setTimeout(() => {
         if (!claudeProcess.hasExited()) {
-          console.log(`Claude process ${claudeProcess.pid} timed out after ${config.timeout}ms`);
+          process.stderr.write(`Claude process ${claudeProcess.pid} timed out after ${config.timeout}ms\n`);
           claudeProcess.terminate('SIGTERM');
           
           // Force kill after grace period
@@ -279,7 +279,7 @@ export class ClaudeSpawner extends EventEmitter {
       }, config.timeout);
     }
 
-    console.log(`Successfully spawned Claude agent with PID: ${claudeProcess.pid}`);
+    process.stderr.write(`Successfully spawned Claude agent with PID: ${claudeProcess.pid}\n`);
     return claudeProcess;
   }
 
@@ -292,7 +292,7 @@ export class ClaudeSpawner extends EventEmitter {
   }
 
   terminateAllProcesses(signal: NodeJS.Signals = 'SIGTERM'): void {
-    console.log(`Terminating ${this.processRegistry.size} Claude processes`);
+    process.stderr.write(`Terminating ${this.processRegistry.size} Claude processes\n`);
     
     for (const process of this.processRegistry.values()) {
       if (!process.hasExited()) {
@@ -321,7 +321,7 @@ export class ProcessReaper extends EventEmitter {
   start(): void {
     if (this.isRunning) return;
     
-    console.log('Starting Claude process reaper');
+    process.stderr.write('Starting Claude process reaper\n');
     this.isRunning = true;
     this.reapInterval = setInterval(() => {
       this.reapFinishedProcesses();
@@ -331,7 +331,7 @@ export class ProcessReaper extends EventEmitter {
   stop(): void {
     if (!this.isRunning) return;
     
-    console.log('Stopping Claude process reaper');
+    process.stderr.write('Stopping Claude process reaper\n');
     this.isRunning = false;
     
     if (this.reapInterval) {
@@ -356,7 +356,7 @@ export class ProcessReaper extends EventEmitter {
     }
 
     if (reapedCount > 0) {
-      console.log(`Reaped ${reapedCount} finished Claude processes`);
+      process.stderr.write(`Reaped ${reapedCount} finished Claude processes\n`);
     }
   }
 }

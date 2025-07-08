@@ -32,6 +32,18 @@ export {
   DocumentationService,
   type DocumentationSourceSummary
 } from './DocumentationService.js';
+export { 
+  VectorSearchService,
+  type VectorSearchConfig,
+  type DocumentEmbedding,
+  type SimilaritySearchResult,
+  type VectorCollection
+} from './VectorSearchService.js';
+export { 
+  LanceDBManager,
+  type LanceDBConfig,
+  type EmbeddingFunction
+} from './LanceDBManager.js';
 
 // Repository exports
 export { AgentRepository } from '../repositories/AgentRepository.js';

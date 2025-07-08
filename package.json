@@ -53,6 +53,7 @@
   "license": "MIT",
   "packageManager": "pnpm@10.11.1",
   "dependencies": {
+    "@lancedb/lancedb": "^0.21.0",
     "@modelcontextprotocol/sdk": "^1.15.0",
     "better-sqlite3": "^12.2.0",
     "commander": "^14.0.0",

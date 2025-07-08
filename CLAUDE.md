@@ -64,10 +64,21 @@ orchestrate_objective(
 - `generate_project_summary(project_path=".")` - AI-optimized project overview
 # Dead code detection removed - was unimplemented
 
-### Documentation Intelligence (For Context-Aware Development)
-- `scrape_documentation(url="https://docs.example.com")` - Scrape and index docs
-- `search_documentation(query="API usage")` - Semantic search with AI
-- `link_docs_to_code(project_path=".")` - Connect docs to code
+### Documentation Intelligence & Vector Search (For Context-Aware Development)
+- `scrape_documentation(url="https://docs.example.com")` - Scrape and index docs with LanceDB vector storage
+- `search_documentation(query="API usage")` - Semantic search with LanceDB embeddings
+- `link_docs_to_code(project_path=".")` - Connect docs to code using vector similarity
+- `create_vector_collection(name, embedding_provider)` - Create LanceDB collections for custom embeddings
+- `search_vectors(collection, query, limit, threshold)` - Advanced vector similarity search
+- `manage_embeddings(provider="local|openai|huggingface")` - Configure embedding providers
+
+### LanceDB Vector Database (Native TypeScript)
+- **Local Vector Storage**: High-performance vector database stored locally at `~/.mcptools/lancedb/`
+- **Embedding Providers**: Support for OpenAI, HuggingFace, and local models
+- **Real-time Indexing**: Automatic vector indexing during documentation scraping
+- **Similarity Search**: Fast vector similarity search with configurable thresholds
+- **Collection Management**: Create, update, and delete vector collections
+- **TypeScript Native**: No Python dependencies required - pure TypeScript implementation
 
 ### Manual Agent Spawning
 - `spawn_agent(agent_type="implementer", repository_path=".", task_description="specific task")` - Create specialized agents
@@ -147,7 +158,7 @@ orchestrate_objective(
 
 🎯 **Recommended**: Always start with `orchestrate_objective()` for multi-step tasks. The architect will intelligently break down work and coordinate specialized agents with proper dependencies and shared context.
 
-Data stored locally at `~/.mcptools/data/` with intelligent caching and cross-agent memory sharing.
+Data stored locally at `~/.mcptools/data/` with LanceDB vector storage at `~/.mcptools/lancedb/`, intelligent caching and cross-agent memory sharing.
 <!-- zzClaudeMcpToolszz END -->
 
 
@@ -174,6 +185,10 @@ This project uses the TypeScript implementation of ClaudeMcpTools for enhanced M
 - `search_memory(repository_path, query_text)` - Search previous work
 - `join_room(room_name, agent_name)` - Real-time agent communication
 - `send_message(room_name, message, mentions)` - Coordinate via chat
+- `list_rooms(repository_path, status, limit, offset)` - List communication rooms
+- `list_room_messages(room_name, limit, offset)` - View room chat history
+- `close_room(room_name, terminate_agents)` - Close room and cleanup agents
+- `delete_room(room_name, force_delete)` - Permanently delete room
 
 ### Enhanced File Operations
 - `list_files(directory, show_hidden, max_depth)` - Smart file listing
