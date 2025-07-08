@@ -33,7 +33,7 @@ import { AgentService, MemoryService, FileOperationsService, TreeSummaryService,
 import { ResourceManager } from '../managers/ResourceManager.js';
 import { PromptManager } from '../managers/PromptManager.js';
 import { PathUtils } from '../utils/pathUtils.js';
-import { LanceDBManager } from '../services/LanceDBManager.js';
+import { LanceDBService } from '../services/LanceDBService.js';
 import type { OrchestrationResult } from '../tools/AgentOrchestrationTools.js';
 
 export interface McpServerOptions {
@@ -56,7 +56,7 @@ export class McpServer {
   private treeSummaryService: TreeSummaryService;
   private resourceManager: ResourceManager;
   private promptManager: PromptManager;
-  private lanceDBManager: LanceDBManager;
+  private lanceDBManager: LanceDBService;
   private repositoryPath: string;
 
   constructor(private options: McpServerOptions) {
@@ -118,7 +118,7 @@ export class McpServer {
     // Initialize managers
     this.resourceManager = new ResourceManager(this.db, this.repositoryPath);
     this.promptManager = new PromptManager();
-    this.lanceDBManager = new LanceDBManager({
+    this.lanceDBManager = new LanceDBService(this.db, {
       // LanceDB is embedded - no server configuration needed
     });
 
@@ -783,7 +783,7 @@ export class McpServer {
 
     // Initialize LanceDB connection
     process.stderr.write('🔍 Connecting to LanceDB...\n');
-    const lanceResult = await this.lanceDBManager.connect();
+    const lanceResult = await this.lanceDBManager.initialize();
     if (lanceResult.success) {
       process.stderr.write('✅ LanceDB connected successfully\n');
     } else {
@@ -803,11 +803,9 @@ export class McpServer {
     process.stderr.write('🛑 Stopping MCP Server...\n');
     
     // Close LanceDB connection
-    if (this.lanceDBManager.isConnected()) {
-      process.stderr.write('🔍 Closing LanceDB connection...\n');
-      await this.lanceDBManager.close();
-      process.stderr.write('✅ LanceDB connection closed\n');
-    }
+    process.stderr.write('🔍 Closing LanceDB connection...\n');
+    await this.lanceDBManager.shutdown();
+    process.stderr.write('✅ LanceDB connection closed\n');
     
     await this.server.close();
     process.stderr.write('✅ MCP Server stopped\n');

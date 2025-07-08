@@ -40,10 +40,12 @@ export {
   type VectorCollection
 } from './VectorSearchService.js';
 export { 
-  LanceDBManager,
+  LanceDBService,
   type LanceDBConfig,
-  type EmbeddingFunction
-} from './LanceDBManager.js';
+  type VectorDocument,
+  type VectorSearchResult,
+  type Collection
+} from './LanceDBService.js';
 
 // Repository exports
 export { AgentRepository } from '../repositories/AgentRepository.js';

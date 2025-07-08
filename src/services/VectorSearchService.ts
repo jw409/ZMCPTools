@@ -4,7 +4,7 @@
  * Uses UnifiedLanceDBService with proper vector embeddings
  */
 
-import { UnifiedLanceDBService, type VectorDocument, type VectorSearchResult, type Collection } from './UnifiedLanceDBService.js';
+import { LanceDBService, type VectorDocument, type VectorSearchResult, type Collection } from './LanceDBService.js';
 import { Logger } from '../utils/logger.js';
 import type { DatabaseManager } from '../database/index.js';
 
@@ -56,7 +56,7 @@ export interface SimilaritySearchResult {
 }
 
 export class VectorSearchService {
-  private lanceDB: PureLanceDBService;
+  private lanceDB: LanceDBService;
   private logger: Logger;
   private config: VectorSearchConfig;
 
@@ -73,10 +73,13 @@ export class VectorSearchService {
       ...config
     };
 
-    // Initialize PureLanceDB service
-    this.lanceDB = new PureLanceDBService(this.db, this.config);
+    // Initialize LanceDB service
+    this.lanceDB = new LanceDBService(this.db, {
+      embeddingModel: this.config.embeddingModel,
+      dataPath: this.config.dataPath
+    });
     
-    this.logger.info('VectorSearchService initialized with PureLanceDB', {
+    this.logger.info('VectorSearchService initialized with LanceDB', {
       embeddingModel: this.config.embeddingModel
     });
   }
@@ -89,19 +92,19 @@ export class VectorSearchService {
   }
 
   /**
-   * Create or get a vector collection (compatibility method)
+   * Create or get a vector collection
    */
   async getOrCreateCollection(
     name: string, 
     metadata?: Record<string, any>
   ): Promise<{ name: string; metadata?: Record<string, any> }> {
     try {
-      const result = await this.lanceDB.initialize();
+      const result = await this.lanceDB.createCollection(name, metadata);
       if (!result.success) {
-        throw new Error(`Failed to initialize: ${result.error}`);
+        throw new Error(`Failed to create collection: ${result.error}`);
       }
 
-      this.logger.info(`Collection ${name} ready (LanceDB table created)`);
+      this.logger.info(`Collection ${name} ready`);
       return { name, metadata };
 
     } catch (error) {
@@ -130,7 +133,7 @@ export class VectorSearchService {
         type: (doc as SearchDocument).type || 'text'
       }));
 
-      return await this.lanceDB.addDocuments(vectorDocs);
+      return await this.lanceDB.addDocuments(collectionName, vectorDocs);
 
     } catch (error) {
       this.logger.error(`Failed to add documents to ${collectionName}`, error);
@@ -152,50 +155,24 @@ export class VectorSearchService {
     threshold: number = 0.7
   ): Promise<SimilaritySearchResult[]> {
     try {
-      // Use LanceDB directly for high-performance vector search
-      const results = await this.lanceDB.searchSimilar(query, limit, threshold);
+      // Use LanceDB for high-performance vector search
+      const results = await this.lanceDB.searchSimilar(collectionName, query, limit, threshold);
 
-      // Convert to legacy format and filter by collection if specified
-      const searchResults: SimilaritySearchResult[] = results
-        .filter(result => {
-          // Filter by collection if specified
-          if (collectionName && result.metadata?.collection !== collectionName) {
-            return false;
-          }
-          return true;
-        })
-        .map(result => ({
-          id: result.id,
-          content: result.content,
-          metadata: result.metadata,
-          similarity: result.score,
-          distance: 1 - result.score
-        }));
+      // Convert to legacy format
+      const searchResults: SimilaritySearchResult[] = results.map(result => ({
+        id: result.id,
+        content: result.content,
+        metadata: result.metadata,
+        similarity: result.score,
+        distance: result.distance
+      }));
 
       this.logger.info(`Found ${searchResults.length} similar documents in ${collectionName} via LanceDB`);
       return searchResults;
 
     } catch (error) {
       this.logger.error(`LanceDB search failed in collection ${collectionName}`, error);
-      
-      // Fallback to standard search if LanceDB fails
-      try {
-        this.logger.info('Falling back to standard LanceDB search');
-        const fallbackResults = await this.lanceDB.searchSimilar(query, limit, threshold);
-        
-        return fallbackResults
-          .filter(result => !collectionName || result.metadata?.collection === collectionName)
-          .map(result => ({
-            id: result.id,
-            content: result.content,
-            metadata: result.metadata,
-            similarity: result.score,
-            distance: 1 - result.score
-          }));
-          
-      } catch (fallbackError) {
-        throw new Error(`Search operation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      }
+      throw new Error(`Search operation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
@@ -209,14 +186,8 @@ export class VectorSearchService {
     threshold: number = 0.7
   ): Promise<SearchResult[]> {
     try {
-      // Use LanceDB for primary search, fallback to LlamaIndex
-      let results;
-      try {
-        results = await this.lanceDB.searchSimilar(query, limit, threshold);
-      } catch (lanceError) {
-        this.logger.warn('LanceDB search failed, using LlamaIndex fallback', lanceError);
-        results = await this.lanceDB.searchSimilar(query, limit, threshold);
-      }
+      // Use LanceDB for primary search
+      const results = await this.lanceDB.searchSimilar(collectionName || 'default', query, limit, threshold);
 
       // Convert to SearchResult format and filter by collection if specified
       const searchResults: SearchResult[] = results
@@ -232,8 +203,8 @@ export class VectorSearchService {
           content: result.content,
           metadata: result.metadata,
           similarity: result.score,
-          distance: 1 - result.score,
-          nodeId: result.nodeId
+          distance: result.distance,
+          nodeId: result.id // Use id as nodeId for compatibility
         }));
 
       this.logger.info(`Found ${searchResults.length} similar documents`);
@@ -251,8 +222,24 @@ export class VectorSearchService {
   async chatWithDocuments(
     query: string,
     conversationHistory?: string[]
-  ): Promise<ChatResponse> {
-    return await this.lanceDB.chatWithDocuments(query, conversationHistory);
+  ): Promise<{ response: string; sourceDocuments?: VectorSearchResult[]; metadata?: Record<string, any> }> {
+    // This functionality would need to be implemented in UnifiedLanceDBService
+    // For now, return a basic response
+    const searchResults = await this.lanceDB.searchSimilar('default', query, 5, 0.3);
+    
+    const context = searchResults
+      .map((doc, index) => `[Document ${index + 1}]: ${doc.content}`)
+      .join('\n\n');
+
+    return {
+      response: `Based on the retrieved documents:\n\n${context}\n\nI found ${searchResults.length} relevant documents for your query: "${query}".`,
+      sourceDocuments: searchResults,
+      metadata: {
+        model: 'lancedb',
+        timestamp: new Date().toISOString(),
+        relevantDocuments: searchResults.length
+      }
+    };
   }
 
   /**
@@ -265,7 +252,7 @@ export class VectorSearchService {
     metadata?: Record<string, any>
   ): Promise<{ success: boolean; error?: string }> {
     // Multi-modal documents go through standard addDocuments flow
-    const result = await this.lanceDB.addDocuments([{ id, content, type, metadata }]);
+    const result = await this.lanceDB.addDocuments('default', [{ id, content, type, metadata }]);
     return { success: result.success, error: result.error };
   }
 
@@ -282,7 +269,7 @@ export class VectorSearchService {
       
       return {
         name: collectionName,
-        count: stats.totalDocuments,
+        count: stats.totalCollections,
         metadata: {
           embeddingModel: stats.embeddingModel,
           dataPath: stats.dataPath,
@@ -297,22 +284,17 @@ export class VectorSearchService {
   }
 
   /**
-   * List all collections (returns aggregated stats)
+   * List all collections
    */
   async listCollections(): Promise<VectorCollection[]> {
     try {
-      const stats = await this.lanceDB.getStats();
+      const collections = await this.lanceDB.listCollections();
       
-      // LlamaIndex manages collections internally, return aggregated info
-      return [{
-        name: 'llamaindex_documents',
-        count: stats.totalDocuments,
-        metadata: {
-          embeddingModel: stats.embeddingModel,
-          dataPath: stats.dataPath,
-          isInitialized: stats.isInitialized
-        }
-      }];
+      return collections.map(collection => ({
+        name: collection.name,
+        count: collection.count,
+        metadata: collection.metadata
+      }));
 
     } catch (error) {
       this.logger.error('Failed to list collections', error);
@@ -321,11 +303,10 @@ export class VectorSearchService {
   }
 
   /**
-   * Delete a collection (not supported in LlamaIndex, returns success for compatibility)
+   * Delete a collection
    */
   async deleteCollection(name: string): Promise<{ success: boolean; error?: string }> {
-    this.logger.warn(`Collection deletion not supported in LlamaIndex: ${name}`);
-    return { success: true };
+    return await this.lanceDB.deleteCollection(name);
   }
 
   /**
@@ -374,7 +355,13 @@ export class VectorSearchService {
     dataPath: string;
     isInitialized: boolean;
   }> {
-    return await this.lanceDB.getStats();
+    const stats = await this.lanceDB.getStats();
+    return {
+      totalDocuments: stats.totalCollections, // Map collections to documents for backward compatibility
+      embeddingModel: stats.embeddingModel,
+      dataPath: stats.dataPath,
+      isInitialized: stats.isInitialized
+    };
   }
 
   /**

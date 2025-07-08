@@ -6,12 +6,14 @@
 import { randomBytes, createHash } from 'crypto';
 import { pathToFileURL } from 'url';
 import { performance } from 'perf_hooks';
+import TurndownService from 'turndown';
 import type { DatabaseManager } from '../database/index.js';
 import type { AgentService } from './AgentService.js';
 import type { MemoryService } from './MemoryService.js';
 import { VectorSearchService } from './VectorSearchService.js';
 import { BrowserTools } from '../tools/BrowserTools.js';
 import { Logger } from '../utils/logger.js';
+import { PatternMatcher } from '../utils/patternMatcher.js';
 
 export interface ScrapeJobParams {
   force_refresh?: boolean;
@@ -49,6 +51,7 @@ export class WebScrapingService {
   private isWorkerRunning = false;
   private workerConfig: ScrapingWorkerConfig;
   private logger: Logger;
+  private turndownService: TurndownService;
 
   constructor(
     private db: DatabaseManager,
@@ -59,6 +62,16 @@ export class WebScrapingService {
     this.browserTools = new BrowserTools(memoryService, repositoryPath);
     this.vectorSearchService = new VectorSearchService(this.db);
     this.logger = new Logger('webscraping');
+    
+    // Initialize Turndown service for HTML to Markdown conversion
+    this.turndownService = new TurndownService({
+      headingStyle: 'atx',
+      codeBlockStyle: 'fenced',
+      fence: '```',
+      emDelimiter: '_',
+      strongDelimiter: '**',
+      linkStyle: 'inlined'
+    });
     
     // Log constructor parameters for debugging
     this.logger.info('WebScrapingService initialized', {
@@ -309,11 +322,15 @@ SCRAPING PROTOCOL:
    - Extract content using specified selectors
    - Respect robots.txt and rate limiting
    
-3. CONTENT PROCESSING
-   - Extract title, content, links, code examples
-   - Clean and normalize extracted content
+3. CONTENT PROCESSING & URL FILTERING
+   - Extract HTML content and convert to clean Markdown format
+   - Process headers, links, code blocks, and lists properly
+   - Remove navigation, scripts, styles, and boilerplate
+   - Apply URL filtering using allow/ignore patterns:
+     ${jobParams.allow_patterns?.length ? `   * Allow patterns: ${JSON.stringify(jobParams.allow_patterns)}` : ''}
+     ${jobParams.ignore_patterns?.length ? `   * Ignore patterns: ${JSON.stringify(jobParams.ignore_patterns)}` : ''}
    - Generate content hashes for deduplication
-   - Store in documentation_entries table
+   - Store in documentation_entries table with both HTML and Markdown
    
 4. PROGRESS TRACKING
    - Update scrape job status regularly
@@ -447,10 +464,30 @@ CRITICAL: You have full autonomy. Take any actions needed to complete the scrapi
         extractImages: false
       });
 
+      // Apply URL filtering if patterns are specified
+      if (jobParams.allow_patterns?.length || jobParams.ignore_patterns?.length) {
+        const urlCheck = PatternMatcher.shouldAllowUrl(
+          jobParams.source_url,
+          jobParams.allow_patterns,
+          jobParams.ignore_patterns
+        );
+        
+        if (!urlCheck.allowed) {
+          process.stderr.write(`🚫 URL blocked by pattern: ${jobParams.source_url} - ${urlCheck.reason}\n`);
+          return; // Skip this page
+        } else {
+          process.stderr.write(`✅ URL allowed: ${jobParams.source_url} - ${urlCheck.reason}\n`);
+        }
+      }
+
       if (scrapeResult.success && scrapeResult.content) {
         // Create documentation entry
         const entryId = `doc_entry_${Date.now()}_${randomBytes(8).toString('hex')}`;
-        const contentText = scrapeResult.content.text || '';
+        
+        // Convert HTML to Markdown for better text processing
+        const htmlContent = scrapeResult.content.html || '';
+        const markdownContent = htmlContent ? this.convertHtmlToMarkdown(htmlContent) : '';
+        const contentText = markdownContent || scrapeResult.content.text || '';
         const contentHash = this.generateContentHash(contentText);
         
         // Store in documentation_entries table
@@ -592,6 +629,42 @@ CRITICAL: You have full autonomy. Take any actions needed to complete the scrapi
    */
   private generateContentHash(content: string): string {
     return createHash('sha256').update(content).digest('hex');
+  }
+
+  /**
+   * Convert HTML content to clean Markdown format
+   */
+  private convertHtmlToMarkdown(htmlContent: string): string {
+    try {
+      // Clean up the HTML first
+      const cleanHtml = htmlContent
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '') // Remove scripts
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '') // Remove styles
+        .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '') // Remove navigation
+        .replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '') // Remove headers
+        .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '') // Remove footers
+        .replace(/<aside[^>]*>[\s\S]*?<\/aside>/gi, '') // Remove sidebars
+        .replace(/<!--[\s\S]*?-->/g, '') // Remove HTML comments
+        .replace(/\s+/g, ' ') // Normalize whitespace
+        .trim();
+
+      // Convert to Markdown
+      const markdown = this.turndownService.turndown(cleanHtml);
+      
+      // Clean up the markdown
+      const cleanMarkdown = markdown
+        .replace(/\n\s*\n\s*\n/g, '\n\n') // Remove excessive newlines
+        .replace(/^\s+|\s+$/gm, '') // Trim each line
+        .replace(/\[([^\]]+)\]\(\)/g, '$1') // Remove empty links
+        .replace(/\*\*\s*\*\*/g, '') // Remove empty bold
+        .replace(/__\s*__/g, '') // Remove empty italic
+        .trim();
+
+      return cleanMarkdown;
+    } catch (error) {
+      this.logger.warn('Failed to convert HTML to Markdown, using original content', error);
+      return htmlContent;
+    }
   }
 
   /**

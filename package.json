@@ -59,13 +59,16 @@
     "commander": "^14.0.0",
     "drizzle-orm": "^0.44.2",
     "drizzle-zod": "^0.8.2",
+    "minimatch": "^10.0.3",
     "patchright": "^1.52.5",
+    "turndown": "^7.2.0",
     "user-agents": "^1.1.593",
     "zod": "^3.25.75"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.0.10",
+    "@types/turndown": "^5.0.5",
     "@types/user-agents": "^1.0.4",
     "@typescript-eslint/eslint-plugin": "^8.35.1",
     "@typescript-eslint/parser": "^8.35.1",

@@ -1,5 +1,5 @@
 /**
- * Unified LanceDB Vector Search Service
+ * LanceDB Vector Search Service
  * Modern implementation using @lancedb/lancedb with proper embeddings
  * Based on LanceDB TypeScript API 2024/2025
  */
@@ -99,7 +99,7 @@ class SimpleEmbeddingFunction {
   }
 }
 
-export class UnifiedLanceDBService {
+export class LanceDBService {
   private connection: lancedb.Connection | null = null;
   private tables: Map<string, lancedb.Table> = new Map();
   private embeddingFunction: SimpleEmbeddingFunction;
@@ -111,7 +111,7 @@ export class UnifiedLanceDBService {
     private db: DatabaseManager,
     config: LanceDBConfig = {}
   ) {
-    this.logger = new Logger('unified-lancedb');
+    this.logger = new Logger('lancedb');
     this.config = {
       embeddingProvider: 'local',
       embeddingModel: 'simple-text-embeddings',
@@ -126,7 +126,7 @@ export class UnifiedLanceDBService {
     // Initialize embedding function
     this.embeddingFunction = new SimpleEmbeddingFunction(this.config.vectorDimension);
 
-    this.logger.info('UnifiedLanceDBService initialized', {
+    this.logger.info('LanceDBService initialized', {
       dataPath: this.dataPath,
       embeddingProvider: this.config.embeddingProvider,
       embeddingModel: this.config.embeddingModel,
@@ -182,15 +182,19 @@ export class UnifiedLanceDBService {
         this.logger.info(`Opened existing collection: ${name}`);
         return { success: true };
       } catch (error) {
-        // Table doesn't exist, create it with sample data to establish schema
+        // Table doesn't exist, create it with explicit schema
+        const sampleEmbedding = await this.embeddingFunction.embed(['initialization']);
         const sampleData = [{
           id: 'init',
           content: 'Initialization document',
-          vector: await this.embeddingFunction.embed(['initialization'])[0],
+          vector: sampleEmbedding[0],
           metadata: JSON.stringify({ init: true, collection: name, ...metadata })
         }];
 
-        const table = await this.connection!.createTable(name, sampleData);
+        // Create table with explicit schema
+        const table = await this.connection!.createTable(name, sampleData, {
+          mode: 'overwrite'
+        });
         this.tables.set(name, table);
         this.logger.info(`Created new collection: ${name}`);
         return { success: true };
@@ -481,12 +485,19 @@ export class UnifiedLanceDBService {
   }
 
   /**
+   * Check if connected to LanceDB
+   */
+  isConnected(): boolean {
+    return this.connection !== null;
+  }
+
+  /**
    * Clean up resources
    */
   async shutdown(): Promise<void> {
     this.connection = null;
     this.tables.clear();
-    this.logger.info('UnifiedLanceDBService shutdown complete');
+    this.logger.info('LanceDBService shutdown complete');
   }
 
   private ensureDataDirectory(): void {
