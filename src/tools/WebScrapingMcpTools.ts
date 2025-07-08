@@ -8,7 +8,19 @@ import { z } from 'zod';
 import { createHash } from 'crypto';
 import type { WebScrapingService } from '../services/WebScrapingService.js';
 import type { MemoryService } from '../services/MemoryService.js';
-import { PatternMatcher } from '../utils/patternMatcher.js';
+import { PatternMatcher, type ScrapingPattern } from '../utils/patternMatcher.js';
+
+// Pattern validation function
+const validatePatternArray = (patterns: (string | ScrapingPattern)[]): boolean => {
+  return patterns.every(pattern => {
+    if (typeof pattern === 'string') {
+      return PatternMatcher.validatePattern(pattern).valid;
+    }
+    // For JSON patterns, we assume they're valid if they're objects
+    // The PatternMatcher will handle validation during matching
+    return typeof pattern === 'object' && pattern !== null;
+  });
+};
 
 // Validation schemas
 const ScrapeDocumentationSchema = z.object({
@@ -17,13 +29,13 @@ const ScrapeDocumentationSchema = z.object({
   source_type: z.enum(['api', 'guide', 'reference', 'tutorial']).default('guide'),
   crawl_depth: z.number().int().min(1).max(10).default(3),
   selectors: z.record(z.string()).optional(),
-  allow_patterns: z.array(z.string()).optional().refine(
-    (patterns) => !patterns || patterns.every(pattern => PatternMatcher.validatePattern(pattern).valid),
-    { message: "Invalid pattern format. Use glob patterns (*/docs/*), regex patterns (/api\\/v[0-9]+\\/.*/) or plain strings." }
+  allow_patterns: z.array(z.union([z.string(), z.record(z.any())])).optional().refine(
+    (patterns) => !patterns || validatePatternArray(patterns),
+    { message: "Invalid pattern format. Use string patterns (*/docs/*), regex patterns (/api\\/v[0-9]+\\/.*/) or JSON patterns ({\"path_segment\": \"docs\"})." }
   ),
-  ignore_patterns: z.array(z.string()).optional().refine(
-    (patterns) => !patterns || patterns.every(pattern => PatternMatcher.validatePattern(pattern).valid),
-    { message: "Invalid pattern format. Use glob patterns (*/private/*), regex patterns (/login|admin/) or plain strings." }
+  ignore_patterns: z.array(z.union([z.string(), z.record(z.any())])).optional().refine(
+    (patterns) => !patterns || validatePatternArray(patterns),
+    { message: "Invalid pattern format. Use string patterns (*/private/*), regex patterns (/login|admin/) or JSON patterns ({\"extension\": [\"js\", \"css\"]})." }
   ),
   include_subdomains: z.boolean().default(false),
   force_refresh: z.boolean().default(false),
@@ -91,13 +103,23 @@ export class WebScrapingMcpTools {
             },
             allow_patterns: {
               type: 'array',
-              items: { type: 'string' },
-              description: 'URL patterns to include during crawling (allowlist). Supports glob patterns (**/docs/**, https://domain.com/docs/**), regex patterns (/api\\/v[0-9]+\\/.*/) or plain strings. For full URLs, use ** at start: **/docs/** matches https://example.com/docs/page'
+              items: { 
+                oneOf: [
+                  { type: 'string' },
+                  { type: 'object' }
+                ]
+              },
+              description: 'URL patterns to include during crawling (allowlist). Supports: 1) String patterns: glob patterns (**/docs/**), regex patterns (/api\\/v[0-9]+\\/.*/) or plain strings. 2) JSON patterns (recommended for AI): {"path_segment": "docs"}, {"extension": ["html", "htm"]}, {"version": {"prefix": "v", "major": 1}}, {"and": [{"contains": "/docs/"}, {"not": {"extension": "pdf"}}]}. JSON patterns are more readable and powerful for complex logic.'
             },
             ignore_patterns: {
               type: 'array',
-              items: { type: 'string' },
-              description: 'URL patterns to ignore during crawling (blocklist). Supports glob patterns (**/private/**, **/blog/**), regex patterns (/login|admin/) or plain strings. For full URLs, use ** at start: **/private/** matches https://example.com/private/page'
+              items: { 
+                oneOf: [
+                  { type: 'string' },
+                  { type: 'object' }
+                ]
+              },
+              description: 'URL patterns to ignore during crawling (blocklist). Supports: 1) String patterns: glob patterns (**/private/**), regex patterns (/login|admin/) or plain strings. 2) JSON patterns (recommended for AI): {"extension": ["js", "css", "png"]}, {"version": {"prefix": "v"}}, {"or": [{"contains": "/private/"}, {"path_segment": "admin"}]}. JSON patterns provide better readability and logical operations.'
             },
             include_subdomains: {
               type: 'boolean',
@@ -241,25 +263,33 @@ export class WebScrapingMcpTools {
     
     // Validate patterns and provide helpful error messages
     if (params.allow_patterns) {
-      const invalidPatterns = params.allow_patterns.filter(pattern => 
-        !PatternMatcher.validatePattern(pattern).valid
-      );
+      const invalidPatterns = params.allow_patterns.filter(pattern => {
+        if (typeof pattern === 'string') {
+          return !PatternMatcher.validatePattern(pattern).valid;
+        }
+        // For JSON patterns, basic validation - they'll be validated during matching
+        return typeof pattern !== 'object' || pattern === null;
+      });
       if (invalidPatterns.length > 0) {
         return {
           success: false,
-          error: `Invalid allow patterns: ${invalidPatterns.join(', ')}. ${PatternMatcher.getPatternDocumentation()}`
+          error: `Invalid allow patterns: ${invalidPatterns.map(p => typeof p === 'string' ? p : JSON.stringify(p)).join(', ')}. ${PatternMatcher.getPatternDocumentation()}`
         };
       }
     }
     
     if (params.ignore_patterns) {
-      const invalidPatterns = params.ignore_patterns.filter(pattern => 
-        !PatternMatcher.validatePattern(pattern).valid
-      );
+      const invalidPatterns = params.ignore_patterns.filter(pattern => {
+        if (typeof pattern === 'string') {
+          return !PatternMatcher.validatePattern(pattern).valid;
+        }
+        // For JSON patterns, basic validation - they'll be validated during matching
+        return typeof pattern !== 'object' || pattern === null;
+      });
       if (invalidPatterns.length > 0) {
         return {
           success: false,
-          error: `Invalid ignore patterns: ${invalidPatterns.join(', ')}. ${PatternMatcher.getPatternDocumentation()}`
+          error: `Invalid ignore patterns: ${invalidPatterns.map(p => typeof p === 'string' ? p : JSON.stringify(p)).join(', ')}. ${PatternMatcher.getPatternDocumentation()}`
         };
       }
     }

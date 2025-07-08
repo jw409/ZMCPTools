@@ -13,7 +13,7 @@ import { VectorSearchService } from './VectorSearchService.js';
 import { domainBrowserManager } from './DomainBrowserManager.js';
 import { BrowserManager } from './BrowserManager.js';
 import { Logger } from '../utils/logger.js';
-import { PatternMatcher } from '../utils/patternMatcher.js';
+import { PatternMatcher, type ScrapingPattern } from '../utils/patternMatcher.js';
 import { ScrapeJobRepository } from '../repositories/ScrapeJobRepository.js';
 import { DocumentationRepository } from '../repositories/DocumentationRepository.js';
 import { WebsiteRepository } from '../repositories/WebsiteRepository.js';
@@ -24,8 +24,8 @@ export interface ScrapeJobParams {
   forceRefresh?: boolean;
   selectors?: Record<string, string>;
   crawlDepth?: number;
-  allowPatterns?: string[];
-  ignorePatterns?: string[];
+  allowPatterns?: (string | ScrapingPattern)[];
+  ignorePatterns?: (string | ScrapingPattern)[];
   includeSubdomains?: boolean;
   agentId?: string;
   sourceUrl: string;
@@ -291,6 +291,9 @@ export class WebScrapingService {
         metaDescription: `Documentation for ${domain}`
       });
 
+      // Try to fetch and parse sitemap first
+      await this.fetchAndParseSitemap(domain, website.id, page);
+
       // Initialize crawling queue with initial URL
       const crawlQueue: Array<{url: string, depth: number}> = [{
         url: jobParams.sourceUrl,
@@ -316,7 +319,7 @@ export class WebScrapingService {
           continue;
         }
 
-        this.logger.info(`Processing URL (depth ${depth}): ${url} (${crawlQueue.length} URLs remaining in queue)`);
+        this.logger.debug(`Processing URL (depth ${depth}): ${url} (${crawlQueue.length} URLs remaining in queue)`);
         
         const processingStart = performance.now();
 
@@ -443,8 +446,13 @@ export class WebScrapingService {
               jobParams.includeSubdomains || false
             );
             
-            // Apply pattern filtering to discovered links before adding to queue
+            // Apply pattern filtering and file extension filtering to discovered links
             const filteredLinks = internalLinks.filter(link => {
+              // Filter out non-content file types
+              if (this.isNonContentFile(link)) {
+                return false;
+              }
+              
               if (jobParams.allowPatterns?.length || jobParams.ignorePatterns?.length) {
                 const urlCheck = PatternMatcher.shouldAllowUrl(
                   link,
@@ -459,11 +467,12 @@ export class WebScrapingService {
             for (const link of filteredLinks) {
               if (!processedUrls.has(link) && !crawlQueue.find(item => item.url === link)) {
                 crawlQueue.push({ url: link, depth: depth + 1 });
-                this.logger.debug(`Added to crawl queue: ${link} (depth ${depth + 1})`);
               }
             }
             
-            this.logger.info(`Discovered ${filteredLinks.length} new links at depth ${depth} for ${url}`);
+            if (filteredLinks.length > 0) {
+              this.logger.debug(`Discovered ${filteredLinks.length} new links at depth ${depth} for ${url}`);
+            }
           }
 
         } catch (error) {
@@ -692,8 +701,12 @@ export class WebScrapingService {
     try {
       this.logger.info(`Expanding navigation elements for ${url}`);
       
-      // Wait for initial page load to complete
-      await page.waitForTimeout(2000);
+      // Set overall timeout for the entire navigation expansion process
+      const expansionTimeout = 5000; // 5 seconds max
+      const expansionStart = Date.now();
+      
+      // Wait for initial page load to complete (reduced from 2000ms to 500ms)
+      await page.waitForTimeout(500);
       
       // Try to expand dropdowns and collapsible menus
       const expandableSelectors = [
@@ -750,8 +763,14 @@ export class WebScrapingService {
                   await page.click(`${selector}:nth-child(${element.index + 1})`, { timeout: 5000 });
                   this.logger.debug(`Clicked expandable element: ${element.text.substring(0, 50)}...`);
                   
-                  // Wait for potential animation/loading
-                  await page.waitForTimeout(1000);
+                  // Wait for potential animation/loading (reduced from 1000ms to 200ms)
+                  await page.waitForTimeout(200);
+                  
+                  // Check if we've exceeded the overall timeout
+                  if (Date.now() - expansionStart > expansionTimeout) {
+                    this.logger.debug(`Navigation expansion timeout reached, stopping after ${Date.now() - expansionStart}ms`);
+                    return;
+                  }
                 } catch (clickError) {
                   this.logger.debug(`Failed to click element at index ${element.index}: ${clickError}`);
                 }
@@ -764,8 +783,14 @@ export class WebScrapingService {
         }
       }
 
-      // Wait for any dynamically loaded content
-      await page.waitForTimeout(3000);
+      // Wait for any dynamically loaded content (reduced from 3000ms to 800ms)
+      await page.waitForTimeout(800);
+      
+      // Check if we've exceeded the overall timeout
+      if (Date.now() - expansionStart > expansionTimeout) {
+        this.logger.debug(`Navigation expansion timeout reached, skipping load more buttons`);
+        return;
+      }
       
       // Try to load more content if "Load more" buttons exist
       const loadMoreSelectors = [
@@ -789,8 +814,14 @@ export class WebScrapingService {
               this.logger.info(`Found "Load more" button, clicking: ${selector}`);
               await loadMoreButton.click();
               
-              // Wait for content to load
-              await page.waitForTimeout(2000);
+              // Wait for content to load (reduced from 2000ms to 500ms)
+              await page.waitForTimeout(500);
+              
+              // Check if we've exceeded the overall timeout
+              if (Date.now() - expansionStart > expansionTimeout) {
+                this.logger.debug(`Navigation expansion timeout reached, stopping load more processing`);
+                return;
+              }
             }
           }
         } catch (error) {
@@ -803,8 +834,8 @@ export class WebScrapingService {
         window.scrollTo(0, document.body.scrollHeight);
       });
       
-      // Wait for lazy-loaded content
-      await page.waitForTimeout(2000);
+      // Wait for lazy-loaded content (reduced from 2000ms to 300ms)
+      await page.waitForTimeout(300);
       
       // Scroll back to top
       await page.evaluate(() => {
@@ -986,6 +1017,51 @@ export class WebScrapingService {
         success: false,
         error: error instanceof Error ? error.message : 'Stats failed'
       };
+    }
+  }
+
+  /**
+   * Check if a URL points to a non-content file that should be ignored
+   */
+  private isNonContentFile(url: string): boolean {
+    const nonContentExtensions = [
+      '.js', '.css', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', 
+      '.mp4', '.webm', '.mov', '.avi', '.pdf', '.zip', '.tar', '.gz',
+      '.woff', '.woff2', '.ttf', '.eot', '.json', '.xml'
+    ];
+    
+    try {
+      const urlPath = new URL(url).pathname;
+      return nonContentExtensions.some(ext => urlPath.endsWith(ext));
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Fetch and parse sitemap.xml for the domain
+   */
+  private async fetchAndParseSitemap(domain: string, websiteId: string, page: Page): Promise<void> {
+    try {
+      const sitemapUrl = `https://${domain}/sitemap.xml`;
+      this.logger.info(`Attempting to fetch sitemap: ${sitemapUrl}`);
+      
+      const response = await page.goto(sitemapUrl, { waitUntil: 'domcontentloaded' });
+      if (response?.status() === 200) {
+        const content = await page.content();
+        
+        // Store sitemap content in website metadata
+        await this.websiteRepository.update(websiteId, {
+          sitemapData: content
+        });
+        
+        this.logger.info(`Successfully fetched and stored sitemap for ${domain}`);
+      } else {
+        this.logger.debug(`No sitemap found at ${sitemapUrl} (status: ${response?.status()})`);
+      }
+    } catch (error) {
+      this.logger.debug(`Failed to fetch sitemap for ${domain}`, error);
+      // Don't throw - sitemap failure shouldn't break scraping
     }
   }
 }
