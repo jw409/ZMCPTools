@@ -7,11 +7,13 @@ import { randomBytes, createHash } from 'crypto';
 import { pathToFileURL } from 'url';
 import { performance } from 'perf_hooks';
 import TurndownService from 'turndown';
+import type { Page } from 'patchright';
 import type { DatabaseManager } from '../database/index.js';
 import type { AgentService } from './AgentService.js';
 import type { MemoryService } from './MemoryService.js';
 import { VectorSearchService } from './VectorSearchService.js';
-import { BrowserTools } from '../tools/BrowserTools.js';
+import { domainBrowserManager } from './DomainBrowserManager.js';
+import { BrowserManager } from './BrowserManager.js';
 import { Logger } from '../utils/logger.js';
 import { PatternMatcher } from '../utils/patternMatcher.js';
 import { ScrapeJobRepository } from '../repositories/ScrapeJobRepository.js';
@@ -51,7 +53,6 @@ export interface ScrapingWorkerConfig {
 }
 
 export class WebScrapingService {
-  private browserTools: BrowserTools;
   private vectorSearchService: VectorSearchService;
   private scrapeJobRepository: ScrapeJobRepository;
   private documentationRepository: DocumentationRepository;
@@ -68,7 +69,6 @@ export class WebScrapingService {
     private memoryService: MemoryService,
     private repositoryPath: string
   ) {
-    this.browserTools = new BrowserTools(memoryService, repositoryPath);
     this.vectorSearchService = new VectorSearchService(this.db);
     this.scrapeJobRepository = new ScrapeJobRepository(this.db);
     this.documentationRepository = new DocumentationRepository(this.db);
@@ -196,7 +196,7 @@ export class WebScrapingService {
    */
   async stopScrapingWorker(): Promise<void> {
     this.isWorkerRunning = false;
-    await this.browserTools.shutdown();
+    await domainBrowserManager.cleanupAllDomains(true);
     process.stderr.write(`🛑 Stopped scraping worker: ${this.workerConfig.workerId}\n`);
   }
 
@@ -293,7 +293,8 @@ ${jobParams.ignorePatterns ? `- Ignore Patterns: ${JSON.stringify(jobParams.igno
 
 SCRAPING PROTOCOL:
 1. CREATE BROWSER SESSION
-   - Use create_browser_session with stealth settings
+   - Use navigate_and_scrape for initial page access
+   - Use interact_with_page for complex interactions
    - Set appropriate viewport and user agent
    
 2. INTELLIGENT CRAWLING
@@ -407,114 +408,165 @@ CRITICAL: You have full autonomy. Take any actions needed to complete the scrapi
   }
 
   /**
-   * Process job directly (for simple scraping tasks)
+   * Process job directly using domain-aware browser managers with crawling
    */
   private async processJobDirectly(job: any, jobParams: ScrapeJobParams): Promise<void> {
-    process.stderr.write(`🔧 Processing simple scraping job directly: ${job.id}\n`);
+    process.stderr.write(`🔧 Processing scraping job directly: ${job.id}\n`);
 
-    // Create browser session
-    const browserResult = await this.browserTools.createBrowserSession('chromium', {
-      headless: true,
-      viewport: { width: 1920, height: 1080 },
-      agentId: jobParams.agentId
-    });
-
-    if (!browserResult.success) {
-      throw new Error(`Failed to create browser session: ${browserResult.error}`);
-    }
-
-    const sessionId = browserResult.sessionId;
+    // Get domain-specific browser
+    const { browser } = await domainBrowserManager.getBrowserForDomain(jobParams.sourceUrl, job.sourceId);
+    let page: Page | null = null;
     let pagesScraped = 0;
     let entriesCreated = 0;
 
     try {
-      // Navigate to source URL
-      const navResult = await this.browserTools.navigateToUrl(sessionId, jobParams.sourceUrl);
-      if (!navResult.success) {
-        throw new Error(`Failed to navigate to ${jobParams.sourceUrl}: ${navResult.error}`);
-      }
-
-      // Scrape initial page
-      const scrapeResult = await this.browserTools.scrapeContent(sessionId, {
-        extractText: true,
-        extractHtml: true,
-        extractLinks: true,
-        extractImages: false
+      // Create a new page for this job
+      page = await browser.newPage();
+      
+      // Get or create website for this domain
+      const domain = this.websiteRepository.extractDomainFromUrl(jobParams.sourceUrl);
+      const website = await this.websiteRepository.findOrCreateByDomain(domain, {
+        name: jobParams.sourceName || domain,
+        metaDescription: `Documentation for ${domain}`
       });
 
-      // Apply URL filtering if patterns are specified
-      if (jobParams.allowPatterns?.length || jobParams.ignorePatterns?.length) {
-        const urlCheck = PatternMatcher.shouldAllowUrl(
-          jobParams.sourceUrl,
-          jobParams.allowPatterns,
-          jobParams.ignorePatterns
-        );
-        
-        if (!urlCheck.allowed) {
-          process.stderr.write(`🚫 URL blocked by pattern: ${jobParams.sourceUrl} - ${urlCheck.reason}\n`);
-          return; // Skip this page
-        } else {
-          process.stderr.write(`✅ URL allowed: ${jobParams.sourceUrl} - ${urlCheck.reason}\n`);
-        }
-      }
+      // Initialize crawling queue with initial URL
+      const crawlQueue: Array<{url: string, depth: number}> = [{
+        url: jobParams.sourceUrl,
+        depth: 0
+      }];
+      const processedUrls = new Set<string>();
+      const maxDepth = jobParams.crawlDepth || 1;
 
-      if (scrapeResult.success && scrapeResult.content) {
-        // Normalize URL for consistent storage
-        const normalizedUrl = this.websitePagesRepository.normalizeUrl(jobParams.sourceUrl);
+      while (crawlQueue.length > 0 && pagesScraped < 100) { // Safety limit
+        const { url, depth } = crawlQueue.shift()!;
         
-        // Get or create website for this domain
-        const domain = this.websiteRepository.extractDomainFromUrl(jobParams.sourceUrl);
-        const website = await this.websiteRepository.findOrCreateByDomain(domain, {
-          name: jobParams.sourceName || domain,
-          metaDescription: `Documentation for ${domain}`
-        });
-        
-        // Convert HTML to Markdown for better text processing
-        const htmlContent = scrapeResult.content.html || '';
-        const markdownContent = htmlContent ? this.convertHtmlToMarkdown(htmlContent) : '';
-        const contentText = markdownContent || scrapeResult.content.text || '';
-        const contentHash = this.websitePagesRepository.generateContentHash(contentText);
-        
-        // Apply selector if provided
-        let processedHtml = htmlContent;
-        let processedMarkdown = markdownContent;
-        
-        if (jobParams.selectors && Object.keys(jobParams.selectors).length > 0) {
-          // TODO: Apply selector-based extraction here
-          // For now, using full content
+        // Skip if already processed
+        if (processedUrls.has(url)) {
+          continue;
         }
         
-        // Create or update website page
-        const pageResult = await this.websitePagesRepository.createOrUpdate({
-          id: `page_${Date.now()}_${randomBytes(8).toString('hex')}`,
-          websiteId: website.id,
-          url: normalizedUrl,
-          contentHash,
-          htmlContent: processedHtml,
-          markdownContent: processedMarkdown,
-          selector: jobParams.selectors ? JSON.stringify(jobParams.selectors) : undefined,
-          title: new URL(jobParams.sourceUrl).pathname,
-          httpStatus: 200
-        });
+        // Skip if depth exceeded
+        if (depth > maxDepth) {
+          continue;
+        }
 
-        if (pageResult.isNew) {
-          // Add to vector collection for semantic search
-          await this.addToVectorCollection(pageResult.page.id, processedMarkdown, {
-            url: normalizedUrl,
-            title: pageResult.page.title,
-            websiteId: website.id,
-            websiteName: website.name,
-            domain: website.domain,
-            pageId: pageResult.page.id
+        // Apply URL filtering if patterns are specified
+        if (jobParams.allowPatterns?.length || jobParams.ignorePatterns?.length) {
+          const urlCheck = PatternMatcher.shouldAllowUrl(
+            url,
+            jobParams.allowPatterns,
+            jobParams.ignorePatterns
+          );
+          
+          if (!urlCheck.allowed) {
+            process.stderr.write(`🚫 URL blocked by pattern: ${url} - ${urlCheck.reason}\n`);
+            processedUrls.add(url);
+            continue;
+          } else {
+            process.stderr.write(`✅ URL allowed: ${url} - ${urlCheck.reason}\n`);
+          }
+        }
+
+        try {
+          // Navigate to the URL
+          const navigationSuccess = await browser.navigateToUrl(page, url, {
+            waitUntil: 'domcontentloaded',
+            timeout: 30000
           });
 
-          this.logger.info(`Created new website page with vectorization: ${pageResult.page.id}`);
-          entriesCreated++;
-        } else {
-          this.logger.info(`Updated existing website page: ${pageResult.page.id}`);
-        }
+          if (!navigationSuccess) {
+            this.logger.warn(`Failed to navigate to ${url}`);
+            processedUrls.add(url);
+            continue;
+          }
 
-        pagesScraped++;
+          // Extract page content
+          const pageContent = await browser.extractPageContent(page);
+          let htmlContent = '';
+          let markdownContent = '';
+
+          // Apply selector-based extraction if provided
+          if (jobParams.selectors && Object.keys(jobParams.selectors).length > 0) {
+            const selectorResults: Record<string, string> = {};
+            
+            for (const [key, selector] of Object.entries(jobParams.selectors)) {
+              const extractedText = await browser.extractText(page, selector);
+              if (extractedText) {
+                selectorResults[key] = extractedText;
+              }
+            }
+            
+            // Convert selector results to HTML and markdown
+            htmlContent = Object.entries(selectorResults)
+              .map(([key, value]) => `<section data-selector="${key}">${value}</section>`)
+              .join('\n');
+            markdownContent = Object.entries(selectorResults)
+              .map(([key, value]) => `## ${key}\n\n${value}`)
+              .join('\n\n');
+          } else {
+            // Use full page content
+            htmlContent = await page.content();
+            markdownContent = this.convertHtmlToMarkdown(htmlContent);
+          }
+
+          // Normalize URL for consistent storage
+          const normalizedUrl = this.websitePagesRepository.normalizeUrl(url);
+          const contentHash = this.websitePagesRepository.generateContentHash(markdownContent);
+          
+          // Create or update website page
+          const pageResult = await this.websitePagesRepository.createOrUpdate({
+            id: `page_${Date.now()}_${randomBytes(8).toString('hex')}`,
+            websiteId: website.id,
+            url: normalizedUrl,
+            contentHash,
+            htmlContent,
+            markdownContent,
+            selector: jobParams.selectors ? JSON.stringify(jobParams.selectors) : undefined,
+            title: pageContent.title || new URL(url).pathname,
+            httpStatus: 200
+          });
+
+          if (pageResult.isNew) {
+            // Add to vector collection for semantic search
+            await this.addToVectorCollection(pageResult.page.id, markdownContent, {
+              url: normalizedUrl,
+              title: pageResult.page.title,
+              websiteId: website.id,
+              websiteName: website.name,
+              domain: website.domain,
+              pageId: pageResult.page.id
+            });
+
+            this.logger.info(`Created new website page with vectorization: ${pageResult.page.id}`);
+            entriesCreated++;
+          } else {
+            this.logger.info(`Updated existing website page: ${pageResult.page.id}`);
+          }
+
+          pagesScraped++;
+          processedUrls.add(url);
+
+          // Add internal links to crawl queue if we haven't reached max depth
+          if (depth < maxDepth) {
+            const internalLinks = browser.filterInternalLinks(
+              pageContent.links, 
+              jobParams.sourceUrl, 
+              jobParams.includeSubdomains || false
+            );
+            
+            for (const link of internalLinks) {
+              if (!processedUrls.has(link) && !crawlQueue.find(item => item.url === link)) {
+                crawlQueue.push({ url: link, depth: depth + 1 });
+              }
+            }
+          }
+
+        } catch (error) {
+          this.logger.error(`Failed to process page ${url}`, error);
+          processedUrls.add(url);
+          continue;
+        }
       }
 
       // Update job results
@@ -524,13 +576,24 @@ CRITICAL: You have full autonomy. Take any actions needed to complete the scrapi
           processing_method: 'direct',
           pages_scraped: pagesScraped,
           entries_created: entriesCreated,
+          max_depth: maxDepth,
+          processed_urls: Array.from(processedUrls),
           completed_at: new Date().toISOString()
         }
       });
 
     } finally {
-      // Clean up browser session
-      await this.browserTools.closeBrowserSession(sessionId);
+      // Clean up page
+      if (page) {
+        try {
+          await page.close();
+        } catch (error) {
+          this.logger.warn('Failed to close page', error);
+        }
+      }
+      
+      // Release browser for this source
+      await domainBrowserManager.releaseBrowserForSource(jobParams.sourceUrl, job.sourceId);
     }
   }
 
