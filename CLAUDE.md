@@ -149,3 +149,115 @@ orchestrate_objective(
 
 Data stored locally at `~/.mcptools/data/` with intelligent caching and cross-agent memory sharing.
 <!-- zzClaudeMcpToolszz END -->
+
+
+<!-- zzClaudeMcpToolsTypescriptzz START -->
+# ClaudeMcpTools TypeScript Integration
+
+This project uses the TypeScript implementation of ClaudeMcpTools for enhanced MCP tools and multi-agent orchestration.
+
+## 🎯 Agent Orchestration Commands
+
+### Core Agent Operations
+- `spawn_agent(type, repository_path, task_description)` - Create specialized agents
+- `list_agents(repository_path, status_filter)` - View active agents
+- `terminate_agent(agent_id)` - Stop specific agents
+- `orchestrate_objective(objective, repository_path)` - Coordinate multi-agent workflows
+
+### Task Management
+- `create_task(repository_path, task_type, title, description)` - Create development tasks
+- `list_tasks(repository_path, status_filter)` - View task status
+- `assign_task(task_id, agent_id)` - Assign tasks to agents
+
+### Shared Memory & Communication
+- `store_memory(repository_path, agent_id, entry_type, title, content)` - Store insights
+- `search_memory(repository_path, query_text)` - Search previous work
+- `join_room(room_name, agent_name)` - Real-time agent communication
+- `send_message(room_name, message, mentions)` - Coordinate via chat
+
+### Enhanced File Operations
+- `list_files(directory, show_hidden, max_depth)` - Smart file listing
+- `find_files(pattern, directory)` - Pattern-based search
+- `easy_replace(file_path, old_text, new_text)` - Fuzzy string replacement
+- `take_screenshot(output_path, region)` - Cross-platform screenshots
+
+### Documentation Intelligence
+- `scrape_documentation(url, crawl_depth, selectors)` - Web scraping
+- `search_documentation(query, limit, similarity_threshold)` - Semantic search
+- `analyze_project_structure(project_path, output_format)` - Code analysis
+
+## 🚀 Example Workflows
+
+### Multi-Agent Development
+```typescript
+// Spawn coordinated agents for full-stack development
+const backendAgent = await spawn_agent("backend", ".", "Implement REST API endpoints");
+const frontendAgent = await spawn_agent("frontend", ".", "Create React components");
+const testAgent = await spawn_agent("testing", ".", "Write comprehensive tests");
+
+// Use shared memory for coordination
+await store_memory(".", backendAgent.id, "api_design", "REST Endpoints", 
+  "Implemented /users, /auth, /data endpoints with TypeScript types");
+```
+
+### Documentation-Driven Development
+```typescript
+// Scrape framework docs first
+await scrape_documentation("https://docs.framework.com", 2);
+
+// Implement following best practices
+await orchestrate_objective(
+  "Build app following official framework patterns from scraped docs", 
+  "."
+);
+```
+
+### Development Environment Setup
+```typescript
+// Coordinate development and testing
+await orchestrate_objective(
+  "Set up dev server and run tests in parallel",
+  "."
+);
+```
+
+## 📋 CLI Commands
+
+```bash
+# Agent management
+claude-mcp-tools agent list --repository .
+claude-mcp-tools agent spawn --type backend --repository . --description "API development"
+
+# Task management  
+claude-mcp-tools task list --repository .
+claude-mcp-tools task create --type feature --title "User Auth"
+
+# Memory operations
+claude-mcp-tools memory search --query "authentication" --repository .
+
+# Communication
+claude-mcp-tools room list --repository .
+
+# System status
+claude-mcp-tools status
+```
+
+## 🏗️ TypeScript Features
+
+- **Type Safety**: Full TypeScript implementation with strict mode
+- **Performance**: Better-sqlite3 for high-performance database operations  
+- **Modern ES Modules**: Tree-shaking and efficient imports
+- **Hot Reload Development**: TSX for development mode
+- **Comprehensive Testing**: Vitest with TypeScript support
+
+## 📊 Data Storage
+
+- **Databases**: `~/.mcptools/data/*.db` (SQLite)
+- **Configuration**: `./.claude/settings.local.json`
+- **Agent Coordination**: Real-time via shared database
+- **Memory Sharing**: Cross-agent insights and learning
+
+🎯 **Recommended**: Start with `orchestrate_objective()` for complex multi-step tasks. The system will coordinate specialized agents with proper dependencies and shared context.
+
+Data stored locally with intelligent caching and cross-agent memory sharing.
+<!-- zzClaudeMcpToolsTypescriptzz END -->

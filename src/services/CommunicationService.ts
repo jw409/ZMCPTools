@@ -1,7 +1,6 @@
-import { ClaudeDatabase } from '../database/index.js';
-import { CommunicationRepository } from './repositories/CommunicationRepository.js';
-import { ChatRoom, ChatMessage, MessageType } from '../models/index.js';
-import type { ChatRoomData, ChatMessageData } from '../models/index.js';
+import { DatabaseManager } from '../database/index.js';
+import { CommunicationRepository } from '../repositories/CommunicationRepository.js';
+import type { ChatRoom, ChatMessage, NewChatRoom, NewChatMessage, MessageType, MessageFilter, SendMessageRequest } from '../schemas/index.js';
 
 export interface CreateRoomRequest {
   name: string;
@@ -10,15 +9,9 @@ export interface CreateRoomRequest {
   metadata?: Record<string, any>;
 }
 
-export interface SendMessageRequest {
-  roomName: string;
-  agentName: string;
-  message: string;
-  mentions?: string[];
-  messageType?: MessageType;
-}
+// SendMessageRequest is now imported from schemas
 
-export interface MessageFilter {
+export interface CommunicationServiceMessageFilter {
   roomName?: string;
   agentName?: string;
   mentions?: string[];
@@ -30,73 +23,74 @@ export interface MessageFilter {
 export class CommunicationService {
   private commRepo: CommunicationRepository;
 
-  constructor(private db: ClaudeDatabase) {
+  constructor(private db: DatabaseManager) {
     this.commRepo = new CommunicationRepository(db);
   }
 
   // Room management
-  createRoom(request: CreateRoomRequest): ChatRoom {
+  async createRoom(request: CreateRoomRequest): Promise<ChatRoom> {
     // Check if room already exists
-    const existingRoom = this.commRepo.findRoomByName(request.name);
+    const existingRoom = await this.commRepo.getRoomByName(request.name);
     if (existingRoom) {
       throw new Error(`Room ${request.name} already exists`);
     }
 
-    const roomData: Omit<ChatRoomData, 'created_at'> = {
+    const roomData: NewChatRoom = {
       name: request.name,
       description: request.description,
-      repository_path: request.repositoryPath,
-      room_metadata: request.metadata || {}
+      repositoryPath: request.repositoryPath,
+      roomMetadata: request.metadata || {}
     };
 
-    return this.commRepo.createRoom(roomData);
+    return await this.commRepo.createRoom(roomData);
   }
 
-  getRoom(roomName: string): ChatRoom | null {
-    return this.commRepo.findRoomByName(roomName);
+  async getRoom(roomName: string): Promise<ChatRoom | null> {
+    return await this.commRepo.getRoomByName(roomName);
   }
 
-  listRooms(repositoryPath: string): ChatRoom[] {
-    return this.commRepo.findRoomsByRepository(repositoryPath);
+  async listRooms(repositoryPath: string): Promise<ChatRoom[]> {
+    return await this.commRepo.listRooms(repositoryPath);
   }
 
-  updateRoomMetadata(roomName: string, metadata: Record<string, any>): void {
-    const room = this.commRepo.findRoomByName(roomName);
+  async updateRoomMetadata(roomName: string, metadata: Record<string, any>): Promise<void> {
+    const room = await this.commRepo.getRoomByName(roomName);
     if (!room) {
       throw new Error(`Room ${roomName} not found`);
     }
 
-    this.commRepo.updateRoomMetadata(roomName, metadata);
+    // Update room using base repository update method
+    await this.commRepo.update(roomName, { roomMetadata: metadata });
   }
 
-  deleteRoom(roomName: string): void {
-    const room = this.commRepo.findRoomByName(roomName);
+  async deleteRoom(roomName: string): Promise<void> {
+    const room = await this.commRepo.getRoomByName(roomName);
     if (!room) {
       throw new Error(`Room ${roomName} not found`);
     }
 
-    this.commRepo.deleteRoom(roomName);
+    await this.commRepo.deleteRoom(roomName);
   }
 
   // Message management
-  sendMessage(request: SendMessageRequest): ChatMessage {
+  async sendMessage(request: SendMessageRequest): Promise<ChatMessage> {
     // Validate room exists
-    const room = this.commRepo.findRoomByName(request.roomName);
+    const room = await this.commRepo.getRoomByName(request.roomName);
     if (!room) {
       throw new Error(`Room ${request.roomName} not found`);
     }
 
     const messageId = this.generateMessageId();
-    const messageData: Omit<ChatMessageData, 'timestamp'> = {
+    const messageData: NewChatMessage = {
       id: messageId,
-      room_name: request.roomName,
-      agent_name: request.agentName,
+      roomName: request.roomName,
+      agentName: request.agentName,
       message: request.message,
       mentions: request.mentions || [],
-      message_type: request.messageType || MessageType.STANDARD
+      messageType: request.messageType || 'standard'
     };
 
-    const message = this.commRepo.sendMessage(messageData);
+    const message = await this.commRepo.sendMessage(messageData);
 
     // Process mentions and notifications
     if (request.mentions && request.mentions.length > 0) {
@@ -106,78 +100,107 @@ export class CommunicationService {
     return message;
   }
 
-  getMessage(messageId: string): ChatMessage | null {
-    return this.commRepo.findMessageById(messageId);
+  async getMessage(messageId: string): Promise<ChatMessage | null> {
+    // Use getMessages with filter to find by ID
+    const messages = await this.commRepo.getMessages({
+      limit: 1,
+      offset: 0
+    });
+    return messages.find(msg => msg.id === messageId) || null;
   }
 
-  getMessages(roomName: string, limit = 100, sinceTimestamp?: Date): ChatMessage[] {
-    const room = this.commRepo.findRoomByName(roomName);
+  async getMessages(roomName: string, limit = 100, sinceTimestamp?: Date): Promise<ChatMessage[]> {
+    const room = await this.commRepo.getRoomByName(roomName);
     if (!room) {
       throw new Error(`Room ${roomName} not found`);
     }
 
-    return this.commRepo.getMessages(roomName, limit, sinceTimestamp);
+    const filter: MessageFilter = {
+      roomName,
+      limit,
+      offset: 0,
+      since: sinceTimestamp?.toISOString()
+    };
+
+    return await this.commRepo.getMessages(filter);
   }
 
-  getRecentMessages(roomName: string, limit = 50): ChatMessage[] {
-    const room = this.commRepo.findRoomByName(roomName);
+  async getRecentMessages(roomName: string, limit = 50): Promise<ChatMessage[]> {
+    const room = await this.commRepo.getRoomByName(roomName);
     if (!room) {
       throw new Error(`Room ${roomName} not found`);
     }
 
-    return this.commRepo.getRecentMessages(roomName, limit);
+    return await this.commRepo.getRecentMessages(roomName, limit);
   }
 
-  getAgentMessages(agentName: string, limit = 100): ChatMessage[] {
-    return this.commRepo.findMessagesByAgent(agentName, limit);
+  async getAgentMessages(agentName: string, limit = 100): Promise<ChatMessage[]> {
+    const filter: MessageFilter = {
+      agentName,
+      limit,
+      offset: 0
+    };
+    return await this.commRepo.getMessages(filter);
   }
 
-  getMentionedMessages(agentName: string, limit = 50): ChatMessage[] {
-    return this.commRepo.findMessagesByMention(agentName, limit);
+  async getMentionedMessages(agentName: string, limit = 50): Promise<ChatMessage[]> {
+    const filter: MessageFilter = {
+      mentions: agentName,
+      limit,
+      offset: 0
+    };
+    return await this.commRepo.getMessages(filter);
   }
 
-  searchMessages(roomName: string, query: string, limit = 50): ChatMessage[] {
-    const room = this.commRepo.findRoomByName(roomName);
+  async searchMessages(roomName: string, query: string, limit = 50): Promise<ChatMessage[]> {
+    const room = await this.commRepo.getRoomByName(roomName);
     if (!room) {
       throw new Error(`Room ${roomName} not found`);
     }
 
-    return this.commRepo.searchMessages(roomName, query, limit);
+    const filter: MessageFilter = {
+      roomName,
+      containsText: query,
+      limit,
+      offset: 0
+    };
+
+    return await this.commRepo.getMessages(filter);
   }
 
-  deleteMessage(messageId: string): void {
-    const message = this.commRepo.findMessageById(messageId);
+  async deleteMessage(messageId: string): Promise<void> {
+    const message = await this.getMessage(messageId);
     if (!message) {
       throw new Error(`Message ${messageId} not found`);
     }
 
-    this.commRepo.deleteMessage(messageId);
+    await this.commRepo.deleteMessage(messageId);
   }
 
   // Room participation and statistics
-  getRoomParticipants(roomName: string): string[] {
-    const room = this.commRepo.findRoomByName(roomName);
+  async getRoomParticipants(roomName: string): Promise<string[]> {
+    const room = await this.commRepo.getRoomByName(roomName);
     if (!room) {
       throw new Error(`Room ${roomName} not found`);
     }
 
-    return this.commRepo.getRoomParticipants(roomName);
+    return await this.commRepo.getRoomParticipants(roomName);
   }
 
-  getRoomStats(roomName: string): {
+  async getRoomStats(roomName: string): Promise<{
     messageCount: number;
     participantCount: number;
     participants: string[];
-    lastActivity?: Date;
-  } {
-    const room = this.commRepo.findRoomByName(roomName);
+    lastActivity?: string;
+  }> {
+    const room = await this.commRepo.getRoomByName(roomName);
     if (!room) {
       throw new Error(`Room ${roomName} not found`);
     }
 
-    const messageCount = this.commRepo.getMessageCount(roomName);
-    const participants = this.commRepo.getRoomParticipants(roomName);
-    const recentMessages = this.commRepo.getRecentMessages(roomName, 1);
+    const messageCount = await this.commRepo.getMessageCount(roomName);
+    const participants = await this.commRepo.getRoomParticipants(roomName);
+    const recentMessages = await this.commRepo.getRecentMessages(roomName, 1);
     
     return {
       messageCount,
@@ -189,7 +212,7 @@ export class CommunicationService {
 
   // Agent coordination features
   async joinRoom(roomName: string, agentName: string): Promise<void> {
-    const room = this.commRepo.findRoomByName(roomName);
+    const room = await this.commRepo.getRoomByName(roomName);
     if (!room) {
       throw new Error(`Room ${roomName} not found`);
     }
@@ -199,12 +222,12 @@ export class CommunicationService {
       roomName,
       agentName: 'SYSTEM',
       message: `${agentName} joined the room`,
-      messageType: MessageType.SYSTEM
+      messageType: 'system'
     });
   }
 
   async leaveRoom(roomName: string, agentName: string): Promise<void> {
-    const room = this.commRepo.findRoomByName(roomName);
+    const room = await this.commRepo.getRoomByName(roomName);
     if (!room) {
       throw new Error(`Room ${roomName} not found`);
     }
@@ -214,7 +237,7 @@ export class CommunicationService {
       roomName,
       agentName: 'SYSTEM',
       message: `${agentName} left the room`,
-      messageType: MessageType.SYSTEM
+      messageType: 'system'
     });
   }
 
@@ -223,17 +246,17 @@ export class CommunicationService {
     roomName: string,
     fromAgent: string,
     message: string,
-    messageType: MessageType = MessageType.BROADCAST
+    messageType: MessageType = 'standard'
   ): Promise<ChatMessage> {
-    const room = this.commRepo.findRoomByName(roomName);
+    const room = await this.commRepo.getRoomByName(roomName);
     if (!room) {
       throw new Error(`Room ${roomName} not found`);
     }
 
-    const participants = this.commRepo.getRoomParticipants(roomName);
-    const mentions = participants.filter(p => p !== fromAgent);
+    const participants = await this.commRepo.getRoomParticipants(roomName);
+    const mentions = participants.filter((p: string) => p !== fromAgent);
 
-    return this.sendMessage({
+    return await this.sendMessage({
       roomName,
       agentName: fromAgent,
       message,
@@ -248,12 +271,46 @@ export class CommunicationService {
     sinceTimestamp?: Date,
     timeout = 30000
   ): Promise<ChatMessage[]> {
-    const room = this.commRepo.findRoomByName(roomName);
+    const room = await this.commRepo.getRoomByName(roomName);
     if (!room) {
       throw new Error(`Room ${roomName} not found`);
     }
 
-    return this.commRepo.waitForMessages(roomName, sinceTimestamp, timeout);
+    // Implement polling-based wait since repository method doesn't exist
+    return new Promise((resolve) => {
+      const startTime = Date.now();
+      const since = sinceTimestamp?.toISOString();
+      
+      const checkMessages = async () => {
+        try {
+          const filter: MessageFilter = {
+            roomName,
+            since,
+            limit: 50,
+            offset: 0
+          };
+          const messages = await this.commRepo.getMessages(filter);
+          
+          if (messages.length > 0) {
+            resolve(messages);
+            return;
+          }
+
+          if (Date.now() - startTime > timeout) {
+            resolve([]);
+            return;
+          }
+
+          // Poll again in 2 seconds
+          setTimeout(() => checkMessages().catch(console.error), 2000);
+        } catch (error) {
+          console.error('Error checking messages:', error);
+          resolve([]);
+        }
+      };
+
+      checkMessages().catch(console.error);
+    });
   }
 
   // Wait for specific mentions
@@ -266,17 +323,26 @@ export class CommunicationService {
       const startTime = Date.now();
       const sinceTimestamp = new Date();
       
-      const checkMentions = () => {
+      const checkMentions = async () => {
         let messages: ChatMessage[];
         
         if (roomName) {
           // Check specific room for mentions
-          messages = this.commRepo.getMessages(roomName, 50, sinceTimestamp)
-            .filter(msg => (msg.mentions || []).includes(agentName));
+          const allMessages = await this.commRepo.getMessages({
+            roomName,
+            limit: 50,
+            offset: 0,
+            since: sinceTimestamp.toISOString()
+          });
+          messages = allMessages.filter((msg: ChatMessage) => (msg.mentions || []).includes(agentName));
         } else {
           // Check all rooms for mentions
-          messages = this.commRepo.findMessagesByMention(agentName, 50)
-            .filter(msg => msg.timestamp >= sinceTimestamp);
+          const allMessages = await this.commRepo.getMessages({
+            limit: 50,
+            offset: 0,
+            since: sinceTimestamp.toISOString()
+          });
+          messages = allMessages.filter((msg: ChatMessage) => (msg.mentions || []).includes(agentName));
         }
         
         if (messages.length > 0) {
@@ -290,10 +356,10 @@ export class CommunicationService {
         }
 
         // Poll again in 2 seconds
-        setTimeout(checkMentions, 2000);
+        setTimeout(() => checkMentions().catch(console.error), 2000);
       };
 
-      checkMentions();
+      checkMentions().catch(console.error);
     });
   }
 
@@ -304,7 +370,7 @@ export class CommunicationService {
     repositoryPath: string,
     metadata?: Record<string, any>
   ): Promise<void> {
-    const rooms = this.commRepo.findRoomsByRepository(repositoryPath);
+    const rooms = await this.commRepo.listRooms(repositoryPath);
     
     const statusMessage = `Agent ${agentName} status: ${status}`;
     const fullMessage = metadata 
@@ -316,18 +382,21 @@ export class CommunicationService {
         roomName: room.name,
         agentName: 'SYSTEM',
         message: fullMessage,
-        messageType: MessageType.STATUS
+        messageType: 'status_update'
       });
     }
   }
 
   // Clean up old messages
-  cleanupOldMessages(repositoryPath: string, olderThanDays = 7): number {
-    const rooms = this.commRepo.findRoomsByRepository(repositoryPath);
+  async cleanupOldMessages(repositoryPath: string, olderThanDays = 7): Promise<number> {
+    const rooms = await this.commRepo.listRooms(repositoryPath);
     let totalDeleted = 0;
 
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - olderThanDays);
+
     for (const room of rooms) {
-      const deleted = this.commRepo.deleteOldMessages(room.name, olderThanDays);
+      const deleted = await this.commRepo.deleteOldMessages(room.name, cutoffDate);
       totalDeleted += deleted;
     }
 
@@ -335,21 +404,21 @@ export class CommunicationService {
   }
 
   // Agent conversation summaries
-  getConversationSummary(roomName: string, limit = 100): {
+  async getConversationSummary(roomName: string, limit = 100): Promise<{
     room: ChatRoom;
     messageCount: number;
     participants: string[];
     recentMessages: ChatMessage[];
     mentionCounts: Record<string, number>;
-  } {
-    const room = this.commRepo.findRoomByName(roomName);
+  }> {
+    const room = await this.commRepo.getRoomByName(roomName);
     if (!room) {
       throw new Error(`Room ${roomName} not found`);
     }
 
-    const recentMessages = this.commRepo.getRecentMessages(roomName, limit);
-    const participants = this.commRepo.getRoomParticipants(roomName);
-    const messageCount = this.commRepo.getMessageCount(roomName);
+    const recentMessages = await this.commRepo.getRecentMessages(roomName, limit);
+    const participants = await this.commRepo.getRoomParticipants(roomName);
+    const messageCount = await this.commRepo.getMessageCount(roomName);
     
     // Count mentions per agent
     const mentionCounts: Record<string, number> = {};

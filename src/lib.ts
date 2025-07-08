@@ -1,10 +1,10 @@
 // Core exports for TypeScript MCP Tools library
 
 // Database
-export { ClaudeDatabase } from './database/index.js';
+export { DatabaseManager } from './database/index.js';
 
-// Models
-export * from './models/index.js';
+// Schemas (replaces models)
+export * from './schemas/index.js';
 
 // Services
 export * from './services/index.js';

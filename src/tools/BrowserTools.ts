@@ -6,7 +6,7 @@
 import { chromium, firefox, webkit } from 'patchright';
 import type { Browser, Page, BrowserContext } from 'patchright';
 import UserAgent from 'user-agents';
-import type { ClaudeDatabase } from '../database/index.js';
+import type { DatabaseManager } from '../database/index.js';
 import type { MemoryService } from '../services/MemoryService.js';
 
 /**

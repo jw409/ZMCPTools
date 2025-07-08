@@ -1,7 +1,7 @@
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { FoundationCacheService, type CacheConfig, type CacheStatistics } from "../services/FoundationCacheService.js";
-import { ClaudeDatabase } from "../database/index.js";
+import { DatabaseManager } from "../database/index.js";
 
 // Validation schemas
 const CreateFoundationSessionSchema = z.object({
@@ -45,7 +45,7 @@ const InvalidateCacheSchema = z.object({
 export class CacheMcpTools {
   private cacheService: FoundationCacheService;
 
-  constructor(claudeDb: ClaudeDatabase, config?: CacheConfig) {
+  constructor(claudeDb: DatabaseManager, config?: CacheConfig) {
     this.cacheService = new FoundationCacheService(claudeDb, config);
   }
 
@@ -407,6 +407,6 @@ export class CacheMcpTools {
 /**
  * Factory function to create cache tools with default configuration
  */
-export function createCacheTools(claudeDb: ClaudeDatabase, config?: CacheConfig): CacheMcpTools {
+export function createCacheTools(claudeDb: DatabaseManager, config?: CacheConfig): CacheMcpTools {
   return new CacheMcpTools(claudeDb, config);
 }

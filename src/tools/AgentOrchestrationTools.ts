@@ -1,8 +1,8 @@
-import { ClaudeDatabase } from '../database/index.js';
+import { DatabaseManager } from '../database/index.js';
 import { AgentService, TaskService, CommunicationService, MemoryService } from '../services/index.js';
 import { WebScrapingService } from '../services/WebScrapingService.js';
 import { ClaudeSpawner } from '../process/ClaudeSpawner.js';
-import { TaskType, AgentStatus, MessageType } from '../models/index.js';
+import type { TaskType, AgentStatus, MessageType } from '../schemas/index.js';
 
 export interface OrchestrationResult {
   success: boolean;
@@ -26,7 +26,7 @@ export class AgentOrchestrationTools {
   private memoryService: MemoryService;
   private webScrapingService: WebScrapingService;
 
-  constructor(private db: ClaudeDatabase, repositoryPath: string) {
+  constructor(private db: DatabaseManager, repositoryPath: string) {
     this.agentService = new AgentService(db);
     this.taskService = new TaskService(db);
     this.communicationService = new CommunicationService(db);
@@ -50,7 +50,7 @@ export class AgentOrchestrationTools {
     try {
       // 1. Create coordination room
       const roomName = `objective_${Date.now()}`;
-      this.communicationService.createRoom({
+      await this.communicationService.createRoom({
         name: roomName,
         description: `Coordination room for: ${objective}`,
         repositoryPath,
@@ -102,7 +102,7 @@ export class AgentOrchestrationTools {
         roomName,
         agentName: 'system',
         message: `🏗️ Architect agent ${architectAgent.id} has been spawned to coordinate objective: "${objective}"`,
-        messageType: MessageType.SYSTEM
+        messageType: 'system' as MessageType
       });
 
       return {
@@ -166,12 +166,7 @@ export class AgentOrchestrationTools {
           fullAutonomy: true
         },
         claudeConfig: {
-          prompt: specializedPrompt,
-          environmentVars: {
-            AGENT_TYPE: agentType,
-            TASK_DESCRIPTION: taskDescription,
-            REPOSITORY_PATH: repositoryPath
-          }
+          prompt: specializedPrompt
         }
       });
 
@@ -196,7 +191,7 @@ export class AgentOrchestrationTools {
         data: {
           agentId: agent.id,
           agentType,
-          pid: agent.claude_pid,
+          pid: agent.claudePid,
           capabilities
         }
       };
@@ -290,7 +285,8 @@ export class AgentOrchestrationTools {
       await this.communicationService.joinRoom(roomName, agentName);
 
       // Get recent messages for context
-      const recentMessages = this.communicationService.getRecentMessages(roomName, 10);
+      const recentMessages = await this.communicationService.getRecentMessages(roomName, 10);
+      const participants = await this.communicationService.getRoomParticipants(roomName);
 
       return {
         success: true,
@@ -298,7 +294,7 @@ export class AgentOrchestrationTools {
         data: {
           roomName,
           agentName,
-          participantCount: this.communicationService.getRoomParticipants(roomName).length,
+          participantCount: participants.length,
           recentMessageCount: recentMessages.length,
           recentMessages: recentMessages.slice(0, 5) // Return last 5 for context
         }
@@ -323,12 +319,12 @@ export class AgentOrchestrationTools {
     mentions?: string[]
   ): Promise<OrchestrationResult> {
     try {
-      const sentMessage = this.communicationService.sendMessage({
+      const sentMessage = await this.communicationService.sendMessage({
         roomName,
         agentName,
         message,
         mentions,
-        messageType: MessageType.STANDARD
+        messageType: 'standard' as MessageType
       });
 
       return {
@@ -390,7 +386,7 @@ export class AgentOrchestrationTools {
    */
   async storeMemory(
     repositoryPath: string,
-    agentName: string,
+    agentId: string,
     entryType: 'insight' | 'error' | 'decision' | 'progress',
     title: string,
     content: string,
@@ -401,16 +397,16 @@ export class AgentOrchestrationTools {
 
       switch (entryType) {
         case 'insight':
-          memory = this.memoryService.storeInsight(repositoryPath, agentName, title, content, tags);
+          memory = this.memoryService.storeInsight(repositoryPath, agentId, title, content, tags);
           break;
         case 'error':
-          memory = this.memoryService.storeError(repositoryPath, agentName, content, {}, tags);
+          memory = this.memoryService.storeError(repositoryPath, agentId, content, {}, tags);
           break;
         case 'decision':
-          memory = this.memoryService.storeDecision(repositoryPath, agentName, title, content, {}, tags);
+          memory = this.memoryService.storeDecision(repositoryPath, agentId, title, content, {}, tags);
           break;
         case 'progress':
-          memory = this.memoryService.storeProgress(repositoryPath, agentName, title, content, {}, tags);
+          memory = this.memoryService.storeProgress(repositoryPath, agentId, title, content, {}, tags);
           break;
         default:
           throw new Error(`Unknown entry type: ${entryType}`);
@@ -423,7 +419,7 @@ export class AgentOrchestrationTools {
           memoryId: memory.id,
           entryType,
           title,
-          agentName
+          agentId
         }
       };
 
@@ -442,14 +438,14 @@ export class AgentOrchestrationTools {
   async searchMemory(
     repositoryPath: string,
     queryText: string,
-    agentName?: string,
+    agentId?: string,
     limit = 10
   ): Promise<OrchestrationResult> {
     try {
-      const insights = this.memoryService.getRelevantMemories(
+      const insights = await this.memoryService.getRelevantMemories(
         queryText,
         repositoryPath,
-        agentName,
+        agentId,
         limit
       );
 
@@ -477,7 +473,7 @@ export class AgentOrchestrationTools {
    */
   async listAgents(repositoryPath: string, status?: AgentStatus): Promise<OrchestrationResult> {
     try {
-      const agents = this.agentService.listAgents(repositoryPath, status);
+      const agents = await this.agentService.listAgents(repositoryPath, status);
 
       return {
         success: true,
@@ -485,11 +481,11 @@ export class AgentOrchestrationTools {
         data: {
           agents: agents.map(agent => ({
             id: agent.id,
-            name: agent.agent_name,
+            name: agent.agentName,
             status: agent.status,
             capabilities: agent.capabilities,
-            lastHeartbeat: agent.last_heartbeat,
-            metadata: agent.agent_metadata
+            lastHeartbeat: agent.lastHeartbeat,
+            metadata: agent.agentMetadata
           })),
           count: agents.length
         }
@@ -499,6 +495,56 @@ export class AgentOrchestrationTools {
       return {
         success: false,
         message: `Failed to list agents: ${error}`,
+        data: { error: String(error) }
+      };
+    }
+  }
+
+  /**
+   * Terminate one or more agents
+   */
+  async terminateAgent(agentIds: string[]): Promise<OrchestrationResult> {
+    try {
+      const ids = agentIds;
+      const results: Array<{ agentId: string; success: boolean; error?: string }> = [];
+
+      for (const agentId of ids) {
+        try {
+          // Use the AgentService's built-in terminate method
+          await this.agentService.terminateAgent(agentId);
+          
+          results.push({
+            agentId,
+            success: true
+          });
+
+        } catch (error) {
+          results.push({
+            agentId,
+            success: false,
+            error: String(error)
+          });
+        }
+      }
+
+      const successCount = results.filter(r => r.success).length;
+      const failureCount = results.length - successCount;
+
+      return {
+        success: failureCount === 0,
+        message: `Terminated ${successCount}/${results.length} agents${failureCount > 0 ? ` (${failureCount} failed)` : ''}`,
+        data: {
+          results,
+          successCount,
+          failureCount,
+          totalCount: results.length
+        }
+      };
+
+    } catch (error) {
+      return {
+        success: false,
+        message: `Failed to terminate agents: ${error}`,
         data: { error: String(error) }
       };
     }
@@ -674,10 +720,10 @@ SPECIALIST AGENT:
     const missingDeps: string[] = [];
 
     for (const depId of dependsOn) {
-      const agent = this.agentService.getAgent(depId);
+      const agent = await this.agentService.getAgent(depId);
       if (!agent) {
         missingDeps.push(depId);
-      } else if (agent.status !== AgentStatus.COMPLETED && agent.status !== AgentStatus.ACTIVE) {
+      } else if (agent.status !== 'completed' && agent.status !== 'active') {
         missingDeps.push(`${depId} (status: ${agent.status})`);
       }
     }

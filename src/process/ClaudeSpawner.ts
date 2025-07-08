@@ -1,7 +1,8 @@
 import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
-import { writeFileSync, mkdirSync, existsSync } from 'fs';
+import { writeFileSync, mkdirSync, existsSync, createWriteStream } from 'fs';
 import { join } from 'path';
+import { tmpdir, homedir } from 'os';
 
 export interface ClaudeSpawnConfig {
   workingDirectory: string;
@@ -30,14 +31,24 @@ export class ClaudeProcess extends EventEmitter {
     this.pid = childProcess.pid!;
     this.config = config;
 
-    // Set up log files
-    const logDir = join(config.workingDirectory, '.claude-logs');
-    if (!existsSync(logDir)) {
-      mkdirSync(logDir, { recursive: true });
+    // Set up log files in the dedicated claude_agents directory
+    const logDir = join(homedir(), '.mcptools', 'logs', 'claude_agents');
+    
+    try {
+      if (!existsSync(logDir)) {
+        mkdirSync(logDir, { recursive: true });
+      }
+      this.stdoutPath = join(logDir, `claude-${this.pid}-stdout.log`);
+      this.stderrPath = join(logDir, `claude-${this.pid}-stderr.log`);
+    } catch (error) {
+      console.warn(`Failed to create log directory ${logDir}, using temp directory:`, error);
+      const tempDir = join(tmpdir(), '.claude-logs');
+      if (!existsSync(tempDir)) {
+        mkdirSync(tempDir, { recursive: true });
+      }
+      this.stdoutPath = join(tempDir, `claude-${this.pid}-stdout.log`);
+      this.stderrPath = join(tempDir, `claude-${this.pid}-stderr.log`);
     }
-
-    this.stdoutPath = join(logDir, `claude-${this.pid}-stdout.log`);
-    this.stderrPath = join(logDir, `claude-${this.pid}-stderr.log`);
 
     this.setupEventHandlers();
   }
@@ -107,7 +118,8 @@ export class ClaudeSpawner extends EventEmitter {
   private constructor() {
     super();
     this.reaper = new ProcessReaper(this);
-    this.reaper.start();
+    // Start reaper only when first agent is spawned
+    this.setupGlobalHandlers();
   }
 
   static getInstance(): ClaudeSpawner {
@@ -117,24 +129,56 @@ export class ClaudeSpawner extends EventEmitter {
     return ClaudeSpawner.instance;
   }
 
+  private setupGlobalHandlers(): void {
+    // Global process cleanup on exit
+    process.on('exit', () => {
+      if (ClaudeSpawner.instance) {
+        ClaudeSpawner.instance.cleanup();
+      }
+    });
+
+    process.on('SIGINT', () => {
+      console.log('Received SIGINT, cleaning up Claude processes...');
+      if (ClaudeSpawner.instance) {
+        ClaudeSpawner.instance.cleanup();
+      }
+      process.exit(0);
+    });
+
+    process.on('SIGTERM', () => {
+      console.log('Received SIGTERM, cleaning up Claude processes...');
+      if (ClaudeSpawner.instance) {
+        ClaudeSpawner.instance.cleanup();
+      }
+      process.exit(0);
+    });
+  }
+
   async spawnClaudeAgent(config: ClaudeSpawnConfig): Promise<ClaudeProcess> {
-    // Build Claude CLI command
+    // Start reaper on first spawn
+    if (!this.reaper.isRunning) {
+      this.reaper.start();
+    }
+    
+    // Build Claude CLI command - matching claude-code-mcp approach
     const cmd = [
       'claude',
       '--dangerously-skip-permissions', // CRITICAL: Enables full autonomy
-      '--model', config.model || 'sonnet'
+      '--output-format', 'json'
     ];
 
-    // Add tool restrictions if specified
-    if (config.allowedTools && config.allowedTools.length > 0) {
-      cmd.push('--allowedTools', config.allowedTools.join(','));
+    // Add model
+    if (config.model) {
+      cmd.push('--model', config.model);
     }
 
-    if (config.disallowedTools && config.disallowedTools.length > 0) {
-      cmd.push('--disallowedTools', config.disallowedTools.join(','));
-    }
+    // Add session ID if provided for continuity (resume session)
+    // Note: Claude CLI requires UUID format for session IDs, so we skip this for now
+    // if (config.sessionId) {
+    //   cmd.push('-r', config.sessionId);
+    // }
 
-    // Add prompt
+    // Add prompt via -p flag (this is the key fix!)
     cmd.push('-p', config.prompt);
 
     // Set up isolated environment per agent
@@ -147,14 +191,21 @@ export class ClaudeSpawner extends EventEmitter {
       ...config.environmentVars
     };
 
-    console.log(`Spawning Claude agent with PID context in: ${config.workingDirectory}`);
-    console.log(`Command: ${cmd.join(' ')}`);
+    // Validate working directory before spawn
+    const workingDir = config.workingDirectory || process.cwd();
+    if (!existsSync(workingDir)) {
+      throw new Error(`Working directory does not exist: ${workingDir}`);
+    }
 
-    // Spawn the Claude process
+    console.log(`Spawning Claude agent with PID context in: ${workingDir}`);
+    console.log(`Command: ${cmd.join(' ')}`);
+    console.log(`Prompt: ${config.prompt.substring(0, 100)}...`);
+
+    // Spawn the Claude process - matching claude-code-mcp stdio setup
     const childProcess = spawn(cmd[0], cmd.slice(1), {
-      cwd: config.workingDirectory,
+      cwd: workingDir,
       env,
-      stdio: ['pipe', 'pipe', 'pipe'],
+      stdio: ['ignore', 'pipe', 'pipe'], // ignore stdin, pipe stdout/stderr
       detached: false,
       shell: false
     });
@@ -229,7 +280,7 @@ export class ClaudeSpawner extends EventEmitter {
 
 export class ProcessReaper extends EventEmitter {
   private reapInterval: NodeJS.Timeout | null = null;
-  private isRunning = false;
+  public isRunning = false;
   private spawner: ClaudeSpawner;
 
   constructor(spawner: ClaudeSpawner) {
@@ -280,19 +331,4 @@ export class ProcessReaper extends EventEmitter {
   }
 }
 
-// Global process cleanup on exit
-process.on('exit', () => {
-  ClaudeSpawner.getInstance().cleanup();
-});
-
-process.on('SIGINT', () => {
-  console.log('Received SIGINT, cleaning up Claude processes...');
-  ClaudeSpawner.getInstance().cleanup();
-  process.exit(0);
-});
-
-process.on('SIGTERM', () => {
-  console.log('Received SIGTERM, cleaning up Claude processes...');
-  ClaudeSpawner.getInstance().cleanup();
-  process.exit(0);
-});
+// Moved global handlers to setupGlobalHandlers method

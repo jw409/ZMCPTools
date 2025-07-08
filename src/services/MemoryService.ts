@@ -1,11 +1,23 @@
-import { ClaudeDatabase } from '../database/index.js';
-import { MemoryRepository } from './repositories/MemoryRepository.js';
-import { Memory, MemoryType } from '../models/index.js';
-import type { MemoryData } from '../models/index.js';
+import { DatabaseManager } from '../database/index.js';
+import { MemoryRepository } from '../repositories/MemoryRepository.js';
+import { type Memory, type NewMemory, type MemoryType } from '../schemas/index.js';
+
+// MemoryData interface for database operations
+export interface MemoryData {
+  id: string;
+  repositoryPath: string;
+  agentId: string;
+  memoryType: MemoryType;
+  title: string;
+  content: string;
+  metadata?: Record<string, any>;
+  tags?: string[];
+  createdAt?: Date;
+}
 
 export interface CreateMemoryRequest {
   repositoryPath: string;
-  agentName: string;
+  agentId: string;
   memoryType: MemoryType;
   title: string;
   content: string;
@@ -22,7 +34,7 @@ export interface UpdateMemoryRequest {
 
 export interface SearchOptions {
   repositoryPath?: string;
-  agentName?: string;
+  agentId?: string;
   memoryType?: MemoryType;
   tags?: string[];
   limit?: number;
@@ -35,109 +47,117 @@ export interface MemoryInsight {
   relevanceScore: number;
   snippet: string;
   tags: string[];
-  agentName: string;
+  agentId: string;
   createdAt: Date;
 }
 
 export class MemoryService {
   private memoryRepo: MemoryRepository;
 
-  constructor(private db: ClaudeDatabase) {
+  constructor(private db: DatabaseManager) {
     this.memoryRepo = new MemoryRepository(db);
   }
 
   // Core memory operations
-  createMemory(request: CreateMemoryRequest): Memory {
+  async createMemory(request: CreateMemoryRequest): Promise<Memory> {
     const memoryId = this.generateMemoryId();
     
-    const memoryData: Omit<MemoryData, 'created_at'> = {
+    const newMemory: NewMemory = {
       id: memoryId,
-      repository_path: request.repositoryPath,
-      agent_name: request.agentName,
-      memory_type: request.memoryType,
+      repositoryPath: request.repositoryPath,
+      agentId: request.agentId,
+      memoryType: request.memoryType,
       title: request.title,
       content: request.content,
-      metadata: request.metadata || {},
-      tags: request.tags || []
+      tags: request.tags || [],
+      miscData: request.metadata || {},
+      confidence: 0.8,
+      relevanceScore: 1.0
     };
 
-    return this.memoryRepo.create(memoryData);
+    return await this.memoryRepo.create(newMemory);
   }
 
-  getMemory(memoryId: string): Memory | null {
-    return this.memoryRepo.findById(memoryId);
+  async getMemory(memoryId: string): Promise<Memory | null> {
+    return await this.memoryRepo.findById(memoryId);
   }
 
-  updateMemory(memoryId: string, update: UpdateMemoryRequest): void {
-    const memory = this.memoryRepo.findById(memoryId);
+  async updateMemory(memoryId: string, update: UpdateMemoryRequest): Promise<void> {
+    const memory = await this.getMemory(memoryId);
     if (!memory) {
       throw new Error(`Memory ${memoryId} not found`);
     }
 
-    if (update.title !== undefined || update.content !== undefined) {
-      const title = update.title !== undefined ? update.title : memory.title;
-      const content = update.content !== undefined ? update.content : memory.content;
-      this.memoryRepo.updateContent(memoryId, title, content);
-    }
+    const updateData: any = {};
+    
+    if (update.title !== undefined) updateData.title = update.title;
+    if (update.content !== undefined) updateData.content = update.content;
+    if (update.metadata !== undefined) updateData.miscData = update.metadata;
+    if (update.tags !== undefined) updateData.tags = update.tags;
 
-    if (update.metadata) {
-      this.memoryRepo.updateMetadata(memoryId, update.metadata);
-    }
-
-    if (update.tags) {
-      this.memoryRepo.updateTags(memoryId, update.tags);
+    if (Object.keys(updateData).length > 0) {
+      await this.memoryRepo.update(memoryId, updateData);
     }
   }
 
-  deleteMemory(memoryId: string): void {
-    const memory = this.memoryRepo.findById(memoryId);
+  async deleteMemory(memoryId: string): Promise<void> {
+    const memory = await this.getMemory(memoryId);
     if (!memory) {
       throw new Error(`Memory ${memoryId} not found`);
     }
 
-    this.memoryRepo.delete(memoryId);
+    await this.memoryRepo.delete(memoryId);
   }
 
   // Search and retrieval
-  searchMemories(query: string, options: SearchOptions = {}): Memory[] {
+  async searchMemories(query: string, options: SearchOptions = {}): Promise<Memory[]> {
     const {
       repositoryPath,
       memoryType,
       limit = 50
     } = options;
 
-    return this.memoryRepo.searchContent(query, repositoryPath, memoryType)
-      .slice(0, limit);
+    if (!repositoryPath) {
+      throw new Error('Repository path is required for memory search');
+    }
+
+    return await this.memoryRepo.searchByContent(repositoryPath, query, {
+      memoryType,
+      limit
+    });
   }
 
-  findMemoriesByAgent(agentName: string, repositoryPath?: string, limit = 100): Memory[] {
-    return this.memoryRepo.findByAgent(agentName, repositoryPath)
-      .slice(0, limit);
+  async findMemoriesByAgent(agentId: string, repositoryPath?: string, limit = 100): Promise<Memory[]> {
+    return await this.memoryRepo.findByAgent(agentId, repositoryPath, { limit });
   }
 
-  findMemoriesByType(memoryType: MemoryType, repositoryPath?: string, limit = 100): Memory[] {
-    return this.memoryRepo.findByType(memoryType, repositoryPath)
-      .slice(0, limit);
+  async findMemoriesByType(memoryType: MemoryType, repositoryPath?: string, limit = 100): Promise<Memory[]> {
+    if (!repositoryPath) {
+      throw new Error('Repository path is required for memory search by type');
+    }
+    return await this.memoryRepo.findByRepositoryPath(repositoryPath, { memoryType, limit });
   }
 
-  findMemoriesByTags(tags: string[], repositoryPath?: string, limit = 100): Memory[] {
-    return this.memoryRepo.findByTags(tags, repositoryPath)
-      .slice(0, limit);
+  async findMemoriesByTags(tags: string[], repositoryPath?: string, limit = 100): Promise<Memory[]> {
+    if (!repositoryPath) {
+      throw new Error('Repository path is required for memory search by tags');
+    }
+    return await this.memoryRepo.findByTags(repositoryPath, tags, { limit });
   }
 
   // Specialized memory types
-  storeInsight(
+  async storeInsight(
     repositoryPath: string,
-    agentName: string,
+    agentId: string,
     title: string,
     content: string,
     tags: string[] = [],
     metadata: Record<string, any> = {}
-  ): Memory {
-    return this.createMemory({
+  ): Promise<Memory> {
+    return await this.createMemory({
       repositoryPath,
-      agentName,
-      memoryType: MemoryType.INSIGHT,
+      agentId,
+      memoryType: 'insight' as MemoryType,
       title,
       content,
       tags: ['insight', ...tags],
@@ -149,17 +169,17 @@ export class MemoryService {
     });
   }
 
-  storeError(
+  async storeError(
     repositoryPath: string,
-    agentName: string,
+    agentId: string,
     error: string,
     context: Record<string, any> = {},
     tags: string[] = []
-  ): Memory {
-    return this.createMemory({
+  ): Promise<Memory> {
+    return await this.createMemory({
       repositoryPath,
-      agentName,
-      memoryType: MemoryType.ERROR_LOG,
+      agentId,
+      memoryType: 'error' as MemoryType,
       title: `Error: ${error.slice(0, 100)}`,
       content: error,
       tags: ['error', ...tags],
@@ -171,18 +191,18 @@ export class MemoryService {
     });
   }
 
-  storeDecision(
+  async storeDecision(
     repositoryPath: string,
-    agentName: string,
+    agentId: string,
     decision: string,
     reasoning: string,
     context: Record<string, any> = {},
     tags: string[] = []
-  ): Memory {
-    return this.createMemory({
+  ): Promise<Memory> {
+    return await this.createMemory({
       repositoryPath,
-      agentName,
-      memoryType: MemoryType.DECISION,
+      agentId,
+      memoryType: 'decision' as MemoryType,
       title: `Decision: ${decision}`,
       content: reasoning,
       tags: ['decision', ...tags],
@@ -194,18 +214,18 @@ export class MemoryService {
     });
   }
 
-  storeProgress(
+  async storeProgress(
     repositoryPath: string,
-    agentName: string,
+    agentId: string,
     milestone: string,
     details: string,
     metrics: Record<string, any> = {},
     tags: string[] = []
-  ): Memory {
-    return this.createMemory({
+  ): Promise<Memory> {
+    return await this.createMemory({
       repositoryPath,
-      agentName,
-      memoryType: MemoryType.PROGRESS,
+      agentId,
+      memoryType: 'progress' as MemoryType,
       title: `Progress: ${milestone}`,
       content: details,
       tags: ['progress', ...tags],
@@ -218,15 +238,15 @@ export class MemoryService {
   }
 
   // Advanced search and insights
-  getRelevantMemories(
+  async getRelevantMemories(
     query: string,
     repositoryPath: string,
-    agentName?: string,
+    agentId?: string,
     limit = 10
-  ): MemoryInsight[] {
-    const searchResults = this.searchMemories(query, {
+  ): Promise<MemoryInsight[]> {
+    const searchResults = await this.searchMemories(query, {
       repositoryPath,
-      agentName,
+      agentId,
       limit: limit * 2 // Get more results for ranking
     });
 
@@ -246,8 +266,8 @@ export class MemoryService {
         relevanceScore,
         snippet: this.createSnippet(memory.content, query),
         tags: memory.tags || [],
-        agentName: memory.agent_name,
-        createdAt: memory.created_at
+        agentId: memory.agentId,
+        createdAt: new Date(memory.createdAt)
       };
     });
 
@@ -258,12 +278,12 @@ export class MemoryService {
   }
 
   // Knowledge sharing between agents
-  shareMemoryWithAgent(
+  async shareMemoryWithAgent(
     memoryId: string,
-    targetAgentName: string,
+    targetAgentId: string,
     note?: string
-  ): Memory {
-    const originalMemory = this.memoryRepo.findById(memoryId);
+  ): Promise<Memory> {
+    const originalMemory = await this.getMemory(memoryId);
     if (!originalMemory) {
       throw new Error(`Memory ${memoryId} not found`);
     }
@@ -274,38 +294,49 @@ export class MemoryService {
       ? `${note}\n\n--- Original Memory ---\n${originalMemory.content}`
       : originalMemory.content;
 
-    return this.createMemory({
-      repositoryPath: originalMemory.repository_path,
-      agentName: targetAgentName,
-      memoryType: MemoryType.SHARED,
+    return await this.createMemory({
+      repositoryPath: originalMemory.repositoryPath,
+      agentId: targetAgentId,
+      memoryType: 'learning' as MemoryType, // Use learning instead of shared
       title: sharedTitle,
       content: sharedContent,
       tags: [...(originalMemory.tags || []), 'shared'],
       metadata: {
         originalMemoryId: memoryId,
-        originalAgent: originalMemory.agent_name,
+        originalAgent: originalMemory.agentId,
         sharedAt: new Date().toISOString(),
-        sharedBy: originalMemory.agent_name
+        sharedBy: originalMemory.agentId
       }
     });
   }
 
   // Memory analytics
-  getMemoryStats(repositoryPath?: string): {
+  async getMemoryStats(repositoryPath?: string): Promise<{
     total: number;
     byType: Record<string, number>;
     byAgent: Record<string, number>;
     recentCount: number;
     topTags: Array<{ tag: string; count: number }>;
-  } {
-    const stats = this.memoryRepo.getStats(repositoryPath);
-    const allTags = this.memoryRepo.getUniqueTags(repositoryPath);
+  }> {
+    if (!repositoryPath) {
+      throw new Error('Repository path is required for memory stats');
+    }
+
+    const statistics = await this.memoryRepo.getStatistics(repositoryPath);
     
-    // Count tag usage
+    // Calculate recent count (last week)
+    const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const allMemories = await this.memoryRepo.findByRepositoryPath(repositoryPath);
+    
+    const recentCount = allMemories.filter(memory => memory.createdAt > oneWeekAgo).length;
+    
+    // Count by agent
+    const byAgent: Record<string, number> = {};
     const tagCounts: Record<string, number> = {};
-    const memories = this.memoryRepo.findByRepositoryPath(repositoryPath || '');
     
-    for (const memory of memories) {
+    for (const memory of allMemories) {
+      byAgent[memory.agentId] = (byAgent[memory.agentId] || 0) + 1;
+      
       for (const tag of memory.tags || []) {
         tagCounts[tag] = (tagCounts[tag] || 0) + 1;
       }
@@ -317,43 +348,85 @@ export class MemoryService {
       .slice(0, 10);
 
     return {
-      ...stats,
+      total: statistics.totalMemories,
+      byType: statistics.byType,
+      byAgent,
+      recentCount,
       topTags
     };
   }
 
   // Memory maintenance
-  addTag(memoryId: string, tag: string): void {
-    this.memoryRepo.addTag(memoryId, tag);
+  async addTag(memoryId: string, tag: string): Promise<void> {
+    const memory = await this.getMemory(memoryId);
+    if (!memory) {
+      throw new Error(`Memory ${memoryId} not found`);
+    }
+    
+    const currentTags = memory.tags || [];
+    if (!currentTags.includes(tag)) {
+      const updatedTags = [...currentTags, tag];
+      await this.memoryRepo.update(memoryId, { tags: updatedTags });
+    }
   }
 
-  removeTag(memoryId: string, tag: string): void {
-    this.memoryRepo.removeTag(memoryId, tag);
+  async removeTag(memoryId: string, tag: string): Promise<void> {
+    const memory = await this.getMemory(memoryId);
+    if (!memory) {
+      throw new Error(`Memory ${memoryId} not found`);
+    }
+    
+    const currentTags = memory.tags || [];
+    const updatedTags = currentTags.filter(t => t !== tag);
+    await this.memoryRepo.update(memoryId, { tags: updatedTags });
   }
 
-  getUniqueTags(repositoryPath?: string): string[] {
-    return this.memoryRepo.getUniqueTags(repositoryPath);
+  async getUniqueTags(repositoryPath?: string): Promise<string[]> {
+    if (!repositoryPath) {
+      throw new Error('Repository path is required for getting unique tags');
+    }
+
+    const allMemories = await this.memoryRepo.findByRepositoryPath(repositoryPath);
+    const allTags = new Set<string>();
+    
+    for (const memory of allMemories) {
+      if (memory.tags) {
+        memory.tags.forEach(tag => allTags.add(tag));
+      }
+    }
+    
+    return Array.from(allTags).sort();
   }
 
-  cleanupOldMemories(repositoryPath: string, olderThanDays = 30): number {
-    return this.memoryRepo.deleteOld(repositoryPath, olderThanDays);
+  async cleanupOldMemories(repositoryPath: string, olderThanDays = 30): Promise<number> {
+    return await this.memoryRepo.cleanup(repositoryPath, { maxAgedays: olderThanDays });
   }
 
-  deleteAgentMemories(agentName: string, repositoryPath?: string): number {
-    return this.memoryRepo.deleteByAgent(agentName, repositoryPath);
+  async deleteAgentMemories(agentId: string, repositoryPath?: string): Promise<number> {
+    const memories = await this.memoryRepo.findByAgent(agentId, repositoryPath);
+    let deletedCount = 0;
+    
+    for (const memory of memories) {
+      const deleted = await this.memoryRepo.delete(memory.id);
+      if (deleted) {
+        deletedCount++;
+      }
+    }
+    
+    return deletedCount;
   }
 
   // Batch operations
-  createMemoryBatch(requests: CreateMemoryRequest[]): Memory[] {
+  async createMemoryBatch(requests: CreateMemoryRequest[]): Promise<Memory[]> {
     const results: Memory[] = [];
     
-    this.db.transaction(() => {
+    await this.memoryRepo.transaction(async () => {
       for (const request of requests) {
         try {
-          const memory = this.createMemory(request);
+          const memory = await this.createMemory(request);
           results.push(memory);
         } catch (error) {
-          console.error(`Failed to create memory for ${request.agentName}:`, error);
+          console.error(`Failed to create memory for ${request.agentId}:`, error);
         }
       }
     });
@@ -362,88 +435,96 @@ export class MemoryService {
   }
 
   // Export/Import for knowledge transfer
-  exportMemories(repositoryPath: string, options: {
-    agentName?: string;
+  async exportMemories(repositoryPath: string, options: {
+    agentId?: string;
     memoryType?: MemoryType;
     tags?: string[];
     sinceDate?: Date;
-  } = {}): Array<{
+  } = {}): Promise<Array<{
     id: string;
     title: string;
     content: string;
-    agentName: string;
+    agentId: string;
     memoryType: MemoryType;
     tags: string[];
     metadata: Record<string, any>;
     createdAt: string;
-  }> {
-    let memories = this.memoryRepo.findByRepositoryPath(repositoryPath);
+  }>> {
+    let allMemories = await this.memoryRepo.findByRepositoryPath(repositoryPath);
     
     // Apply filters
-    if (options.agentName) {
-      memories = memories.filter(m => m.agent_name === options.agentName);
+    if (options.agentId) {
+      allMemories = allMemories.filter((m: Memory) => m.agentId === options.agentId);
     }
     
     if (options.memoryType) {
-      memories = memories.filter(m => m.memory_type === options.memoryType);
+      allMemories = allMemories.filter((m: Memory) => m.memoryType === options.memoryType);
     }
     
     if (options.tags && options.tags.length > 0) {
-      memories = memories.filter(m => 
+      allMemories = allMemories.filter((m: Memory) => 
         options.tags!.some(tag => (m.tags || []).includes(tag))
       );
     }
     
     if (options.sinceDate) {
-      memories = memories.filter(m => m.created_at >= options.sinceDate!);
+      allMemories = allMemories.filter((m: Memory) => new Date(m.createdAt) >= options.sinceDate!);
     }
 
-    return memories.map(memory => ({
+    return allMemories.map((memory: Memory) => ({
       id: memory.id,
       title: memory.title,
       content: memory.content,
-      agentName: memory.agent_name,
-      memoryType: memory.memory_type,
+      agentId: memory.agentId,
+      memoryType: memory.memoryType,
       tags: memory.tags || [],
-      metadata: memory.metadata || {},
-      createdAt: memory.created_at.toISOString()
+      metadata: memory.miscData || {},
+      createdAt: memory.createdAt
     }));
   }
 
   // Convenience method for quick memory storage  
-  storeMemory(
+  async storeMemory(
     repositoryPath: string,
-    agentName: string,
+    agentId: string,
     memoryType: string,
     title: string,
     content: string,
     tags: string[] = []
-  ): Memory {
-    // Convert string memoryType to enum
+  ): Promise<Memory> {
+    // Convert string memoryType to valid type
     let type: MemoryType;
     switch (memoryType.toLowerCase()) {
       case 'insight':
-        type = MemoryType.INSIGHT;
+        type = 'insight';
         break;
       case 'error_log':
       case 'error':
-        type = MemoryType.ERROR_LOG;
+        type = 'error';
         break;
       case 'decision':
-        type = MemoryType.DECISION;
+        type = 'decision';
         break;
       case 'progress':
-        type = MemoryType.PROGRESS;
+        type = 'progress';
         break;
-      case 'shared':
+      case 'learning':
+        type = 'learning';
+        break;
+      case 'pattern':
+        type = 'pattern';
+        break;
+      case 'solution':
+        type = 'solution';
+        break;
       default:
-        type = MemoryType.SHARED;
+        type = 'insight';
         break;
     }
 
-    return this.createMemory({
+    return await this.createMemory({
       repositoryPath,
-      agentName,
+      agentId,
       memoryType: type,
       title,
       content,

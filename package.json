@@ -1,14 +1,21 @@
 {
   "name": "claude-mcp-tools-ts",
   "version": "0.1.0",
-  "description": "TypeScript implementation of ClaudeMcpTools with full agent autonomy",
+  "description": "TypeScript implementation of ClaudeMcpTools with enhanced MCP tools and multi-agent orchestration",
   "main": "dist/lib.js",
   "types": "dist/lib.d.ts",
   "type": "module",
   "bin": {
     "claude-mcp-tools": "dist/cli/index.js",
-    "claude-mcp-server": "dist/index.js"
+    "claude-mcp-server": "dist/index.js",
+    "claude-mcp-tools-installer": "dist/installer/index.js"
   },
+  "files": [
+    "dist/**/*",
+    "README.md",
+    "CLAUDE.md",
+    "install.sh"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.ts",
@@ -18,16 +25,29 @@
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:run": "vitest run",
+    "test:drizzle": "tsx test-drizzle.ts",
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit",
-    "prepare": "pnpm build"
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio",
+    "db:drop": "drizzle-kit drop",
+    "install:global": "pnpm build && pnpm link --global",
+    "uninstall:global": "claude-mcp-tools uninstall && pnpm unlink --global",
+    "prepare": "pnpm build",
+    "postinstall": "echo '\n🚀 ClaudeMcpTools built! Next steps:'\necho '   1. pnpm run install:global (to setup everything)'\necho '   2. Or manually: pnpm link --global && claude-mcp-tools install'\n"
   },
   "keywords": [
     "mcp",
     "claude",
     "typescript",
     "agent",
-    "orchestration"
+    "orchestration",
+    "ai",
+    "automation",
+    "development-tools",
+    "cli"
   ],
   "author": "ClaudeMcpTools",
   "license": "MIT",
@@ -36,9 +56,11 @@
     "@modelcontextprotocol/sdk": "^1.15.0",
     "better-sqlite3": "^12.2.0",
     "commander": "^14.0.0",
+    "drizzle-orm": "^0.44.2",
+    "drizzle-zod": "^0.8.2",
     "patchright": "^1.52.5",
     "user-agents": "^1.1.593",
-    "zod": "^3.25.74"
+    "zod": "^3.25.75"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
@@ -47,6 +69,7 @@
     "@typescript-eslint/eslint-plugin": "^8.35.1",
     "@typescript-eslint/parser": "^8.35.1",
     "@vitest/ui": "^3.2.4",
+    "drizzle-kit": "^0.31.4",
     "eslint": "^9.30.1",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3",

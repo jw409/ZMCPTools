@@ -1,4 +1,4 @@
-import { ClaudeDatabase } from '../database/index.js';
+import { DatabaseManager } from '../database/index.js';
 import { createHash } from 'crypto';
 import { join, dirname, resolve } from 'path';
 import { homedir } from 'os';
@@ -82,7 +82,7 @@ export class FoundationCacheService {
   private config: Required<CacheConfig>;
   private lastCleanup: Date = new Date();
 
-  constructor(private claudeDb: ClaudeDatabase, config: CacheConfig = {}) {
+  constructor(private claudeDb: DatabaseManager, config: CacheConfig = {}) {
     this.config = {
       maxCacheSize: config.maxCacheSize ?? 10000,
       defaultTtlHours: config.defaultTtlHours ?? 24 * 7, // 7 days
@@ -456,7 +456,7 @@ export class FoundationCacheService {
         }
       }
     } else if (sessionId) {
-      foundationSessionId = await this.findFoundationSessionId(sessionId);
+      foundationSessionId = await this.findFoundationSessionId(sessionId) || undefined;
     }
     
     // Estimate tokens saved (for subsequent identical requests)
@@ -745,7 +745,7 @@ export class FoundationCacheService {
       const detail = {
         sessionId: session.id,
         projectPath: session.project_path,
-        status: 'valid' as const,
+        status: 'valid' as 'valid' | 'invalid' | 'stale' | 'missing',
         reason: undefined as string | undefined
       };
       
@@ -1147,7 +1147,7 @@ export class FoundationCacheService {
 
   private async updateProjectMetadata(projectPath: string, projectHash: string, fileHashes: Record<string, string>): Promise<void> {
     const keyFiles = await this.getKeyProjectFiles(projectPath);
-    const keyFileInfos: ProjectFileInfo[] = await Promise.all(
+    const keyFileResults = await Promise.all(
       keyFiles.map(async (filePath) => {
         try {
           const stats = await stat(filePath);
@@ -1163,6 +1163,7 @@ export class FoundationCacheService {
         }
       })
     );
+    const keyFileInfos: ProjectFileInfo[] = keyFileResults.filter((info): info is ProjectFileInfo => info !== null);
 
     const validFileInfos = keyFileInfos.filter(Boolean) as ProjectFileInfo[];
     const gitCommitHash = await this.getGitCommitHash(projectPath);
@@ -1370,7 +1371,10 @@ export class FoundationCacheService {
       total_tokens_saved: row.total_tokens_saved,
       cache_hits: row.cache_hits,
       cache_misses: row.cache_misses,
-      derived_sessions: JSON.parse(row.derived_sessions)
+      derived_sessions: JSON.parse(row.derived_sessions),
+      project_hash: row.project_hash || '',
+      file_hashes: JSON.parse(row.file_hashes || '{}'),
+      last_validated: row.last_validated ? new Date(row.last_validated) : new Date()
     };
 
     this.sessionCache.set(sessionId, session);

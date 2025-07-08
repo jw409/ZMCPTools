@@ -1,4 +1,5 @@
 import * as fs from 'fs/promises';
+import { accessSync } from 'fs';
 import * as path from 'path';
 import { createHash } from 'crypto';
 import { FoundationCacheService } from './FoundationCacheService.js';
@@ -388,7 +389,7 @@ export class TreeSummaryService {
         try {
           const markerPath = path.join(currentDir, marker);
           // Use synchronous check for simplicity in this case
-          require('fs').accessSync(markerPath);
+          accessSync(markerPath);
           return currentDir;
         } catch {
           // Continue searching

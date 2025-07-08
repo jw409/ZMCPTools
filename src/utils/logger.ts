@@ -1,0 +1,82 @@
+import { writeFileSync, mkdirSync, existsSync } from 'fs';
+import { join } from 'path';
+import { homedir } from 'os';
+
+export class Logger {
+  private logDir: string;
+  private category: string;
+
+  constructor(category: string) {
+    this.category = category;
+    this.logDir = join(homedir(), '.mcptools', 'logs', category);
+    this.ensureLogDir();
+  }
+
+  private ensureLogDir(): void {
+    if (!existsSync(this.logDir)) {
+      mkdirSync(this.logDir, { recursive: true });
+    }
+  }
+
+  private getLogFileName(): string {
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: '2-digit', 
+      day: '2-digit'
+    }).replace(/\//g, '-');
+    const timeStr = now.toLocaleTimeString('en-US', {
+      hour12: true,
+      hour: '2-digit',
+      minute: '2-digit'
+    }).replace(/[:\s]/g, '').toLowerCase();
+    
+    return `log_${dateStr}_${timeStr}.txt`;
+  }
+
+  private formatLogEntry(level: string, message: string, data?: any): string {
+    const timestamp = new Date().toISOString();
+    const entry = `[${timestamp}] [${level.toUpperCase()}] ${message}`;
+    
+    if (data) {
+      return `${entry}\nData: ${JSON.stringify(data, null, 2)}\n---\n`;
+    }
+    return `${entry}\n`;
+  }
+
+  error(message: string, data?: any): void {
+    const logEntry = this.formatLogEntry('ERROR', message, data);
+    this.writeLog(logEntry);
+    console.error(`[${this.category}] ERROR: ${message}`, data || '');
+  }
+
+  warn(message: string, data?: any): void {
+    const logEntry = this.formatLogEntry('WARN', message, data);
+    this.writeLog(logEntry);
+    console.warn(`[${this.category}] WARN: ${message}`, data || '');
+  }
+
+  info(message: string, data?: any): void {
+    const logEntry = this.formatLogEntry('INFO', message, data);
+    this.writeLog(logEntry);
+    console.log(`[${this.category}] INFO: ${message}`, data || '');
+  }
+
+  debug(message: string, data?: any): void {
+    const logEntry = this.formatLogEntry('DEBUG', message, data);
+    this.writeLog(logEntry);
+    // Only console.log debug in debug mode
+    if (process.env.NODE_ENV === 'development' || process.env.DEBUG) {
+      console.log(`[${this.category}] DEBUG: ${message}`, data || '');
+    }
+  }
+
+  private writeLog(entry: string): void {
+    try {
+      const logFile = join(this.logDir, this.getLogFileName());
+      writeFileSync(logFile, entry, { flag: 'a' });
+    } catch (error) {
+      console.error('Failed to write log entry:', error);
+    }
+  }
+}

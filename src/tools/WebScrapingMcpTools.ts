@@ -5,6 +5,7 @@
 
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
+import { createHash } from 'crypto';
 import type { WebScrapingService } from '../services/WebScrapingService.js';
 import type { MemoryService } from '../services/MemoryService.js';
 
@@ -381,13 +382,15 @@ export class WebScrapingMcpTools {
    * Get or create a documentation source for the given parameters
    */
   private async getOrCreateDocumentationSource(params: any): Promise<string> {
-    // Generate a source ID based on URL
-    const crypto = require('crypto');
-    const urlHash = crypto.createHash('sha256').update(params.url).digest('hex').substring(0, 16);
-    const sourceId = `source_${urlHash}`;
-    
-    // In a real implementation, this would check if the source exists and create it if not
-    // For now, return the generated ID
-    return sourceId;
+    return this.webScrapingService.getOrCreateDocumentationSource({
+      url: params.url,
+      name: params.name,
+      source_type: params.source_type,
+      crawl_depth: params.crawl_depth,
+      selectors: params.selectors,
+      allow_patterns: params.allow_patterns,
+      ignore_patterns: params.ignore_patterns,
+      include_subdomains: params.include_subdomains
+    });
   }
 }

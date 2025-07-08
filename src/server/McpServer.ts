@@ -12,7 +12,7 @@ import type {
   TextContent
 } from '@modelcontextprotocol/sdk/types.js';
 
-import { ClaudeDatabase } from '../database/index.js';
+import { DatabaseManager } from '../database/index.js';
 import { AgentOrchestrationTools } from '../tools/AgentOrchestrationTools.js';
 import { BrowserMcpTools } from '../tools/BrowserMcpTools.js';
 import { WebScrapingMcpTools } from '../tools/WebScrapingMcpTools.js';
@@ -33,7 +33,7 @@ export interface McpServerOptions {
 
 export class McpServer {
   private server: Server;
-  private db: ClaudeDatabase;
+  private db: DatabaseManager;
   private orchestrationTools: AgentOrchestrationTools;
   private browserMcpTools: BrowserMcpTools;
   private webScrapingMcpTools: WebScrapingMcpTools;
@@ -60,7 +60,7 @@ export class McpServer {
     );
 
     // Initialize database
-    this.db = new ClaudeDatabase({ path: options.databasePath });
+    this.db = new DatabaseManager({ path: options.databasePath });
     
     // Initialize services
     const agentService = new AgentService(this.db);
@@ -311,9 +311,9 @@ export class McpServer {
               type: "string",
               description: "Path to the repository"
             },
-            agent_name: {
+            agent_id: {
               type: "string",
-              description: "Name of the agent storing the memory"
+              description: "ID of the agent storing the memory"
             },
             entry_type: {
               type: "string",
@@ -334,7 +334,7 @@ export class McpServer {
               description: "Tags for categorizing the memory"
             }
           },
-          required: ["repository_path", "agent_name", "entry_type", "title", "content"]
+          required: ["repository_path", "agent_id", "entry_type", "title", "content"]
         }
       },
       {
@@ -351,9 +351,9 @@ export class McpServer {
               type: "string",
               description: "Search query text"
             },
-            agent_name: {
+            agent_id: {
               type: "string",
-              description: "Optional agent name to filter by"
+              description: "Optional agent ID to filter by"
             },
             limit: {
               type: "number",
@@ -380,6 +380,21 @@ export class McpServer {
             }
           },
           required: ["repository_path"]
+        }
+      },
+      {
+        name: "terminate_agent",
+        description: "Terminate one or more agents",
+        inputSchema: {
+          type: "object",
+          properties: {
+            agent_ids: {
+              type: "array",
+              items: { type: "string" },
+              description: "Array of agent IDs to terminate"
+            }
+          },
+          required: ["agent_ids"]
         }
       }
     ];
@@ -469,7 +484,7 @@ export class McpServer {
       case "store_memory":
         return await this.orchestrationTools.storeMemory(
           args.repository_path,
-          args.agent_name,
+          args.agent_id,
           args.entry_type,
           args.title,
           args.content,
@@ -480,7 +495,7 @@ export class McpServer {
         return await this.orchestrationTools.searchMemory(
           args.repository_path,
           args.query_text,
-          args.agent_name,
+          args.agent_id,
           args.limit || 10
         );
 
@@ -488,6 +503,11 @@ export class McpServer {
         return await this.orchestrationTools.listAgents(
           args.repository_path,
           args.status
+        );
+
+      case "terminate_agent":
+        return await this.orchestrationTools.terminateAgent(
+          args.agent_ids
         );
 
       default:

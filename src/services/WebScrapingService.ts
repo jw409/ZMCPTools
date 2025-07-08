@@ -3,13 +3,14 @@
  * TypeScript port of Python web_scraper.py with sub-agent integration
  */
 
-import { randomBytes } from 'crypto';
+import { randomBytes, createHash } from 'crypto';
 import { pathToFileURL } from 'url';
 import { performance } from 'perf_hooks';
-import type { ClaudeDatabase } from '../database/index.js';
+import type { DatabaseManager } from '../database/index.js';
 import type { AgentService } from './AgentService.js';
 import type { MemoryService } from './MemoryService.js';
 import { BrowserTools } from '../tools/BrowserTools.js';
+import { Logger } from '../utils/logger.js';
 
 export interface ScrapeJobParams {
   force_refresh?: boolean;
@@ -45,14 +46,28 @@ export class WebScrapingService {
   private browserTools: BrowserTools;
   private isWorkerRunning = false;
   private workerConfig: ScrapingWorkerConfig;
+  private logger: Logger;
 
   constructor(
-    private db: ClaudeDatabase,
+    private db: DatabaseManager,
     private agentService: AgentService,
     private memoryService: MemoryService,
     private repositoryPath: string
   ) {
     this.browserTools = new BrowserTools(memoryService, repositoryPath);
+    this.logger = new Logger('webscraping');
+    
+    // Log constructor parameters for debugging
+    this.logger.info('WebScrapingService initialized', {
+      repositoryPath: this.repositoryPath,
+      repositoryPathType: typeof this.repositoryPath,
+      repositoryPathLength: this.repositoryPath?.length,
+      repositoryPathTruthy: !!this.repositoryPath,
+      hasAgentService: !!this.agentService,
+      hasMemoryService: !!this.memoryService,
+      hasDatabase: !!this.db
+    });
+    
     this.workerConfig = {
       worker_id: `scraper_worker_${Date.now()}_${randomBytes(4).toString('hex')}`,
       max_concurrent_jobs: 2,
@@ -318,6 +333,18 @@ COMPLETION CRITERIA:
 CRITICAL: You have full autonomy. Take any actions needed to complete the scraping successfully.
 `;
 
+    // Log spawn parameters for debugging
+    this.logger.info(`Attempting to spawn sub-agent for job ${job.id}`, {
+      agentName: `web_scraper_${job.id}`,
+      repositoryPath: this.repositoryPath,
+      repositoryPathType: typeof this.repositoryPath,
+      repositoryPathLength: this.repositoryPath?.length,
+      capabilities: ['browser_automation', 'database_access', 'file_operations'],
+      jobId: job.id,
+      sourceId: job.source_id,
+      sourceUrl: jobParams.source_url
+    });
+
     // Spawn the sub-agent
     const subAgentResult = await this.agentService.spawnAgent({
       agentName: `web_scraper_${job.id}`,
@@ -333,8 +360,30 @@ CRITICAL: You have full autonomy. Take any actions needed to complete the scrapi
       }
     });
 
+    // Log spawn result for debugging
+    this.logger.info(`Sub-agent spawn result for job ${job.id}`, {
+      success: !!subAgentResult.agentId,
+      agentId: subAgentResult.agentId,
+      hasAgent: !!subAgentResult.agent,
+      agentPid: subAgentResult.agent?.claudePid,
+      resultKeys: Object.keys(subAgentResult),
+      repositoryPathUsed: this.repositoryPath
+    });
+
     if (!subAgentResult.agentId) {
-      throw new Error(`Failed to spawn sub-agent`);
+      const errorMessage = `Failed to spawn sub-agent for job ${job.id}. Repository path: ${this.repositoryPath} (type: ${typeof this.repositoryPath}). Spawn result: ${JSON.stringify(subAgentResult)}`;
+      this.logger.error(errorMessage, {
+        jobId: job.id,
+        repositoryPath: this.repositoryPath,
+        repositoryPathType: typeof this.repositoryPath,
+        subAgentResult,
+        spawnParameters: {
+          agentName: `web_scraper_${job.id}`,
+          repositoryPath: this.repositoryPath,
+          capabilities: ['browser_automation', 'database_access', 'file_operations']
+        }
+      });
+      throw new Error(errorMessage);
     }
 
     // Store sub-agent info
@@ -353,7 +402,7 @@ CRITICAL: You have full autonomy. Take any actions needed to complete the scrapi
       WHERE id = ?
     `).run(JSON.stringify({
       sub_agent_id: subAgentResult.agentId,
-      sub_agent_pid: subAgentResult.agent.claude_pid,
+      sub_agent_pid: subAgentResult.agent.claudePid,
       processing_method: 'sub_agent',
       started_at: new Date().toISOString()
     }), job.id);
@@ -508,8 +557,7 @@ CRITICAL: You have full autonomy. Take any actions needed to complete the scrapi
    * Generate content hash for deduplication
    */
   private generateContentHash(content: string): string {
-    const crypto = require('crypto');
-    return crypto.createHash('sha256').update(content).digest('hex');
+    return createHash('sha256').update(content).digest('hex');
   }
 
   /**
@@ -517,5 +565,53 @@ CRITICAL: You have full autonomy. Take any actions needed to complete the scrapi
    */
   private sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Get or create a documentation source
+   */
+  getOrCreateDocumentationSource(params: {
+    url: string;
+    name?: string;
+    source_type?: string;
+    crawl_depth?: number;
+    selectors?: Record<string, string>;
+    allow_patterns?: string[];
+    ignore_patterns?: string[];
+    include_subdomains?: boolean;
+  }): string {
+    // Generate a source ID based on URL
+    const urlHash = createHash('sha256').update(params.url).digest('hex').substring(0, 16);
+    const sourceId = `source_${urlHash}`;
+    
+    // Check if source already exists
+    const existing = this.db.database.prepare(
+      'SELECT id FROM documentation_sources WHERE id = ?'
+    ).get(sourceId);
+    
+    if (existing) {
+      return sourceId;
+    }
+    
+    // Create new documentation source
+    this.db.database.prepare(`
+      INSERT INTO documentation_sources (
+        id, name, url, source_type, crawl_depth, selectors, 
+        allow_patterns, ignore_patterns, include_subdomains, 
+        status, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'NOT_STARTED', datetime('now'), datetime('now'))
+    `).run(
+      sourceId,
+      params.name || new URL(params.url).hostname,
+      params.url,
+      (params.source_type || 'guide').toUpperCase(),
+      params.crawl_depth || 3,
+      JSON.stringify(params.selectors || {}),
+      JSON.stringify(params.allow_patterns || []),
+      JSON.stringify(params.ignore_patterns || []),
+      params.include_subdomains ? 1 : 0
+    );
+    
+    return sourceId;
   }
 }
