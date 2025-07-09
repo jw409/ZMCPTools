@@ -7,7 +7,8 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import type { BrowserTools } from './BrowserTools.js';
-import type { MemoryService } from '../services/MemoryService.js';
+import type { KnowledgeGraphService } from '../services/KnowledgeGraphService.js';
+import { MemoryService } from '../services/MemoryService.js';
 
 // Session management types
 interface SessionConfig {
@@ -123,13 +124,16 @@ const InteractSchema = z.object({
 export class BrowserMcpTools {
   private sessionMetadata = new Map<string, SessionMetadata>();
   private cleanupInterval: NodeJS.Timeout | null = null;
+  private memoryService: MemoryService;
 
   constructor(
     private browserTools: BrowserTools,
-    private memoryService: MemoryService,
-    private repositoryPath: string
+    private knowledgeGraphService: KnowledgeGraphService,
+    private repositoryPath: string,
+    private db: any
   ) {
     this.startSessionCleanup();
+    this.memoryService = new MemoryService(db);
   }
 
   /**
@@ -519,12 +523,12 @@ export class BrowserMcpTools {
 
       // Store in memory for other agents
       if (params.agent_id) {
-        await this.memoryService.storeMemory(
+        await this.memoryService.storeInsight(
           this.repositoryPath,
           params.agent_id,
-          'shared',
-          `Browser session created`,
-          `Created ${params.browser_type} session ${result.sessionId} for ${params.workflow_type} workflow (auto-close: ${params.auto_close})`
+          'Browser session created',
+          `Created ${params.browser_type} session ${result.sessionId} for ${params.workflow_type} workflow (auto-close: ${params.auto_close})`,
+          ['browser', 'session', 'created', params.workflow_type, params.browser_type]
         );
       }
 

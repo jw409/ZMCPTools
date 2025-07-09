@@ -6,9 +6,11 @@ ClaudeMcpTools includes native LanceDB integration for high-performance vector s
 
 LanceDB provides native TypeScript vector database capabilities with:
 - **Local Storage**: All data stored locally at `~/.mcptools/lancedb/`
-- **No Python Dependencies**: Pure TypeScript implementation
+- **No Python Dependencies**: Pure TypeScript implementation  
 - **High Performance**: Optimized for fast similarity search
 - **Multi-Provider Embeddings**: Support for OpenAI, HuggingFace, and local models
+- **Rust-Backed Performance**: Uses @lancedb/lancedb (Rust-based) for maximum performance
+- **Migration Support**: Easy table recreation with overwrite mode
 
 ## Quick Start
 
@@ -237,13 +239,26 @@ const guidance = await search_documentation_vectors(
 ```
 ~/.mcptools/
 ├── lancedb/                 # LanceDB vector storage
-│   ├── docs.lance          # Collection files
-│   ├── code-analysis.lance
+│   ├── docs.lance/         # Collection directories (Rust-based)
+│   ├── code-analysis.lance/
+│   ├── knowledge_graph.lance/
 │   └── metadata.json       # Collection metadata
 ├── data/                   # SQLite databases
 │   └── claude_mcp_tools.db
 └── config/                 # Configuration files
     └── vector.json
+```
+
+### Migration and Table Management
+
+LanceDB supports table recreation with overwrite mode:
+
+```typescript
+// Recreate table with new schema
+await db.createTable("my_table", data, { mode: "overwrite" });
+
+// This replaces the old table completely
+// Useful for schema changes or corrupted collections
 ```
 
 ### Backup and Migration
@@ -254,6 +269,10 @@ tar -czf lancedb-backup.tar.gz ~/.mcptools/lancedb/
 
 # Restore from backup
 tar -xzf lancedb-backup.tar.gz -C ~/
+
+# Clean slate - remove all collections
+rm -rf ~/.mcptools/lancedb/
+# Collections will be automatically recreated
 ```
 
 ## Troubleshooting
@@ -276,6 +295,20 @@ tar -xzf lancedb-backup.tar.gz -C ~/
    - Try different embedding providers
    - Adjust similarity threshold
    - Check query text quality
+
+4. **"internal error: entered unreachable code" (Rust panic)**
+   ```typescript
+   // Recreate corrupted collection
+   await db.createTable("corrupted_collection", data, { mode: "overwrite" });
+   
+   // Or delete and recreate
+   rm -rf ~/.mcptools/lancedb/corrupted_collection.lance/
+   ```
+
+5. **"Failed to create collection"**
+   - Check disk space
+   - Verify permissions on `~/.mcptools/lancedb/`
+   - Try recreating with overwrite mode
 
 ### Performance Issues
 
@@ -353,4 +386,56 @@ interface SearchOptions {
 
 ---
 
-**Note**: LanceDB integration is included in ClaudeMcpTools v0.2.0+ with no additional setup required. The vector database is automatically initialized on first use.
+## Migration from Legacy API
+
+If you're upgrading from the older `vectordb` package, note these changes:
+
+### Table Creation
+```typescript
+// Old API
+db.createTable(tableName, data, { writeMode: lancedb.WriteMode.Overwrite });
+
+// New API (@lancedb/lancedb)
+db.createTable(tableName, data, { mode: "overwrite" });
+```
+
+### Index Creation
+```typescript
+// Old API
+await tbl.createIndex({
+  column: "vector",
+  type: "ivf_pq",
+  num_partitions: 2,
+  num_sub_vectors: 2,
+});
+
+// New API
+await table.createIndex("vector", {
+  config: lancedb.Index.ivfPq({
+    numPartitions: 2,
+    numSubVectors: 2,
+  }),
+});
+```
+
+### Search Operations
+```typescript
+// Old API
+await tbl.search(Array(1536).fill(1.2)).limit(10).execute();
+
+// New API
+await tbl.search(Array(128).fill(1.2)).limit(10).toArray();
+```
+
+### Distance Type
+```typescript
+// Old API  
+.metricType(lancedb.MetricType.Cosine)
+
+// New API
+.distanceType("cosine")
+```
+
+---
+
+**Note**: LanceDB integration is included in ClaudeMcpTools v0.2.0+ with no additional setup required. The vector database is automatically initialized on first use. Uses the modern @lancedb/lancedb Rust-backed client for maximum performance.

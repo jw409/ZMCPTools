@@ -132,7 +132,7 @@ Our implementation includes six core service categories:
 
 ### Tool Categories Overview
 
-Our implementation provides 50+ specialized tools organized into 7 categories:
+Our implementation provides 50+ specialized tools organized into 8 categories:
 
 | Category | Tools Count | Primary Purpose |
 |----------|-------------|-----------------|
@@ -143,6 +143,7 @@ Our implementation provides 50+ specialized tools organized into 7 categories:
 | **LanceDB Vector Search** | 9 | Native TypeScript vector database with semantic search |
 | **Foundation Caching** | 7 | Token optimization and caching |
 | **Tree Summary** | 5 | Project structure analysis |
+| **Sequential Thinking** | 1 | Complex problem decomposition and systematic planning |
 
 ---
 
@@ -369,6 +370,47 @@ AI-optimized project structure analysis system:
 - `update_project_metadata`: Maintain project information
 - `get_project_overview`: Generate comprehensive summaries
 - `cleanup_stale_analyses`: Automated maintenance
+
+### Sequential Thinking Tools (1 Tool)
+
+Advanced problem decomposition and systematic planning:
+
+#### 1. `sequential_thinking`
+**Purpose**: Step-by-step problem analysis and solution development
+
+**Key Features**:
+- **Systematic Decomposition**: Break complex problems into manageable steps
+- **Iterative Refinement**: Revise and improve understanding through multiple thoughts
+- **Branching Logic**: Explore alternative approaches and solutions
+- **Progress Tracking**: Monitor thinking progression with thought numbers
+- **Revision Support**: Modify and improve previous thoughts
+
+**API Parameters**:
+```typescript
+interface SequentialThinkingInput {
+  thought: string;              // Current thinking step
+  nextThoughtNeeded: boolean;   // Whether another thought is needed
+  thoughtNumber: number;        // Current thought sequence number
+  totalThoughts: number;        // Estimated total thoughts needed
+  isRevision?: boolean;         // Whether this revises a previous thought
+  revisesThought?: number;      // Thought number being revised
+  branchFromThought?: number;   // Thought to branch from
+  branchId?: string;           // Unique identifier for branch
+}
+```
+
+**Use Cases**:
+- Complex objective decomposition by architect agents
+- Multi-step problem analysis by specialized agents
+- Architecture decision making with trade-off analysis
+- Risk assessment and mitigation planning
+- Systematic debugging and troubleshooting
+
+**Integration Benefits**:
+- **Enhanced Planning**: Better task breakdown and coordination
+- **Improved Decision Making**: Structured analysis of alternatives
+- **Better Documentation**: Reasoning process captured for future reference
+- **Reduced Errors**: Systematic approach reduces overlooked factors
 
 ---
 

@@ -193,38 +193,13 @@ export class AgentService {
       throw new Error(`Invalid tool permissions: ${validation.errors.join(', ')}`);
     }
 
-    // Handle room creation/assignment
+    // Simple room assignment - only use room if explicitly provided
     let roomId = request.roomId;
-    const shouldAutoCreate = request.autoCreateRoom !== false && AgentPermissionManager.shouldAutoCreateRoom(agentType);
     
-    if (!roomId && shouldAutoCreate) {
-      roomId = AgentPermissionManager.generateRoomName(agentType, agentId);
-      
-      // Create the room in the communication system
-      try {
-        await this.communicationRepo.createRoom({
-          name: roomId,
-          repositoryPath: resolvedRepositoryPath,
-          roomMetadata: {
-            agentType,
-            agentId,
-            autoCreated: true,
-            createdAt: new Date().toISOString()
-          }
-        });
-        
-        this.logger.info(`Auto-created room for agent ${agentId}`, {
-          roomId,
-          agentType
-        });
-      } catch (error) {
-        this.logger.warn(`Failed to create room for agent ${agentId}`, {
-          roomId,
-          error: error instanceof Error ? error.message : String(error)
-        });
-        // Continue without room - not critical for agent creation
-        roomId = undefined;
-      }
+    if (roomId) {
+      this.logger.info(`Agent ${agentId} assigned to existing room ${roomId}`);
+    } else {
+      this.logger.info(`Agent ${agentId} created without room - can create one later if needed`);
     }
     
     // Create agent record first
@@ -476,7 +451,12 @@ export class AgentService {
     const agentType = agent.agentType || 'general_agent';
     const hasRoom = !!agent.roomId;
     
-    let prompt = `You are a specialized ${agentType.replace('_', ' ')} agent (${agent.agentName}) with focused capabilities.
+    // Special handling for architect agents
+    if (agentType === 'architect' || agentType === 'architect_agent') {
+      return this.generateArchitectAgentPrompt(agent, taskDescription);
+    }
+    
+    let prompt = `You are a specialized ${agentType.replace('_', ' ')} agent (${agent.agentName}) with focused capabilities and sequential thinking.
 
 AGENT DETAILS:
 - Agent ID: ${agent.id}
@@ -486,10 +466,23 @@ AGENT DETAILS:
 
     if (hasRoom) {
       prompt += `
-- Communication Room: ${agent.roomId}`;
+- Communication Room: ${agent.roomId} (assigned for multi-agent coordination)`;
+    } else {
+      prompt += `
+- Coordination Mode: Memory-based coordination (no room assigned)`;
     }
 
     prompt += `
+
+🧠 SEQUENTIAL THINKING CAPABILITY:
+You have access to the sequential_thinking tool for complex problem decomposition.
+Use this tool systematically for complex challenges in your domain.
+
+🎯 KNOWLEDGE GRAPH INTEGRATION:
+Before starting work, search for relevant knowledge and patterns:
+- search_memory() to learn from previous similar tasks
+- Look for patterns in successful implementations in your domain
+- Use knowledge graph insights to inform your sequential thinking process
 
 SPECIALIZED CAPABILITIES:
 You are a ${agentType.replace('_', ' ')} with specific tool permissions designed for your role.
@@ -497,37 +490,146 @@ Your capabilities include: ${agent.capabilities?.join(', ') || 'general developm
 
 AUTONOMOUS OPERATION GUIDELINES:
 - Work independently within your specialized domain
+- Use sequential_thinking() for complex problem solving
 - Focus on tasks suited to your agent type (${agentType})
 - Use your permitted tools effectively
+- Search knowledge graph before implementing to leverage previous work
 - Coordinate with other agents when beneficial
 - Store insights and learnings in shared memory
 - Make decisions and take actions within your expertise
 
-COMMUNICATION PROTOCOL:`;
+COORDINATION PROTOCOL:`;
 
     if (hasRoom) {
       prompt += `
 - Your assigned room: ${agent.roomId}
 - Use join_room("${agent.roomId}") to join your coordination room
-- Use send_message() to communicate with other agents in your room`;
+- Use send_message() to communicate with other agents in your room
+- This room was created for multi-agent coordination`;
     } else {
       prompt += `
-- Use join_room() to join coordination rooms as needed
-- Use send_message() to communicate with other agents`;
+- No room assigned - use memory-based coordination
+- Use store_memory() as primary coordination method for insights
+- Use search_memory() to learn from other agents' work
+- If you need real-time coordination, use join_room() to create/join rooms
+- Focus on task completion with memory-based coordination`;
     }
 
     prompt += `
-- Use store_memory() to share knowledge and insights
-- Use search_memory() to learn from previous work
-- Report progress and significant findings to coordinating agents
+
+COORDINATION METHODS AVAILABLE:
+- sequential_thinking(): Step-by-step problem decomposition
+- store_memory(): Share insights, progress, and learnings with other agents
+- search_memory(): Learn from previous work and knowledge graph
+- join_room(): Create or join coordination rooms when real-time communication needed
+- send_message(): Communicate with other agents in rooms
 
 TERMINATION PROTOCOL:
-- When your task is complete, report to your room if you're not alone
-- Store final insights and learnings in shared memory
+- When your task is complete, store final insights in shared memory
+- If you're in a room, report completion to other agents
 - If you're the only agent in your room, you may terminate gracefully
 
-CRITICAL: You are an autonomous specialist. Work within your domain expertise.
-Focus on successfully completing your assigned task using your specialized capabilities.`;
+CRITICAL: You are an autonomous specialist with sequential thinking capabilities.
+- Work within your domain expertise
+- Use sequential_thinking() for complex challenges
+- Use appropriate coordination method based on task needs
+- Focus on successfully completing your assigned task
+- Create rooms only when you need real-time coordination with other agents`;
+
+    return prompt;
+  }
+
+  private generateArchitectAgentPrompt(agent: AgentSession, taskDescription: string): string {
+    const hasRoom = !!agent.roomId;
+    
+    let prompt = `🏗️ ARCHITECT AGENT - Strategic Orchestration Leader (${agent.agentName})
+
+AGENT DETAILS:
+- Agent ID: ${agent.id}
+- Agent Type: architect
+- Task: ${taskDescription}
+- Repository: ${agent.repositoryPath}`;
+
+    if (hasRoom) {
+      prompt += `
+- Communication Room: ${agent.roomId} (assigned for multi-agent coordination)`;
+    } else {
+      prompt += `
+- Coordination Mode: Memory-based coordination (no room assigned)`;
+    }
+
+    prompt += `
+
+🧠 SEQUENTIAL THINKING METHODOLOGY:
+You have access to the sequential_thinking tool for complex problem decomposition and planning.
+Use this tool systematically throughout your orchestration process:
+
+1. **Initial Analysis**: Use sequential_thinking() to understand objective scope and complexity
+2. **Problem Decomposition**: Break down the objective into logical components systematically
+3. **Dependency Analysis**: Identify relationships and dependencies between components
+4. **Agent Planning**: Determine optimal agent types and task assignments
+5. **Risk Assessment**: Consider potential challenges and mitigation strategies
+6. **Execution Strategy**: Plan coordination and monitoring approach
+7. **Iterative Refinement**: Revise and improve your approach as understanding deepens
+
+🎯 KNOWLEDGE GRAPH INTEGRATION:
+Before planning, always search for relevant knowledge and patterns:
+- search_memory() to learn from previous similar orchestration
+- Look for patterns in agent coordination, task breakdown, and execution strategies
+- Identify reusable components and successful approaches from past work
+- Use knowledge graph insights to inform your sequential thinking process
+
+ARCHITECT CAPABILITIES:
+Your specialized capabilities include: ${agent.capabilities?.join(', ') || 'orchestration, planning, coordination'}
+
+ORCHESTRATION PHASES:
+1. **STRATEGIC ANALYSIS**: Use sequential_thinking() to analyze the objective
+2. **KNOWLEDGE DISCOVERY**: Search memory for relevant patterns and approaches
+3. **TASK BREAKDOWN**: Create hierarchical task structure with dependencies
+4. **AGENT COORDINATION**: Spawn specialized agents with clear assignments
+5. **PROGRESS MONITORING**: Track progress and adapt strategy as needed
+6. **COMPLETION VERIFICATION**: Ensure quality gates and success criteria
+
+ARCHITECT COORDINATION PROTOCOL:`;
+
+    if (hasRoom) {
+      prompt += `
+- Your assigned room: ${agent.roomId}
+- Use join_room("${agent.roomId}") to join your coordination room
+- Use send_message() to communicate with spawned agents
+- This room was created for orchestration coordination`;
+    } else {
+      prompt += `
+- No room assigned - use memory-based coordination
+- Use store_memory() as primary coordination method for insights
+- Use search_memory() to learn from previous orchestration work
+- Create rooms when you need real-time coordination with multiple agents
+- Focus on orchestration completion with memory-based coordination`;
+    }
+
+    prompt += `
+
+ARCHITECT ORCHESTRATION TOOLS:
+- sequential_thinking(): Step-by-step problem decomposition and planning
+- create_task(): Create sub-tasks with dependencies and requirements
+- spawn_agent(): Create specialized agents with specific task assignments
+- join_room(): Join or create coordination rooms
+- send_message(): Communicate with agents in rooms
+- store_memory(): Share insights, decisions, and patterns
+- search_memory(): Learn from previous orchestration work and knowledge graph
+- list_agents(): Check agent status and coordination needs
+
+CRITICAL ARCHITECT GUIDELINES:
+- ALWAYS start with sequential_thinking() for initial objective analysis
+- Search knowledge graph for relevant orchestration patterns
+- Use sequential_thinking() for complex task decomposition
+- Create hierarchical task structures with clear dependencies
+- Spawn specialized agents with specific, well-defined tasks
+- Monitor progress continuously and adapt strategy as needed
+- Document learnings and patterns for future orchestration
+
+CRITICAL: You are an autonomous architect with advanced sequential thinking capabilities.
+Start immediately with sequential_thinking() to analyze the objective complexity and develop your orchestration strategy.`;
 
     return prompt;
   }

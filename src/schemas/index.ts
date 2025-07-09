@@ -5,6 +5,7 @@ export * from './logs.js';
 export * from './memories.js';
 export * from './scraping.js';
 export * from './tasks.js';
+export * from './knowledge-graph.js';
 
 // Re-export commonly used types for convenience
 export type {
@@ -95,6 +96,25 @@ export type {
   LogErrorRequest,
   LogToolCallRequest,
 } from './logs.js';
+
+export type {
+  // Knowledge graph types
+  KnowledgeEntity,
+  NewKnowledgeEntity,
+  KnowledgeEntityUpdate,
+  KnowledgeRelationship,
+  NewKnowledgeRelationship,
+  KnowledgeRelationshipUpdate,
+  KnowledgeInsight,
+  NewKnowledgeInsight,
+  EntityType,
+  RelationshipType,
+  Confidence,
+  KnowledgeSearch,
+  EntityFilter,
+  RelationshipFilter,
+} from './knowledge-graph.js';
+
 
 // Re-export schemas for validation
 export {
@@ -205,6 +225,28 @@ export {
   logToolCallRequestSchema,
 } from './logs.js';
 
+export {
+  // Knowledge graph schemas
+  entityTypeSchema,
+  relationshipTypeSchema,
+  confidenceSchema,
+  entityPropertiesSchema,
+  relationshipPropertiesSchema,
+  insertKnowledgeEntitySchema,
+  selectKnowledgeEntitySchema,
+  updateKnowledgeEntitySchema,
+  insertKnowledgeRelationshipSchema,
+  selectKnowledgeRelationshipSchema,
+  updateKnowledgeRelationshipSchema,
+  insertKnowledgeInsightSchema,
+  selectKnowledgeInsightSchema,
+  updateKnowledgeInsightSchema,
+  knowledgeSearchSchema,
+  entityFilterSchema,
+  relationshipFilterSchema,
+} from './knowledge-graph.js';
+
+
 // Re-export Drizzle table definitions
 export { memories } from './memories.js';
 export { agentSessions } from './agents.js';
@@ -212,6 +254,7 @@ export { tasks, taskDependencies } from './tasks.js';
 export { chatRooms, chatMessages } from './communication.js';
 export { documentationSources, scrapeJobs, websites, websitePages } from './scraping.js';
 export { errorLogs, toolCallLogs } from './logs.js';
+export { knowledgeEntities, knowledgeRelationships, knowledgeInsights } from './knowledge-graph.js';
 
 // Import tables and schemas for collections
 import { 
@@ -271,6 +314,20 @@ import {
   insertToolCallLogSchema,
   selectToolCallLogSchema
 } from './logs.js';
+import {
+  knowledgeEntities,
+  knowledgeRelationships,
+  knowledgeInsights,
+  insertKnowledgeEntitySchema,
+  selectKnowledgeEntitySchema,
+  updateKnowledgeEntitySchema,
+  insertKnowledgeRelationshipSchema,
+  selectKnowledgeRelationshipSchema,
+  updateKnowledgeRelationshipSchema,
+  insertKnowledgeInsightSchema,
+  selectKnowledgeInsightSchema,
+  updateKnowledgeInsightSchema
+} from './knowledge-graph.js';
 
 // Database schema collections for easier management
 export const allTables = {
@@ -279,6 +336,7 @@ export const allTables = {
   tasks,
   taskDependencies,
   memories,
+  
   
   // Communication tables  
   chatRooms,
@@ -293,6 +351,11 @@ export const allTables = {
   // Log tables
   errorLogs,
   toolCallLogs,
+  
+  // Knowledge graph tables
+  knowledgeEntities,
+  knowledgeRelationships,
+  knowledgeInsights,
 } as const;
 
 // Schema validation collections
@@ -309,6 +372,9 @@ export const insertSchemas = {
   websitePages: insertWebsitePageSchema,
   errorLogs: insertErrorLogSchema,
   toolCallLogs: insertToolCallLogSchema,
+  knowledgeEntities: insertKnowledgeEntitySchema,
+  knowledgeRelationships: insertKnowledgeRelationshipSchema,
+  knowledgeInsights: insertKnowledgeInsightSchema,
 } as const;
 
 export const selectSchemas = {
@@ -324,6 +390,9 @@ export const selectSchemas = {
   websitePages: selectWebsitePageSchema,
   errorLogs: selectErrorLogSchema,
   toolCallLogs: selectToolCallLogSchema,
+  knowledgeEntities: selectKnowledgeEntitySchema,
+  knowledgeRelationships: selectKnowledgeRelationshipSchema,
+  knowledgeInsights: selectKnowledgeInsightSchema,
 } as const;
 
 export const updateSchemas = {
@@ -336,6 +405,9 @@ export const updateSchemas = {
   websites: updateWebsiteSchema,
   websitePages: updateWebsitePageSchema,
   errorLogs: updateErrorLogSchema,
+  knowledgeEntities: updateKnowledgeEntitySchema,
+  knowledgeRelationships: updateKnowledgeRelationshipSchema,
+  knowledgeInsights: updateKnowledgeInsightSchema,
 } as const;
 
 // Database constants

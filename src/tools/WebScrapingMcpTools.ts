@@ -7,7 +7,8 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { createHash } from 'crypto';
 import type { WebScrapingService } from '../services/WebScrapingService.js';
-import type { MemoryService } from '../services/MemoryService.js';
+import type { KnowledgeGraphService } from '../services/KnowledgeGraphService.js';
+import { MemoryService } from '../services/MemoryService.js';
 import { PatternMatcher, type ScrapingPattern, type StringPattern, type PathPattern, type VersionPattern } from '../utils/patternMatcher.js';
 import { ScrapingOptimizer } from '../utils/scrapingOptimizer.js';
 
@@ -208,13 +209,16 @@ function convertTypedParametersToPatterns(params: any): {
 
 export class WebScrapingMcpTools {
   private scrapingOptimizer: ScrapingOptimizer;
+  private memoryService: MemoryService;
   
   constructor(
     private webScrapingService: WebScrapingService,
-    private memoryService: MemoryService,
-    private repositoryPath: string
+    private knowledgeGraphService: KnowledgeGraphService,
+    private repositoryPath: string,
+    private db: any
   ) {
     this.scrapingOptimizer = new ScrapingOptimizer(repositoryPath);
+    this.memoryService = new MemoryService(db);
   }
 
   /**
@@ -642,17 +646,17 @@ export class WebScrapingMcpTools {
 
         // Log optimization results
         if (params.agent_id) {
-          await this.memoryService.storeMemory(
+          await this.memoryService.storeInsight(
             this.repositoryPath,
             params.agent_id,
-            'insight',
             'Scraping parameter optimization',
             `Optimized parameters for ${params.url}:\n` +
             `- Confidence: ${optimizationResult.confidence}\n` +
             `- Reasoning: ${optimizationResult.reasoning}\n` +
             `- Crawl depth: ${optimizationResult.crawlDepth}\n` +
             `- Allow patterns: ${optimizationResult.allowPatterns.length}\n` +
-            `- Ignore patterns: ${optimizationResult.ignorePatterns.length}`
+            `- Ignore patterns: ${optimizationResult.ignorePatterns.length}`,
+            ['scraping', 'optimization', 'parameters']
           );
         }
       } catch (error) {
@@ -678,12 +682,12 @@ export class WebScrapingMcpTools {
 
         // Log fallback usage
         if (params.agent_id) {
-          await this.memoryService.storeMemory(
+          await this.memoryService.storeError(
             this.repositoryPath,
             params.agent_id,
-            'error',
-            'Scraping optimization failed',
-            `Failed to optimize parameters for ${params.url}: ${error instanceof Error ? error.message : 'Unknown error'}. Using fallback parameters.`
+            `Failed to optimize parameters for ${params.url}: ${error instanceof Error ? error.message : 'Unknown error'}. Using fallback parameters.`,
+            { url: params.url, error: error instanceof Error ? error.message : 'Unknown error' },
+            ['scraping', 'optimization', 'error', 'fallback']
           );
         }
       }
@@ -746,12 +750,12 @@ export class WebScrapingMcpTools {
     );
 
     if (result.success && params.agent_id) {
-      await this.memoryService.storeMemory(
+      await this.memoryService.storeInsight(
         this.repositoryPath,
         params.agent_id,
-        'shared',
-        `Documentation scraping queued`,
-        `Queued scraping for ${params.name || params.url} - Job ID: ${result.jobId}`
+        'Documentation scraping queued',
+        `Queued scraping for ${params.name || params.url} - Job ID: ${result.jobId}`,
+        ['scraping', 'documentation', 'queued', 'job']
       );
     }
 

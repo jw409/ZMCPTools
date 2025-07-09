@@ -118,7 +118,7 @@ export abstract class BaseRepository<
     this.insertSchema = config.insertSchema;
     this.selectSchema = config.selectSchema;
     this.updateSchema = config.updateSchema;
-    this.logger = new Logger(config.loggerCategory || `repository-${this.table?._?.name || 'unknown'}`);
+    this.logger = new Logger(config.loggerCategory || `repository-${this.getTableName()}`);
   }
 
   /**
@@ -129,7 +129,7 @@ export abstract class BaseRepository<
       // Validate input data
       const validatedData = this.insertSchema.parse(data);
       
-      this.logger.debug('Creating record', { table: this.table?._?.name || 'unknown-table', data: validatedData });
+      this.logger.debug('Creating record', { table: this.getTableName(), data: validatedData });
       
       return this.drizzleManager.transaction((tx) => {
         // Insert the record
@@ -139,13 +139,13 @@ export abstract class BaseRepository<
           throw new RepositoryError(
             'Failed to create record - no result returned',
             'create',
-            this.table?._?.name || 'unknown-table'
+            this.getTableName()
           );
         }
 
         const created = result[0] as TSelect;
         this.logger.info('Record created successfully', { 
-          table: this.table?._?.name || 'unknown-table', 
+          table: this.getTableName(), 
           id: this.extractId(created) 
         });
         
@@ -155,20 +155,20 @@ export abstract class BaseRepository<
       if (error instanceof z.ZodError) {
         throw new ValidationError(
           'Invalid input data for create operation',
-          this.table?._?.name || 'unknown-table',
+          this.getTableName(),
           error
         );
       }
       
       this.logger.error('Failed to create record', { 
-        table: this.table?._?.name || 'unknown-table', 
+        table: this.getTableName(), 
         error: error instanceof Error ? error.message : String(error)
       });
       
       throw new RepositoryError(
         `Failed to create record: ${error instanceof Error ? error.message : String(error)}`,
         'create',
-        this.table?._?.name || 'unknown-table',
+        this.getTableName(),
         error
       );
     }
@@ -179,7 +179,7 @@ export abstract class BaseRepository<
    */
   async findById(id: string | number): Promise<TSelect | null> {
     try {
-      this.logger.debug('Finding record by ID', { table: this.table?._?.name || 'unknown-table', id });
+      this.logger.debug('Finding record by ID', { table: this.getTableName(), id });
       
       const results = await this.drizzle
         .select()
@@ -190,15 +190,15 @@ export abstract class BaseRepository<
       const record = results[0] as TSelect | undefined;
       
       if (record) {
-        this.logger.debug('Record found', { table: this.table?._?.name || 'unknown-table', id });
+        this.logger.debug('Record found', { table: this.getTableName(), id });
         return record;
       }
       
-      this.logger.debug('Record not found', { table: this.table?._?.name || 'unknown-table', id });
+      this.logger.debug('Record not found', { table: this.getTableName(), id });
       return null;
     } catch (error) {
       this.logger.error('Failed to find record by ID', { 
-        table: this.table?._?.name || 'unknown-table', 
+        table: this.getTableName(), 
         id,
         error: error instanceof Error ? error.message : String(error)
       });
@@ -206,7 +206,7 @@ export abstract class BaseRepository<
       throw new RepositoryError(
         `Failed to find record by ID: ${error instanceof Error ? error.message : String(error)}`,
         'findById',
-        this.table?._?.name || 'unknown-table',
+        this.getTableName(),
         error
       );
     }
@@ -218,7 +218,7 @@ export abstract class BaseRepository<
   async findByField(field: string, value: any): Promise<TSelect[]> {
     try {
       this.logger.debug('Finding records by field', { 
-        table: this.table?._?.name || 'unknown-table', 
+        table: this.getTableName(), 
         field, 
         value 
       });
@@ -227,9 +227,9 @@ export abstract class BaseRepository<
       const column = this.findColumnByName(field);
       if (!column) {
         throw new RepositoryError(
-          `Column ${field} not found in table ${this.table?._?.name || 'unknown-table'}`,
+          `Column ${field} not found in table ${this.getTableName()}`,
           'findByField',
-          this.table?._?.name || 'unknown-table'
+          this.getTableName()
         );
       }
 
@@ -239,7 +239,7 @@ export abstract class BaseRepository<
         .where(eq(column, value));
 
       this.logger.debug('Records found by field', { 
-        table: this.table?._?.name || 'unknown-table', 
+        table: this.getTableName(), 
         field, 
         count: results.length 
       });
@@ -247,7 +247,7 @@ export abstract class BaseRepository<
       return results as TSelect[];
     } catch (error) {
       this.logger.error('Failed to find records by field', { 
-        table: this.table?._?.name || 'unknown-table', 
+        table: this.getTableName(), 
         field,
         error: error instanceof Error ? error.message : String(error)
       });
@@ -255,7 +255,7 @@ export abstract class BaseRepository<
       throw new RepositoryError(
         `Failed to find records by field: ${error instanceof Error ? error.message : String(error)}`,
         'findByField',
-        this.table?._?.name || 'unknown-table',
+        this.getTableName(),
         error
       );
     }
@@ -270,7 +270,7 @@ export abstract class BaseRepository<
       return record !== null;
     } catch (error) {
       this.logger.error('Failed to check record existence', { 
-        table: this.table?._?.name || 'unknown-table', 
+        table: this.getTableName(), 
         id,
         error: error instanceof Error ? error.message : String(error)
       });
@@ -278,7 +278,7 @@ export abstract class BaseRepository<
       throw new RepositoryError(
         `Failed to check record existence: ${error instanceof Error ? error.message : String(error)}`,
         'exists',
-        this.table?._?.name || 'unknown-table',
+        this.getTableName(),
         error
       );
     }
@@ -293,7 +293,7 @@ export abstract class BaseRepository<
       const validatedData = this.updateSchema.parse(data);
       
       this.logger.debug('Updating record', { 
-        table: this.table?._?.name || 'unknown-table', 
+        table: this.getTableName(), 
         id, 
         data: validatedData 
       });
@@ -302,7 +302,7 @@ export abstract class BaseRepository<
         // Check if record exists first (using tx for consistency)
         const existing = tx.select().from(this.table).where(eq(this.primaryKey, id)).get();
         if (!existing) {
-          throw new NotFoundError(this.table?._?.name || 'unknown-table', id);
+          throw new NotFoundError(this.getTableName(), id);
         }
 
         // Perform update
@@ -317,13 +317,13 @@ export abstract class BaseRepository<
           throw new RepositoryError(
             'Failed to update record - no result returned',
             'update',
-            this.table?._?.name || 'unknown-table'
+            this.getTableName()
           );
         }
 
         const updated = result[0] as TSelect;
         this.logger.info('Record updated successfully', { 
-          table: this.table?._?.name || 'unknown-table', 
+          table: this.getTableName(), 
           id 
         });
         
@@ -333,7 +333,7 @@ export abstract class BaseRepository<
       if (error instanceof z.ZodError) {
         throw new ValidationError(
           'Invalid input data for update operation',
-          this.table?._?.name || 'unknown-table',
+          this.getTableName(),
           error
         );
       }
@@ -343,7 +343,7 @@ export abstract class BaseRepository<
       }
       
       this.logger.error('Failed to update record', { 
-        table: this.table?._?.name || 'unknown-table', 
+        table: this.getTableName(), 
         id,
         error: error instanceof Error ? error.message : String(error)
       });
@@ -351,7 +351,7 @@ export abstract class BaseRepository<
       throw new RepositoryError(
         `Failed to update record: ${error instanceof Error ? error.message : String(error)}`,
         'update',
-        this.table?._?.name || 'unknown-table',
+        this.getTableName(),
         error
       );
     }
@@ -362,13 +362,13 @@ export abstract class BaseRepository<
    */
   async delete(id: string | number): Promise<boolean> {
     try {
-      this.logger.debug('Deleting record', { table: this.table?._?.name || 'unknown-table', id });
+      this.logger.debug('Deleting record', { table: this.getTableName(), id });
       
       return this.drizzleManager.transaction((tx) => {
         // Check if record exists first (using tx for consistency)
         const existing = tx.select().from(this.table).where(eq(this.primaryKey, id)).get();
         if (!existing) {
-          this.logger.debug('Record not found for deletion', { table: this.table?._?.name || 'unknown-table', id });
+          this.logger.debug('Record not found for deletion', { table: this.getTableName(), id });
           return false;
         }
 
@@ -381,16 +381,16 @@ export abstract class BaseRepository<
         const deleted = result.changes > 0;
         
         if (deleted) {
-          this.logger.info('Record deleted successfully', { table: this.table?._?.name || 'unknown-table', id });
+          this.logger.info('Record deleted successfully', { table: this.getTableName(), id });
         } else {
-          this.logger.warn('No records were deleted', { table: this.table?._?.name || 'unknown-table', id });
+          this.logger.warn('No records were deleted', { table: this.getTableName(), id });
         }
         
         return deleted;
       });
     } catch (error) {
       this.logger.error('Failed to delete record', { 
-        table: this.table?._?.name || 'unknown-table', 
+        table: this.getTableName(), 
         id,
         error: error instanceof Error ? error.message : String(error)
       });
@@ -398,7 +398,7 @@ export abstract class BaseRepository<
       throw new RepositoryError(
         `Failed to delete record: ${error instanceof Error ? error.message : String(error)}`,
         'delete',
-        this.table?._?.name || 'unknown-table',
+        this.getTableName(),
         error
       );
     }
@@ -412,7 +412,7 @@ export abstract class BaseRepository<
       const { where, orderBy, limit = 50, offset = 0 } = options;
       
       this.logger.debug('Listing records', { 
-        table: this.table?._?.name || 'unknown-table', 
+        table: this.getTableName(), 
         limit, 
         offset,
         hasWhere: !!where,
@@ -454,7 +454,7 @@ export abstract class BaseRepository<
       };
 
       this.logger.debug('Records listed successfully', { 
-        table: this.table?._?.name || 'unknown-table', 
+        table: this.getTableName(), 
         count: results.length,
         total: totalCount,
         hasMore: paginatedResult.hasMore
@@ -463,14 +463,14 @@ export abstract class BaseRepository<
       return paginatedResult;
     } catch (error) {
       this.logger.error('Failed to list records', { 
-        table: this.table?._?.name || 'unknown-table',
+        table: this.getTableName(),
         error: error instanceof Error ? error.message : String(error)
       });
       
       throw new RepositoryError(
         `Failed to list records: ${error instanceof Error ? error.message : String(error)}`,
         'list',
-        this.table?._?.name || 'unknown-table',
+        this.getTableName(),
         error
       );
     }
@@ -482,7 +482,7 @@ export abstract class BaseRepository<
   async count(where?: any): Promise<number> {
     try {
       this.logger.debug('Counting records', { 
-        table: this.table?._?.name || 'unknown-table',
+        table: this.getTableName(),
         hasWhere: !!where
       });
 
@@ -498,21 +498,21 @@ export abstract class BaseRepository<
       const recordCount = result[0]?.count || 0;
       
       this.logger.debug('Records counted', { 
-        table: this.table?._?.name || 'unknown-table', 
+        table: this.getTableName(), 
         count: recordCount 
       });
       
       return recordCount;
     } catch (error) {
       this.logger.error('Failed to count records', { 
-        table: this.table?._?.name || 'unknown-table',
+        table: this.getTableName(),
         error: error instanceof Error ? error.message : String(error)
       });
       
       throw new RepositoryError(
         `Failed to count records: ${error instanceof Error ? error.message : String(error)}`,
         'count',
-        this.table?._?.name || 'unknown-table',
+        this.getTableName(),
         error
       );
     }
@@ -529,7 +529,7 @@ export abstract class BaseRepository<
    * Execute multiple operations in a transaction with enhanced error handling
    */
   async transaction<T>(fn: (repository: this) => Promise<T>): Promise<T> {
-    const tableName = this.table?._?.name || 'unknown-table';
+    const tableName = this.getTableName();
     const startTime = Date.now();
     
     try {
@@ -576,7 +576,7 @@ export abstract class BaseRepository<
       const validatedData = data.map(item => this.insertSchema.parse(item));
       
       this.logger.debug('Bulk creating records', { 
-        table: this.table?._?.name || 'unknown-table', 
+        table: this.getTableName(), 
         count: validatedData.length 
       });
       
@@ -584,7 +584,7 @@ export abstract class BaseRepository<
         const results = tx.insert(this.table).values(validatedData as any).returning().all();
         
         this.logger.info('Bulk create completed successfully', { 
-          table: this.table?._?.name || 'unknown-table', 
+          table: this.getTableName(), 
           count: Array.isArray(results) ? results.length : 1
         });
         
@@ -594,13 +594,13 @@ export abstract class BaseRepository<
       if (error instanceof z.ZodError) {
         throw new ValidationError(
           'Invalid input data for bulk create operation',
-          this.table?._?.name || 'unknown-table',
+          this.getTableName(),
           error
         );
       }
       
       this.logger.error('Failed to bulk create records', { 
-        table: this.table?._?.name || 'unknown-table',
+        table: this.getTableName(),
         count: data.length,
         error: error instanceof Error ? error.message : String(error)
       });
@@ -608,7 +608,7 @@ export abstract class BaseRepository<
       throw new RepositoryError(
         `Failed to bulk create records: ${error instanceof Error ? error.message : String(error)}`,
         'bulkCreate',
-        this.table?._?.name || 'unknown-table',
+        this.getTableName(),
         error
       );
     }
@@ -618,8 +618,8 @@ export abstract class BaseRepository<
    * Find column by name (helper method)
    */
   protected findColumnByName(name: string): SQLiteColumn | null {
-    const columns = Object.values(this.table._.columns);
-    return columns.find(col => col.name === name) || null;
+    // In Drizzle, column names match property names, so we can access them directly
+    return (this.table as any)[name] || null;
   }
 
   /**
@@ -628,6 +628,24 @@ export abstract class BaseRepository<
   protected extractId(record: TSelect): string | number {
     const pkName = this.primaryKey.name;
     return (record as any)[pkName];
+  }
+
+  /**
+   * Get the table name from the Drizzle table object
+   */
+  protected getTableName(): string {
+    try {
+      // Try to get the table name from the symbol first
+      const symbolName = (this.table as any)[Symbol.for('drizzle:Name')];
+      if (symbolName) {
+        return symbolName;
+      }
+      
+      // Fallback to getSQL approach
+      return (this.table.getSQL() as any).usedTables[0] || 'unknown-table';
+    } catch {
+      return 'unknown-table';
+    }
   }
 }
 

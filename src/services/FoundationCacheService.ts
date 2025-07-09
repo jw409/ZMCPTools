@@ -784,7 +784,7 @@ export class FoundationCacheService {
   }
 
   /**
-   * Calculate project hash based on key files and structure
+   * Calculate project hash based on key files and structure with enhanced session key strategies
    */
   async calculateProjectHash(projectPath: string): Promise<string> {
     const keyFiles = await this.getKeyProjectFiles(projectPath);
@@ -805,11 +805,23 @@ export class FoundationCacheService {
     // Include directory structure hash
     const structureHash = await this.calculateDirectoryStructureHash(projectPath);
     
+    // Enhanced session key strategy: include semantic versioning
+    const semanticVersion = await this.extractSemanticVersion(projectPath);
+    
+    // Include dependency fingerprint for better cache sharing
+    const dependencyFingerprint = await this.calculateDependencyFingerprint(projectPath);
+    
+    // Include project type and framework fingerprint
+    const projectFingerprint = await this.calculateProjectFingerprint(projectPath);
+    
     const combinedHash = createHash('sha256')
       .update(keyFiles.join('|'))
       .update(fileHashes.join('|'))
       .update(gitHash || '')
       .update(structureHash)
+      .update(semanticVersion)
+      .update(dependencyFingerprint)
+      .update(projectFingerprint)
       .digest('hex');
 
     return combinedHash;
@@ -1046,6 +1058,318 @@ export class FoundationCacheService {
       }
       return name === pattern;
     });
+  }
+
+  /**
+   * Extract semantic version for better cache key generation
+   */
+  private async extractSemanticVersion(projectPath: string): Promise<string> {
+    try {
+      const packageJsonPath = join(projectPath, 'package.json');
+      const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'));
+      
+      if (packageJson.version) {
+        // Extract major.minor for cache sharing across patch versions
+        const version = packageJson.version.split('.');
+        return `${version[0]}.${version[1]}`;
+      }
+    } catch {
+      // Try other version sources
+      try {
+        const pyprojectPath = join(projectPath, 'pyproject.toml');
+        const pyprojectContent = await readFile(pyprojectPath, 'utf8');
+        const versionMatch = pyprojectContent.match(/version\s*=\s*["']([^"']+)["']/);
+        if (versionMatch) {
+          const version = versionMatch[1].split('.');
+          return `${version[0]}.${version[1]}`;
+        }
+      } catch {
+        // Try Cargo.toml
+        try {
+          const cargoPath = join(projectPath, 'Cargo.toml');
+          const cargoContent = await readFile(cargoPath, 'utf8');
+          const versionMatch = cargoContent.match(/version\s*=\s*["']([^"']+)["']/);
+          if (versionMatch) {
+            const version = versionMatch[1].split('.');
+            return `${version[0]}.${version[1]}`;
+          }
+        } catch {
+          // No version found
+        }
+      }
+    }
+    
+    return '0.0';
+  }
+
+  /**
+   * Calculate dependency fingerprint for better cache sharing
+   */
+  private async calculateDependencyFingerprint(projectPath: string): Promise<string> {
+    const dependencies: string[] = [];
+    
+    try {
+      // Node.js dependencies
+      const packageJsonPath = join(projectPath, 'package.json');
+      const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'));
+      
+      if (packageJson.dependencies) {
+        // Focus on major framework dependencies for fingerprinting
+        const majorDeps = ['react', 'vue', 'angular', 'next', 'nuxt', 'express', 'fastify'];
+        for (const dep of majorDeps) {
+          if (packageJson.dependencies[dep]) {
+            const version = packageJson.dependencies[dep].replace(/[^\d.]/g, '');
+            const majorVersion = version.split('.')[0];
+            dependencies.push(`${dep}@${majorVersion}`);
+          }
+        }
+        
+        // Add TypeScript if present
+        if (packageJson.devDependencies?.typescript) {
+          const version = packageJson.devDependencies.typescript.replace(/[^\d.]/g, '');
+          const majorVersion = version.split('.')[0];
+          dependencies.push(`typescript@${majorVersion}`);
+        }
+      }
+    } catch {
+      // Try Python dependencies
+      try {
+        const requirementsPath = join(projectPath, 'requirements.txt');
+        const requirements = await readFile(requirementsPath, 'utf8');
+        
+        const majorPythonDeps = ['django', 'flask', 'fastapi', 'numpy', 'pandas', 'tensorflow', 'pytorch'];
+        for (const line of requirements.split('\n')) {
+          const dep = line.trim().split('==')[0].split('>=')[0].split('~=')[0];
+          if (majorPythonDeps.includes(dep.toLowerCase())) {
+            dependencies.push(dep.toLowerCase());
+          }
+        }
+      } catch {
+        // Try other dependency files
+        try {
+          const pyprojectPath = join(projectPath, 'pyproject.toml');
+          const pyprojectContent = await readFile(pyprojectPath, 'utf8');
+          // Simple extraction of dependencies from pyproject.toml
+          const depsMatch = pyprojectContent.match(/dependencies\s*=\s*\[(.*?)\]/s);
+          if (depsMatch) {
+            const deps = depsMatch[1].split(',').map(d => d.trim().replace(/["']/g, ''));
+            for (const dep of deps) {
+              const depName = dep.split('>=')[0].split('==')[0].split('~=')[0].trim();
+              if (depName) {
+                dependencies.push(depName);
+              }
+            }
+          }
+        } catch {
+          // No dependency file found
+        }
+      }
+    }
+    
+    return dependencies.sort().join('|');
+  }
+
+  /**
+   * Calculate project fingerprint for framework and tool identification
+   */
+  private async calculateProjectFingerprint(projectPath: string): Promise<string> {
+    const fingerprint: string[] = [];
+    
+    // Check for framework indicators
+    const frameworks = await this.detectFrameworks(projectPath);
+    fingerprint.push(...frameworks);
+    
+    // Check for build tools
+    const buildTools = await this.detectBuildTools(projectPath);
+    fingerprint.push(...buildTools);
+    
+    // Check for testing frameworks
+    const testFrameworks = await this.detectTestFrameworks(projectPath);
+    fingerprint.push(...testFrameworks);
+    
+    // Check for linting/formatting tools
+    const lintTools = await this.detectLintingTools(projectPath);
+    fingerprint.push(...lintTools);
+    
+    return fingerprint.sort().join('|');
+  }
+
+  /**
+   * Detect frameworks in the project
+   */
+  private async detectFrameworks(projectPath: string): Promise<string[]> {
+    const frameworks: string[] = [];
+    
+    try {
+      const packageJsonPath = join(projectPath, 'package.json');
+      const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'));
+      
+      const allDeps = {
+        ...packageJson.dependencies,
+        ...packageJson.devDependencies
+      };
+      
+      // Frontend frameworks
+      if (allDeps.react) frameworks.push('react');
+      if (allDeps.vue) frameworks.push('vue');
+      if (allDeps['@angular/core']) frameworks.push('angular');
+      if (allDeps.next) frameworks.push('nextjs');
+      if (allDeps.nuxt) frameworks.push('nuxt');
+      if (allDeps.svelte) frameworks.push('svelte');
+      
+      // Backend frameworks
+      if (allDeps.express) frameworks.push('express');
+      if (allDeps.fastify) frameworks.push('fastify');
+      if (allDeps.koa) frameworks.push('koa');
+      if (allDeps.nest) frameworks.push('nestjs');
+      
+      // Build tools
+      if (allDeps.vite) frameworks.push('vite');
+      if (allDeps.webpack) frameworks.push('webpack');
+      if (allDeps.rollup) frameworks.push('rollup');
+      if (allDeps.parcel) frameworks.push('parcel');
+      
+    } catch {
+      // Try other project types
+      try {
+        const pyprojectPath = join(projectPath, 'pyproject.toml');
+        const pyprojectContent = await readFile(pyprojectPath, 'utf8');
+        
+        if (pyprojectContent.includes('django')) frameworks.push('django');
+        if (pyprojectContent.includes('flask')) frameworks.push('flask');
+        if (pyprojectContent.includes('fastapi')) frameworks.push('fastapi');
+        if (pyprojectContent.includes('pytest')) frameworks.push('pytest');
+        
+      } catch {
+        // Try Cargo.toml for Rust
+        try {
+          const cargoPath = join(projectPath, 'Cargo.toml');
+          const cargoContent = await readFile(cargoPath, 'utf8');
+          
+          if (cargoContent.includes('actix-web')) frameworks.push('actix-web');
+          if (cargoContent.includes('warp')) frameworks.push('warp');
+          if (cargoContent.includes('rocket')) frameworks.push('rocket');
+          if (cargoContent.includes('axum')) frameworks.push('axum');
+          
+        } catch {
+          // No framework detected
+        }
+      }
+    }
+    
+    return frameworks;
+  }
+
+  /**
+   * Detect build tools in the project
+   */
+  private async detectBuildTools(projectPath: string): Promise<string[]> {
+    const buildTools: string[] = [];
+    
+    // Check for build config files
+    const buildConfigs = [
+      { file: 'webpack.config.js', tool: 'webpack' },
+      { file: 'webpack.config.ts', tool: 'webpack' },
+      { file: 'vite.config.js', tool: 'vite' },
+      { file: 'vite.config.ts', tool: 'vite' },
+      { file: 'rollup.config.js', tool: 'rollup' },
+      { file: 'rollup.config.ts', tool: 'rollup' },
+      { file: 'esbuild.config.js', tool: 'esbuild' },
+      { file: 'turbo.json', tool: 'turbo' },
+      { file: 'nx.json', tool: 'nx' },
+      { file: 'lerna.json', tool: 'lerna' },
+      { file: 'rush.json', tool: 'rush' }
+    ];
+    
+    for (const config of buildConfigs) {
+      try {
+        await stat(join(projectPath, config.file));
+        buildTools.push(config.tool);
+      } catch {
+        // File doesn't exist
+      }
+    }
+    
+    return buildTools;
+  }
+
+  /**
+   * Detect testing frameworks in the project
+   */
+  private async detectTestFrameworks(projectPath: string): Promise<string[]> {
+    const testFrameworks: string[] = [];
+    
+    try {
+      const packageJsonPath = join(projectPath, 'package.json');
+      const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'));
+      
+      const allDeps = {
+        ...packageJson.dependencies,
+        ...packageJson.devDependencies
+      };
+      
+      if (allDeps.jest) testFrameworks.push('jest');
+      if (allDeps.vitest) testFrameworks.push('vitest');
+      if (allDeps.mocha) testFrameworks.push('mocha');
+      if (allDeps.jasmine) testFrameworks.push('jasmine');
+      if (allDeps.cypress) testFrameworks.push('cypress');
+      if (allDeps.playwright) testFrameworks.push('playwright');
+      if (allDeps['@testing-library/react']) testFrameworks.push('react-testing-library');
+      if (allDeps['@testing-library/vue']) testFrameworks.push('vue-testing-library');
+      
+    } catch {
+      // No package.json found
+    }
+    
+    return testFrameworks;
+  }
+
+  /**
+   * Detect linting and formatting tools
+   */
+  private async detectLintingTools(projectPath: string): Promise<string[]> {
+    const lintTools: string[] = [];
+    
+    try {
+      const packageJsonPath = join(projectPath, 'package.json');
+      const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'));
+      
+      const allDeps = {
+        ...packageJson.dependencies,
+        ...packageJson.devDependencies
+      };
+      
+      if (allDeps.eslint) lintTools.push('eslint');
+      if (allDeps.prettier) lintTools.push('prettier');
+      if (allDeps.tslint) lintTools.push('tslint');
+      if (allDeps.stylelint) lintTools.push('stylelint');
+      if (allDeps.commitlint) lintTools.push('commitlint');
+      
+    } catch {
+      // No package.json found
+    }
+    
+    // Check for config files
+    const lintConfigs = [
+      { file: '.eslintrc.js', tool: 'eslint' },
+      { file: '.eslintrc.json', tool: 'eslint' },
+      { file: '.prettierrc', tool: 'prettier' },
+      { file: '.stylelintrc', tool: 'stylelint' },
+      { file: 'commitlint.config.js', tool: 'commitlint' }
+    ];
+    
+    for (const config of lintConfigs) {
+      try {
+        await stat(join(projectPath, config.file));
+        if (!lintTools.includes(config.tool)) {
+          lintTools.push(config.tool);
+        }
+      } catch {
+        // File doesn't exist
+      }
+    }
+    
+    return lintTools;
   }
 
   private async findValidFoundationSession(projectPath: string, projectHash: string): Promise<FoundationSession | null> {

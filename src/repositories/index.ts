@@ -93,6 +93,11 @@ export { WebsiteRepository } from './WebsiteRepository.js';
 export { WebsitePagesRepository } from './WebsitePagesRepository.js';
 export { ToolCallLogRepository } from './ToolCallLogRepository.js';
 export { ErrorLogRepository } from './ErrorLogRepository.js';
+export { 
+  KnowledgeEntityRepository,
+  KnowledgeRelationshipRepository,
+  KnowledgeInsightRepository
+} from './KnowledgeGraphRepository.js';
 
 /**
  * Helper function to create a type-safe repository with full TypeScript support

@@ -287,6 +287,7 @@ function createProjectConfig(): void {
     "mcp__claude-mcp-tools__list_rooms",
     "mcp__claude-mcp-tools__list_room_messages",
 
+
     // Browser Automation Tools (6 tools)
     "mcp__claude-mcp-tools__create_browser_session",
     "mcp__claude-mcp-tools__navigate_and_scrape",

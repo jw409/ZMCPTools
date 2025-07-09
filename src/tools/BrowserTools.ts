@@ -7,7 +7,7 @@ import { chromium, firefox, webkit } from 'patchright';
 import type { Browser, Page, BrowserContext } from 'patchright';
 import UserAgent from 'user-agents';
 import type { DatabaseManager } from '../database/index.js';
-import type { MemoryService } from '../services/MemoryService.js';
+import type { KnowledgeGraphService } from '../services/KnowledgeGraphService.js';
 
 /**
  * Generate realistic Chrome user agents for better browser fingerprinting
@@ -91,7 +91,7 @@ export class BrowserTools {
   private cleanupInterval: NodeJS.Timeout | null = null;
 
   constructor(
-    private memoryService: MemoryService,
+    private knowledgeGraphService: KnowledgeGraphService,
     private repositoryPath: string
   ) {
     this.startCleanupService();
@@ -208,14 +208,24 @@ export class BrowserTools {
 
       this.sessions.set(sessionId, session);
 
-      // Store in memory for other agents
-      await this.memoryService.storeMemory(
-        this.repositoryPath,
-        options.agentId || 'system',
-        'shared',
-        `Browser session created: ${sessionId}`,
-        `Created ${browserType} browser session with ID ${sessionId}`
-      );
+      // Store in knowledge graph for other agents
+      try {
+        await this.knowledgeGraphService.createEntity({
+          id: `browser-session-${Date.now()}`,
+          repositoryPath: this.repositoryPath,
+          entityType: 'task',
+          name: `Browser session created: ${sessionId}`,
+          description: `Created ${browserType} browser session with ID ${sessionId}`,
+          properties: { sessionId, browserType },
+          discoveredBy: options.agentId || 'system',
+          discoveredDuring: 'browser-session-creation',
+          importanceScore: 0.3,
+          confidenceScore: 1.0,
+          relevanceScore: 0.5
+        });
+      } catch (error) {
+        console.warn('Failed to store browser session in knowledge graph:', error);
+      }
 
       return { success: true, sessionId };
     } catch (error) {

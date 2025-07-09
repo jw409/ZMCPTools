@@ -1,8 +1,11 @@
 import { DatabaseManager } from '../database/index.js';
 import { TaskRepository } from '../repositories/TaskRepository.js';
 import { AgentRepository } from '../repositories/AgentRepository.js';
+import { MemoryRepository } from '../repositories/MemoryRepository.js';
 import { PathUtils } from '../utils/pathUtils.js';
+import { Logger } from '../utils/logger.js';
 import type { Task, NewTask, TaskUpdate, TaskStatus, TaskType, AgentStatus } from '../schemas/index.js';
+import { randomUUID } from 'crypto';
 
 export interface CreateTaskRequest {
   repositoryPath: string;
@@ -12,394 +15,561 @@ export interface CreateTaskRequest {
   parentTaskId?: string;
   priority?: number;
   assignedAgentId?: string;
+  estimatedDuration?: number;
+  tags?: string[];
 }
 
 export interface TaskServiceUpdate {
   status?: TaskStatus;
   results?: Record<string, any>;
   requirements?: Record<string, any>;
+  progressPercentage?: number;
+  notes?: string;
 }
 
 export interface TaskExecutionPlan {
   tasks: Task[];
   executionOrder: string[];
   dependencies: Map<string, string[]>;
+  criticalPath: string[];
+  estimatedDuration: number;
+  riskAssessment: TaskRiskAssessment;
 }
 
+export interface TaskRiskAssessment {
+  highRiskTasks: string[];
+  potentialBottlenecks: string[];
+  mitigationStrategies: string[];
+  confidenceLevel: number;
+}
+
+/**
+ * Simplified TaskService
+ * Provides essential task management functionality without over-engineering
+ */
 export class TaskService {
+  private logger: Logger;
   private taskRepo: TaskRepository;
   private agentRepo: AgentRepository;
+  private memoryRepo: MemoryRepository;
 
   constructor(private db: DatabaseManager) {
+    this.logger = new Logger('task-service');
     this.taskRepo = new TaskRepository(db);
     this.agentRepo = new AgentRepository(db);
+    this.memoryRepo = new MemoryRepository(db);
   }
 
+  /**
+   * Create a new task
+   */
   async createTask(request: CreateTaskRequest): Promise<Task> {
-    const taskId = this.generateTaskId();
-    const resolvedRepositoryPath = PathUtils.resolveRepositoryPath(request.repositoryPath, 'task creation');
-    
-    const taskData: NewTask = {
-      id: taskId,
-      repositoryPath: resolvedRepositoryPath,
-      taskType: request.taskType,
-      status: 'pending',
-      assignedAgentId: request.assignedAgentId,
-      parentTaskId: request.parentTaskId,
-      priority: request.priority || 1,
-      description: request.description,
-      requirements: request.requirements || {},
-      results: {}
-    };
+    try {
+      const normalizedPath = request.repositoryPath;
+      
+      const taskData: NewTask = {
+        id: randomUUID(),
+        repositoryPath: normalizedPath,
+        taskType: request.taskType,
+        description: request.description,
+        requirements: request.requirements || {},
+        parentTaskId: request.parentTaskId,
+        priority: request.priority || 1,
+        assignedAgentId: request.assignedAgentId,
+        status: 'pending'
+      };
 
-    const task = await this.taskRepo.create(taskData);
-    
-    // If assigned to an agent, update agent status
-    if (request.assignedAgentId) {
-      await this.agentRepo.update(request.assignedAgentId, { status: 'active' });
+      const task = await this.taskRepo.create(taskData);
+      
+      // Create memory entry
+      await this.memoryRepo.create({
+        id: randomUUID(),
+        repositoryPath: task.repositoryPath,
+        agentId: 'system',
+        memoryType: 'progress',
+        title: `Task Created: ${task.description.substring(0, 50)}...`,
+        content: `Task created: ${task.description}`,
+        tags: ['task-creation', task.taskType, 'system'],
+        confidence: 0.9,
+        relevanceScore: 1.0,
+        miscData: {
+          taskId: task.id,
+          taskType: task.taskType,
+          priority: task.priority,
+          action: 'created'
+        }
+      });
+
+      this.logger.info('Task created successfully', { taskId: task.id, taskType: task.taskType });
+      return task;
+    } catch (error) {
+      this.logger.error('Failed to create task', { error, request });
+      throw error;
     }
-
-    return task;
   }
 
+  /**
+   * Update task status and progress
+   */
+  async updateTask(taskId: string, update: TaskServiceUpdate): Promise<Task> {
+    try {
+      const task = await this.taskRepo.findById(taskId);
+      if (!task) {
+        throw new Error(`Task not found: ${taskId}`);
+      }
+
+      const updatedTask = await this.taskRepo.update(taskId, update);
+      
+      // Create memory entry for update
+      await this.memoryRepo.create({
+        id: randomUUID(),
+        repositoryPath: task.repositoryPath,
+        agentId: task.assignedAgentId || 'system',
+        memoryType: 'progress',
+        title: `Task Updated: ${task.description.substring(0, 50)}...`,
+        content: `Task updated: ${JSON.stringify(update)}`,
+        tags: ['task-update', task.taskType, task.status],
+        confidence: 0.8,
+        relevanceScore: 1.0,
+        miscData: {
+          taskId: task.id,
+          statusChange: `${task.status} -> ${update.status || task.status}`,
+          progressPercentage: update.progressPercentage || 0,
+          action: 'updated'
+        }
+      });
+
+      this.logger.info('Task updated successfully', { taskId, update });
+      return updatedTask;
+    } catch (error) {
+      this.logger.error('Failed to update task', { error, taskId, update });
+      throw error;
+    }
+  }
+
+  /**
+   * Get task by ID
+   */
   async getTask(taskId: string): Promise<Task | null> {
     return await this.taskRepo.findById(taskId);
   }
 
-  async listTasks(repositoryPath: string, options: any = {}): Promise<Task[]> {
-    const resolvedRepositoryPath = PathUtils.resolveRepositoryPath(repositoryPath, 'list tasks');
-    return await this.taskRepo.findByRepositoryPath(resolvedRepositoryPath, options);
+  /**
+   * Get tasks by repository
+   */
+  async getTasksByRepository(repositoryPath: string, options: {
+    status?: TaskStatus;
+    taskType?: TaskType;
+    assignedAgentId?: string;
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<Task[]> {
+    return await this.taskRepo.findByRepositoryPath(repositoryPath, options);
   }
 
-  async getAgentTasks(agentId: string): Promise<Task[]> {
-    return await this.taskRepo.findByRepositoryPath('', { assignedAgentId: agentId });
+  /**
+   * Get tasks by agent
+   */
+  async getTasksByAgent(agentId: string, options: {
+    status?: TaskStatus;
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<Task[]> {
+    return await this.taskRepo.findByField('assignedAgentId', agentId);
   }
 
-  async getPendingTasks(repositoryPath: string): Promise<Task[]> {
-    const resolvedRepositoryPath = PathUtils.resolveRepositoryPath(repositoryPath, 'get pending tasks');
-    return await this.taskRepo.findByRepositoryPath(resolvedRepositoryPath, { status: 'pending' });
-  }
-
-  async getReadyTasks(repositoryPath: string): Promise<Task[]> {
-    const resolvedRepositoryPath = PathUtils.resolveRepositoryPath(repositoryPath, 'get ready tasks');
-    return await this.taskRepo.findByRepositoryPath(resolvedRepositoryPath, { status: 'pending' });
-  }
-
-  async updateTask(taskId: string, update: TaskServiceUpdate): Promise<void> {
-    const updateData: any = {};
-    
-    if (update.status) {
-      updateData.status = update.status;
-    }
-    
-    if (update.requirements) {
-      updateData.requirements = update.requirements;
-    }
-    
-    if (update.results) {
-      updateData.results = update.results;
-    }
-    
-    await this.taskRepo.update(taskId, updateData);
-  }
-
-  async assignTask(taskId: string, agentId: string): Promise<void> {
-    const task = await this.taskRepo.findById(taskId);
-    if (!task) {
-      throw new Error(`Task ${taskId} not found`);
-    }
-
-    const agent = await this.agentRepo.findById(agentId);
-    if (!agent) {
-      throw new Error(`Agent ${agentId} not found`);
-    }
-
-    // Assign task and update statuses
-    await this.taskRepo.update(taskId, { assignedAgentId: agentId });
-    await this.agentRepo.update(agentId, { status: 'active' });
-  }
-
-  async completeTask(taskId: string, results?: Record<string, any>): Promise<void> {
-    const task = await this.taskRepo.findById(taskId);
-    if (!task) {
-      throw new Error(`Task ${taskId} not found`);
-    }
-
-    await this.taskRepo.update(taskId, { status: 'completed', results });
-    
-    // If task was assigned to an agent, update agent status
-    if (task.assignedAgentId) {
-      // Check if agent has other pending tasks
-      const agentTasks = await this.taskRepo.findByRepositoryPath('', { assignedAgentId: task.assignedAgentId });
-      const hasActiveTasks = agentTasks.some((t: any) => 
-        t.id !== taskId && (t.status === 'pending' || t.status === 'in_progress')
-      );
+  /**
+   * Create a basic execution plan
+   */
+  async createExecutionPlan(taskIds: string[]): Promise<TaskExecutionPlan> {
+    try {
+      const tasks = await Promise.all(taskIds.map(id => this.taskRepo.findById(id)));
+      const validTasks = tasks.filter(t => t !== null) as Task[];
       
-      if (!hasActiveTasks) {
-        await this.agentRepo.update(task.assignedAgentId, { status: 'idle' });
-      }
-    }
-  }
+      // Simple execution order (by priority, then creation date)
+      const executionOrder = validTasks
+        .sort((a, b) => (b.priority || 0) - (a.priority || 0) || new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+        .map(t => t.id);
 
-  async failTask(taskId: string, error: string, results?: Record<string, any>): Promise<void> {
-    const task = await this.taskRepo.findById(taskId);
-    if (!task) {
-      throw new Error(`Task ${taskId} not found`);
-    }
-
-    const failureResults = {
-      error,
-      failedAt: new Date().toISOString(),
-      ...results
-    };
-
-    await this.taskRepo.update(taskId, { status: 'failed', results: failureResults });
-    
-    // Update agent status if assigned
-    if (task.assignedAgentId) {
-      await this.agentRepo.update(task.assignedAgentId, { status: 'idle' });
-    }
-  }
-
-  async addTaskDependency(taskId: string, dependsOnTaskId: string, dependencyType = 'completion'): Promise<void> {
-    // Validate both tasks exist
-    const task = await this.taskRepo.findById(taskId);
-    const dependsOnTask = await this.taskRepo.findById(dependsOnTaskId);
-    
-    if (!task) {
-      throw new Error(`Task ${taskId} not found`);
-    }
-    
-    if (!dependsOnTask) {
-      throw new Error(`Dependency task ${dependsOnTaskId} not found`);
-    }
-
-    // Check for circular dependencies
-    if (await this.wouldCreateCircularDependency(taskId, dependsOnTaskId)) {
-      throw new Error('Adding dependency would create circular dependency');
-    }
-
-    // Note: dependency management needs to be implemented in repository
-    // await this.taskRepo.addDependency({ taskId, dependsOnTaskId, dependencyType });
-  }
-
-  async removeTaskDependency(taskId: string, dependsOnTaskId: string): Promise<void> {
-    // Note: dependency management needs to be implemented in repository
-    // await this.taskRepo.removeDependency(taskId, dependsOnTaskId);
-  }
-
-  async getTaskDependencies(taskId: string): Promise<string[]> {
-    // Note: dependency management needs to be implemented in repository
-    // return await this.taskRepo.getDependencies(taskId);
-    return [];
-  }
-
-  async createExecutionPlan(repositoryPath: string): Promise<TaskExecutionPlan> {
-    const tasks = await this.taskRepo.findByRepositoryPath(repositoryPath);
-    const dependencies = new Map<string, string[]>();
-    
-    // Build dependency map (simplified for now)
-    for (const task of tasks) {
-      dependencies.set(task.id, []);
-    }
-
-    // Simple execution order for now
-    const executionOrder = tasks.map((t: any) => t.id);
-    
-    return {
-      tasks,
-      executionOrder,
-      dependencies
-    };
-  }
-
-  // Break down complex task into subtasks
-  async breakdownTask(
-    parentTaskId: string,
-    subtasks: Array<{
-      description: string;
-      taskType: TaskType;
-      requirements?: Record<string, any>;
-      dependencies?: string[];
-    }>
-  ): Promise<Task[]> {
-    const parentTask = await this.taskRepo.findById(parentTaskId);
-    if (!parentTask) {
-      throw new Error(`Parent task ${parentTaskId} not found`);
-    }
-
-    const createdTasks: Task[] = [];
-
-    for (const subtaskData of subtasks) {
-      const subtask = await this.createTask({
-        repositoryPath: parentTask.repositoryPath,
-        taskType: subtaskData.taskType,
-        description: subtaskData.description,
-        requirements: subtaskData.requirements,
-        parentTaskId: parentTaskId,
-        priority: parentTask.priority
-      });
-
-      // Add dependencies if specified
-      if (subtaskData.dependencies) {
-        for (const depId of subtaskData.dependencies) {
-          await this.addTaskDependency(subtask.id, depId);
+      // Basic dependencies map
+      const dependencies = new Map<string, string[]>();
+      validTasks.forEach(task => {
+        if (task.parentTaskId) {
+          dependencies.set(task.id, [task.parentTaskId]);
         }
+      });
+
+      return {
+        tasks: validTasks,
+        executionOrder,
+        dependencies,
+        criticalPath: executionOrder, // Simplified
+        estimatedDuration: validTasks.length * 30, // Simple estimate: 30 minutes per task
+        riskAssessment: {
+          highRiskTasks: [],
+          potentialBottlenecks: [],
+          mitigationStrategies: [],
+          confidenceLevel: 0.8
+        }
+      };
+    } catch (error) {
+      this.logger.error('Failed to create execution plan', { error, taskIds });
+      throw error;
+    }
+  }
+
+  /**
+   * Assign task to agent
+   */
+  async assignTask(taskId: string, agentId: string): Promise<Task> {
+    try {
+      const task = await this.taskRepo.findById(taskId);
+      if (!task) {
+        throw new Error(`Task not found: ${taskId}`);
       }
 
-      createdTasks.push(subtask);
-    }
+      const agent = await this.agentRepo.findById(agentId);
+      if (!agent) {
+        throw new Error(`Agent not found: ${agentId}`);
+      }
 
-    return createdTasks;
-  }
-
-  async getSubtasks(parentTaskId: string): Promise<Task[]> {
-    return await this.taskRepo.findSubtasks(parentTaskId);
-  }
-
-  // Auto-assign tasks to available agents
-  async autoAssignTasks(repositoryPath: string): Promise<Array<{taskId: string, agentId: string}>> {
-    const readyTasks = await this.getReadyTasks(repositoryPath);
-    const availableAgents = await this.agentRepo.findByRepositoryPath(repositoryPath, 'idle');
-    
-    const assignments: Array<{taskId: string, agentId: string}> = [];
-
-    // Simple round-robin assignment
-    let agentIndex = 0;
-    for (const task of readyTasks) {
-      if (availableAgents.length === 0) break;
-      
-      const agent = availableAgents[agentIndex % availableAgents.length];
-      await this.assignTask(task.id, agent.id);
-      
-      assignments.push({
-        taskId: task.id,
-        agentId: agent.id
+      const updatedTask = await this.taskRepo.update(taskId, {
+        assignedAgentId: agentId,
+        status: 'in_progress'
       });
-      
-      agentIndex++;
-    }
 
-    return assignments;
+      this.logger.info('Task assigned successfully', { taskId, agentId });
+      return updatedTask;
+    } catch (error) {
+      this.logger.error('Failed to assign task', { error, taskId, agentId });
+      throw error;
+    }
   }
 
-  // Task progress and analytics
-  async getTaskProgress(repositoryPath: string): Promise<{
+  /**
+   * Mark task as completed
+   */
+  async completeTask(taskId: string, results?: Record<string, any>): Promise<Task> {
+    try {
+      const task = await this.taskRepo.findById(taskId);
+      if (!task) {
+        throw new Error(`Task not found: ${taskId}`);
+      }
+
+      const updatedTask = await this.taskRepo.update(taskId, {
+        status: 'completed',
+        results: results || {}
+      });
+
+      // Create completion memory
+      await this.memoryRepo.create({
+        id: randomUUID(),
+        repositoryPath: task.repositoryPath,
+        agentId: task.assignedAgentId || 'system',
+        memoryType: 'insight',
+        title: `Task Completed: ${task.description.substring(0, 50)}...`,
+        content: `Task completed successfully. Results: ${JSON.stringify(results || {})}`,
+        tags: ['task-completion', task.taskType, 'success'],
+        confidence: 0.9,
+        relevanceScore: 1.0,
+        miscData: {
+          taskId: task.id,
+          completionInsights: results || {},
+          action: 'completed'
+        }
+      });
+
+      this.logger.info('Task completed successfully', { taskId });
+      return updatedTask;
+    } catch (error) {
+      this.logger.error('Failed to complete task', { error, taskId });
+      throw error;
+    }
+  }
+
+  /**
+   * Get task statistics
+   */
+  async getTaskStats(repositoryPath: string): Promise<{
     total: number;
-    pending: number;
-    inProgress: number;
-    completed: number;
-    failed: number;
+    byStatus: Record<TaskStatus, number>;
+    byType: Record<TaskType, number>;
     completionRate: number;
   }> {
-    const total = await this.taskRepo.count();
-    const tasks = await this.taskRepo.findByRepositoryPath(repositoryPath);
-    const pending = tasks.filter(t => t.status === 'pending').length;
-    const inProgress = tasks.filter(t => t.status === 'in_progress').length;
-    const completed = tasks.filter(t => t.status === 'completed').length;
-    const failed = tasks.filter(t => t.status === 'failed').length;
-    
-    const completionRate = total > 0 ? (completed / total) * 100 : 0;
+    try {
+      const tasks = await this.taskRepo.findByRepositoryPath(repositoryPath);
 
-    return {
-      total,
-      pending,
-      inProgress,
-      completed,
-      failed,
-      completionRate
-    };
+      const byStatus = tasks.reduce((acc, task) => {
+        acc[task.status] = (acc[task.status] || 0) + 1;
+        return acc;
+      }, {} as Record<TaskStatus, number>);
+
+      const byType = tasks.reduce((acc, task) => {
+        acc[task.taskType] = (acc[task.taskType] || 0) + 1;
+        return acc;
+      }, {} as Record<TaskType, number>);
+
+      const completedTasks = tasks.filter(t => t.status === 'completed').length;
+      const completionRate = tasks.length > 0 ? (completedTasks / tasks.length) * 100 : 0;
+
+      return {
+        total: tasks.length,
+        byStatus,
+        byType,
+        completionRate
+      };
+    } catch (error) {
+      this.logger.error('Failed to get task stats', { error, repositoryPath });
+      throw error;
+    }
   }
 
+  /**
+   * Delete task
+   */
   async deleteTask(taskId: string): Promise<void> {
-    // Check if task has subtasks
-    const subtasks = await this.getSubtasks(taskId);
-    if (subtasks.length > 0) {
-      throw new Error('Cannot delete task with subtasks. Delete subtasks first.');
-    }
+    try {
+      const task = await this.taskRepo.findById(taskId);
+      if (!task) {
+        throw new Error(`Task not found: ${taskId}`);
+      }
 
-    await this.taskRepo.delete(taskId);
+      await this.taskRepo.delete(taskId);
+      this.logger.info('Task deleted successfully', { taskId });
+    } catch (error) {
+      this.logger.error('Failed to delete task', { error, taskId });
+      throw error;
+    }
   }
 
-  private generateTaskId(): string {
-    return `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  /**
+   * List tasks (alias for CLI compatibility)
+   */
+  async listTasks(repositoryPath: string, options: {
+    status?: TaskStatus;
+    taskType?: TaskType;
+    assignedAgentId?: string;
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<Task[]> {
+    return await this.getTasksByRepository(repositoryPath, options);
   }
 
-  private async wouldCreateCircularDependency(taskId: string, dependsOnTaskId: string): Promise<boolean> {
-    const visited = new Set<string>();
-    const stack = [dependsOnTaskId];
-
-    while (stack.length > 0) {
-      const currentId = stack.pop()!;
-      
-      if (currentId === taskId) {
-        return true; // Found circular dependency
+  /**
+   * Add task dependency
+   */
+  async addTaskDependency(taskId: string, dependsOnTaskId: string): Promise<void> {
+    try {
+      const task = await this.taskRepo.findById(taskId);
+      if (!task) {
+        throw new Error(`Task not found: ${taskId}`);
       }
-      
-      if (visited.has(currentId)) {
-        continue;
+
+      const dependsOnTask = await this.taskRepo.findById(dependsOnTaskId);
+      if (!dependsOnTask) {
+        throw new Error(`Dependency task not found: ${dependsOnTaskId}`);
       }
-      
-      visited.add(currentId);
-      const deps = await this.taskRepo.getDependencies(currentId);
-      stack.push(...deps.map(task => task.id));
-    }
 
-    return false;
-  }
-
-  private topologicalSort(taskIds: string[], dependencies: Map<string, string[]>): string[] {
-    const inDegree = new Map<string, number>();
-    const adjList = new Map<string, string[]>();
-
-    // Initialize
-    for (const taskId of taskIds) {
-      inDegree.set(taskId, 0);
-      adjList.set(taskId, []);
-    }
-
-    // Build adjacency list and calculate in-degrees
-    for (const taskId of taskIds) {
-      const deps = dependencies.get(taskId) || [];
-      for (const dep of deps) {
-        if (adjList.has(dep)) {
-          adjList.get(dep)!.push(taskId);
-          inDegree.set(taskId, (inDegree.get(taskId) || 0) + 1);
-        }
-      }
-    }
-
-    // Kahn's algorithm
-    const queue: string[] = [];
-    const result: string[] = [];
-
-    // Find all nodes with no incoming edges
-    for (const [taskId, degree] of Array.from(inDegree.entries())) {
-      if (degree === 0) {
-        queue.push(taskId);
-      }
-    }
-
-    while (queue.length > 0) {
-      const taskId = queue.shift()!;
-      result.push(taskId);
-
-      const neighbors = adjList.get(taskId) || [];
-      for (const neighbor of neighbors) {
-        const newDegree = (inDegree.get(neighbor) || 0) - 1;
-        inDegree.set(neighbor, newDegree);
+      // For now, store dependencies in the requirements field
+      const requirements = task.requirements || {};
+      const dependencies = (requirements.dependencies as string[]) || [];
+      if (!dependencies.includes(dependsOnTaskId)) {
+        dependencies.push(dependsOnTaskId);
+        requirements.dependencies = dependencies;
         
-        if (newDegree === 0) {
-          queue.push(neighbor);
-        }
+        await this.taskRepo.update(taskId, { requirements });
       }
-    }
 
-    // Check for cycles
-    if (result.length !== taskIds.length) {
-      throw new Error('Circular dependency detected in task graph');
+      this.logger.info('Task dependency added successfully', { taskId, dependsOnTaskId });
+    } catch (error) {
+      this.logger.error('Failed to add task dependency', { error, taskId, dependsOnTaskId });
+      throw error;
     }
+  }
 
-    return result;
+  /**
+   * Get task analytics
+   */
+  async getTaskAnalytics(repositoryPath: string): Promise<{
+    totalTasks: number;
+    completedTasks: number;
+    pendingTasks: number;
+    inProgressTasks: number;
+    completionRate: number;
+    averageCompletionTime: number;
+    tasksByType: Record<TaskType, number>;
+    tasksByPriority: Record<number, number>;
+  }> {
+    try {
+      const tasks = await this.taskRepo.findByRepositoryPath(repositoryPath);
+      
+      const totalTasks = tasks.length;
+      const completedTasks = tasks.filter(t => t.status === 'completed').length;
+      const pendingTasks = tasks.filter(t => t.status === 'pending').length;
+      const inProgressTasks = tasks.filter(t => t.status === 'in_progress').length;
+      const completionRate = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
+
+      const tasksByType = tasks.reduce((acc, task) => {
+        acc[task.taskType] = (acc[task.taskType] || 0) + 1;
+        return acc;
+      }, {} as Record<TaskType, number>);
+
+      const tasksByPriority = tasks.reduce((acc, task) => {
+        const priority = task.priority || 1;
+        acc[priority] = (acc[priority] || 0) + 1;
+        return acc;
+      }, {} as Record<number, number>);
+
+      // Simple average completion time calculation (mock for now)
+      const averageCompletionTime = 45; // minutes
+
+      return {
+        totalTasks,
+        completedTasks,
+        pendingTasks,
+        inProgressTasks,
+        completionRate,
+        averageCompletionTime,
+        tasksByType,
+        tasksByPriority
+      };
+    } catch (error) {
+      this.logger.error('Failed to get task analytics', { error, repositoryPath });
+      throw error;
+    }
+  }
+
+  /**
+   * Get task hierarchy
+   */
+  async getTaskHierarchy(repositoryPath: string): Promise<{
+    rootTasks: Task[];
+    taskTree: Record<string, Task[]>;
+    orphanTasks: Task[];
+  }> {
+    try {
+      const tasks = await this.taskRepo.findByRepositoryPath(repositoryPath);
+      
+      const rootTasks = tasks.filter(t => !t.parentTaskId);
+      const taskTree: Record<string, Task[]> = {};
+      
+      // Build task tree
+      tasks.forEach(task => {
+        if (task.parentTaskId) {
+          if (!taskTree[task.parentTaskId]) {
+            taskTree[task.parentTaskId] = [];
+          }
+          taskTree[task.parentTaskId].push(task);
+        }
+      });
+
+      // Find orphan tasks (tasks with parent that doesn't exist)
+      const orphanTasks = tasks.filter(task => {
+        if (!task.parentTaskId) return false;
+        return !tasks.some(t => t.id === task.parentTaskId);
+      });
+
+      return {
+        rootTasks,
+        taskTree,
+        orphanTasks
+      };
+    } catch (error) {
+      this.logger.error('Failed to get task hierarchy', { error, repositoryPath });
+      throw error;
+    }
+  }
+
+  /**
+   * Break down task into subtasks
+   */
+  async breakdownTask(taskId: string, subtasks: Array<{
+    description: string;
+    taskType: TaskType;
+    priority?: number;
+    estimatedDuration?: number;
+  }>): Promise<Task[]> {
+    try {
+      const parentTask = await this.taskRepo.findById(taskId);
+      if (!parentTask) {
+        throw new Error(`Task not found: ${taskId}`);
+      }
+
+      const createdSubtasks: Task[] = [];
+      for (const subtask of subtasks) {
+        const newTask = await this.createTask({
+          repositoryPath: parentTask.repositoryPath,
+          taskType: subtask.taskType,
+          description: subtask.description,
+          parentTaskId: taskId,
+          priority: subtask.priority || parentTask.priority,
+          estimatedDuration: subtask.estimatedDuration
+        });
+        createdSubtasks.push(newTask);
+      }
+
+      this.logger.info('Task broken down successfully', { taskId, subtaskCount: subtasks.length });
+      return createdSubtasks;
+    } catch (error) {
+      this.logger.error('Failed to break down task', { error, taskId });
+      throw error;
+    }
+  }
+
+  /**
+   * Auto-assign tasks to agents
+   */
+  async autoAssignTasks(repositoryPath: string, agentId: string, taskTypes?: TaskType[]): Promise<Task[]> {
+    try {
+      const filters: any = { status: 'pending' };
+      if (taskTypes && taskTypes.length > 0) {
+        // For now, just use the first task type
+        filters.taskType = taskTypes[0];
+      }
+
+      const availableTasks = await this.taskRepo.findByRepositoryPath(repositoryPath, filters);
+      
+      // Simple auto-assignment: assign up to 3 tasks
+      const tasksToAssign = availableTasks.slice(0, 3);
+      const assignedTasks: Task[] = [];
+
+      for (const task of tasksToAssign) {
+        const assignedTask = await this.assignTask(task.id, agentId);
+        assignedTasks.push(assignedTask);
+      }
+
+      this.logger.info('Tasks auto-assigned successfully', { 
+        agentId, 
+        assignedCount: assignedTasks.length,
+        taskTypes 
+      });
+      return assignedTasks;
+    } catch (error) {
+      this.logger.error('Failed to auto-assign tasks', { error, repositoryPath, agentId });
+      throw error;
+    }
+  }
+
+  /**
+   * Get pending tasks
+   */
+  async getPendingTasks(repositoryPath: string, options: {
+    taskType?: TaskType;
+    priority?: number;
+    limit?: number;
+  } = {}): Promise<Task[]> {
+    const filters: any = {
+      status: 'pending' as TaskStatus,
+      taskType: options.taskType
+    };
+    
+    const tasks = await this.taskRepo.findByRepositoryPath(repositoryPath, filters);
+    
+    // Apply limit manually since the repository doesn't support it
+    if (options.limit) {
+      return tasks.slice(0, options.limit);
+    }
+    
+    return tasks;
   }
 }

@@ -7,8 +7,9 @@ import { AgentService } from "../services/AgentService.js";
 import { CommunicationService } from "../services/CommunicationService.js";
 import { WebScrapingService } from "../services/WebScrapingService.js";
 import { DocumentationService } from "../services/DocumentationService.js";
-import { MemoryService } from "../services/MemoryService.js";
+import { KnowledgeGraphService } from "../services/KnowledgeGraphService.js";
 import { VectorSearchService } from "../services/VectorSearchService.js";
+import { MemoryService } from "../services/MemoryService.js";
 import { WebsiteRepository } from "../repositories/WebsiteRepository.js";
 import { WebsitePagesRepository } from "../repositories/WebsitePagesRepository.js";
 import { PathUtils } from "../utils/pathUtils.js";
@@ -29,8 +30,9 @@ export class ResourceManager {
   private communicationService: CommunicationService;
   private webScrapingService: WebScrapingService;
   private documentationService: DocumentationService;
-  private memoryService: MemoryService;
+  private knowledgeGraphService: KnowledgeGraphService;
   private vectorSearchService: VectorSearchService;
+  private memoryService: MemoryService;
   private websiteRepository: WebsiteRepository;
   private websitePagesRepository: WebsitePagesRepository;
 
@@ -43,6 +45,8 @@ export class ResourceManager {
 
     this.agentService = new AgentService(this.db);
     this.communicationService = new CommunicationService(this.db);
+    const vectorService = new VectorSearchService(this.db);
+    this.knowledgeGraphService = new KnowledgeGraphService(this.db, vectorService);
     this.memoryService = new MemoryService(this.db);
     this.webScrapingService = new WebScrapingService(
       this.db,

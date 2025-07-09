@@ -8,7 +8,7 @@ import { z } from 'zod';
 import * as fs from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
-import type { MemoryService } from '../services/MemoryService.js';
+import type { KnowledgeGraphService } from '../services/KnowledgeGraphService.js';
 import { FileOperationsService, type ListFilesOptions, type FindFilesOptions, type ReplaceOptions } from '../services/FileOperationsService.js';
 import { FoundationCacheService } from '../services/FoundationCacheService.js';
 import { TreeSummaryService } from '../services/TreeSummaryService.js';
@@ -118,7 +118,7 @@ export class AnalysisMcpTools {
   private treeSummaryService: TreeSummaryService;
 
   constructor(
-    private memoryService: MemoryService,
+    private knowledgeGraphService: KnowledgeGraphService,
     private repositoryPath: string,
     private foundationCache?: FoundationCacheService
   ) {

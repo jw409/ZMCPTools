@@ -1,7 +1,16 @@
 import { DatabaseManager } from '../database/index.js';
-import { MemoryRepository } from '../repositories/MemoryRepository.js';
+import { KnowledgeGraphService } from './KnowledgeGraphService.js';
+import { VectorSearchService } from './VectorSearchService.js';
 import { PathUtils } from '../utils/pathUtils.js';
 import { type Memory, type NewMemory, type MemoryType } from '../schemas/index.js';
+import { type KnowledgeEntity, type NewKnowledgeEntity, type EntityType as KnowledgeEntityType } from '../schemas/knowledge-graph.js';
+import { Logger } from '../utils/logger.js';
+import { randomUUID } from 'crypto';
+
+/**
+ * MemoryService - Now a direct adapter over KnowledgeGraphService
+ * This maintains backward compatibility while using the knowledge graph as the primary store
+ */
 
 // MemoryData interface for database operations
 export interface MemoryData {
@@ -53,10 +62,16 @@ export interface MemoryInsight {
 }
 
 export class MemoryService {
-  private memoryRepo: MemoryRepository;
+  private knowledgeGraph: KnowledgeGraphService;
+  private logger: Logger;
 
   constructor(private db: DatabaseManager) {
-    this.memoryRepo = new MemoryRepository(db);
+    this.logger = new Logger('memory-service');
+    const vectorService = new VectorSearchService(db);
+    this.knowledgeGraph = new KnowledgeGraphService(db, vectorService, {
+      autoDetectInsights: true,
+      semanticSearchThreshold: 0.7
+    });
   }
 
   // Core memory operations
@@ -64,24 +79,41 @@ export class MemoryService {
     const memoryId = this.generateMemoryId();
     const resolvedRepositoryPath = PathUtils.resolveRepositoryPath(request.repositoryPath, 'memory creation');
     
-    const newMemory: NewMemory = {
+    // Map memory type to knowledge graph entity type
+    const entityType: KnowledgeEntityType = this.mapMemoryTypeToEntityType(request.memoryType);
+    
+    const newEntity: NewKnowledgeEntity = {
       id: memoryId,
       repositoryPath: resolvedRepositoryPath,
-      agentId: request.agentId,
-      memoryType: request.memoryType,
-      title: request.title,
-      content: request.content,
-      tags: request.tags || [],
-      miscData: request.metadata || {},
-      confidence: 0.8,
-      relevanceScore: 1.0
+      entityType: entityType as any,
+      name: request.title,
+      description: request.content,
+      properties: {
+        agentId: request.agentId,
+        memoryType: request.memoryType,
+        tags: request.tags || [],
+        metadata: request.metadata || {},
+        originalMemoryFormat: true
+      },
+      discoveredBy: request.agentId,
+      discoveredDuring: 'memory_creation',
+      confidenceScore: 0.8,
+      relevanceScore: 1.0,
+      importanceScore: 0.5
     };
 
-    return await this.memoryRepo.create(newMemory);
+    const entity = await this.knowledgeGraph.createEntity(newEntity);
+    return this.convertEntityToMemory(entity);
   }
 
   async getMemory(memoryId: string): Promise<Memory | null> {
-    return await this.memoryRepo.findById(memoryId);
+    try {
+      const entity = await this.knowledgeGraph.getEntityById(memoryId);
+      return entity ? this.convertEntityToMemory(entity) : null;
+    } catch (error) {
+      this.logger.error('Failed to get memory', { memoryId, error });
+      return null;
+    }
   }
 
   async updateMemory(memoryId: string, update: UpdateMemoryRequest): Promise<void> {
@@ -92,13 +124,19 @@ export class MemoryService {
 
     const updateData: any = {};
     
-    if (update.title !== undefined) updateData.title = update.title;
-    if (update.content !== undefined) updateData.content = update.content;
-    if (update.metadata !== undefined) updateData.miscData = update.metadata;
-    if (update.tags !== undefined) updateData.tags = update.tags;
+    if (update.title !== undefined) updateData.name = update.title;
+    if (update.content !== undefined) updateData.description = update.content;
+    if (update.metadata !== undefined || update.tags !== undefined) {
+      const currentProperties = memory.miscData || {};
+      updateData.properties = {
+        ...currentProperties,
+        ...(update.metadata && { metadata: update.metadata }),
+        ...(update.tags && { tags: update.tags })
+      };
+    }
 
     if (Object.keys(updateData).length > 0) {
-      await this.memoryRepo.update(memoryId, updateData);
+      await this.knowledgeGraph.updateEntity(memoryId, updateData);
     }
   }
 
@@ -108,7 +146,7 @@ export class MemoryService {
       throw new Error(`Memory ${memoryId} not found`);
     }
 
-    await this.memoryRepo.delete(memoryId);
+    await this.knowledgeGraph.deleteEntity(memoryId);
   }
 
   // Search and retrieval
@@ -123,28 +161,41 @@ export class MemoryService {
       throw new Error('Repository path is required for memory search');
     }
 
-    return await this.memoryRepo.searchByContent(repositoryPath, query, {
-      memoryType,
-      limit
-    });
+    // Use semantic search from knowledge graph
+    const entityType = memoryType ? this.mapMemoryTypeToEntityType(memoryType) : undefined;
+    const entityTypes = entityType ? [entityType] : undefined;
+    
+    const entities = await this.knowledgeGraph.findEntitiesBySemanticSearch(
+      repositoryPath,
+      query,
+      entityTypes,
+      limit,
+      0.5 // Lower threshold for more results
+    );
+
+    return entities.map(entity => this.convertEntityToMemory(entity));
   }
 
   async findMemoriesByAgent(agentId: string, repositoryPath?: string, limit = 100): Promise<Memory[]> {
-    return await this.memoryRepo.findByAgent(agentId, repositoryPath, { limit });
+    const entities = await this.knowledgeGraph.findEntitiesByAgent(agentId, repositoryPath, limit);
+    return entities.map(entity => this.convertEntityToMemory(entity));
   }
 
   async findMemoriesByType(memoryType: MemoryType, repositoryPath?: string, limit = 100): Promise<Memory[]> {
     if (!repositoryPath) {
       throw new Error('Repository path is required for memory search by type');
     }
-    return await this.memoryRepo.findByRepositoryPath(repositoryPath, { memoryType, limit });
+    const entityType = this.mapMemoryTypeToEntityType(memoryType);
+    const entities = await this.knowledgeGraph.findEntitiesByType(entityType, repositoryPath, limit);
+    return entities.map(entity => this.convertEntityToMemory(entity));
   }
 
   async findMemoriesByTags(tags: string[], repositoryPath?: string, limit = 100): Promise<Memory[]> {
     if (!repositoryPath) {
       throw new Error('Repository path is required for memory search by tags');
     }
-    return await this.memoryRepo.findByTags(repositoryPath, tags, { limit });
+    const entities = await this.knowledgeGraph.findEntitiesByTags(tags, repositoryPath, limit);
+    return entities.map(entity => this.convertEntityToMemory(entity));
   }
 
   // Specialized memory types
@@ -279,39 +330,6 @@ export class MemoryService {
       .slice(0, limit);
   }
 
-  // Knowledge sharing between agents
-  async shareMemoryWithAgent(
-    memoryId: string,
-    targetAgentId: string,
-    note?: string
-  ): Promise<Memory> {
-    const originalMemory = await this.getMemory(memoryId);
-    if (!originalMemory) {
-      throw new Error(`Memory ${memoryId} not found`);
-    }
-
-    // Create a shared copy with reference to original
-    const sharedTitle = `Shared: ${originalMemory.title}`;
-    const sharedContent = note 
-      ? `${note}\n\n--- Original Memory ---\n${originalMemory.content}`
-      : originalMemory.content;
-
-    return await this.createMemory({
-      repositoryPath: originalMemory.repositoryPath,
-      agentId: targetAgentId,
-      memoryType: 'learning' as MemoryType, // Use learning instead of shared
-      title: sharedTitle,
-      content: sharedContent,
-      tags: [...(originalMemory.tags || []), 'shared'],
-      metadata: {
-        originalMemoryId: memoryId,
-        originalAgent: originalMemory.agentId,
-        sharedAt: new Date().toISOString(),
-        sharedBy: originalMemory.agentId
-      }
-    });
-  }
-
   // Memory analytics
   async getMemoryStats(repositoryPath?: string): Promise<{
     total: number;
@@ -324,22 +342,26 @@ export class MemoryService {
       throw new Error('Repository path is required for memory stats');
     }
 
-    const statistics = await this.memoryRepo.getStatistics(repositoryPath);
+    const allEntities = await this.knowledgeGraph.findEntitiesByRepository(repositoryPath);
     
     // Calculate recent count (last week)
     const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const allMemories = await this.memoryRepo.findByRepositoryPath(repositoryPath);
+    const recentCount = allEntities.filter(entity => entity.createdAt > oneWeekAgo).length;
     
-    const recentCount = allMemories.filter(memory => memory.createdAt > oneWeekAgo).length;
-    
-    // Count by agent
+    // Count by type and agent
+    const byType: Record<string, number> = {};
     const byAgent: Record<string, number> = {};
     const tagCounts: Record<string, number> = {};
     
-    for (const memory of allMemories) {
-      byAgent[memory.agentId] = (byAgent[memory.agentId] || 0) + 1;
+    for (const entity of allEntities) {
+      const memoryType = this.mapEntityTypeToMemoryType(entity.entityType);
+      byType[memoryType] = (byType[memoryType] || 0) + 1;
       
-      for (const tag of memory.tags || []) {
+      const agentId = (entity.properties as any)?.agentId || entity.discoveredBy;
+      byAgent[agentId] = (byAgent[agentId] || 0) + 1;
+      
+      const tags = (entity.properties as any)?.tags || [];
+      for (const tag of tags) {
         tagCounts[tag] = (tagCounts[tag] || 0) + 1;
       }
     }
@@ -350,140 +372,12 @@ export class MemoryService {
       .slice(0, 10);
 
     return {
-      total: statistics.totalMemories,
-      byType: statistics.byType,
+      total: allEntities.length,
+      byType,
       byAgent,
       recentCount,
       topTags
     };
-  }
-
-  // Memory maintenance
-  async addTag(memoryId: string, tag: string): Promise<void> {
-    const memory = await this.getMemory(memoryId);
-    if (!memory) {
-      throw new Error(`Memory ${memoryId} not found`);
-    }
-    
-    const currentTags = memory.tags || [];
-    if (!currentTags.includes(tag)) {
-      const updatedTags = [...currentTags, tag];
-      await this.memoryRepo.update(memoryId, { tags: updatedTags });
-    }
-  }
-
-  async removeTag(memoryId: string, tag: string): Promise<void> {
-    const memory = await this.getMemory(memoryId);
-    if (!memory) {
-      throw new Error(`Memory ${memoryId} not found`);
-    }
-    
-    const currentTags = memory.tags || [];
-    const updatedTags = currentTags.filter(t => t !== tag);
-    await this.memoryRepo.update(memoryId, { tags: updatedTags });
-  }
-
-  async getUniqueTags(repositoryPath?: string): Promise<string[]> {
-    if (!repositoryPath) {
-      throw new Error('Repository path is required for getting unique tags');
-    }
-
-    const allMemories = await this.memoryRepo.findByRepositoryPath(repositoryPath);
-    const allTags = new Set<string>();
-    
-    for (const memory of allMemories) {
-      if (memory.tags) {
-        memory.tags.forEach(tag => allTags.add(tag));
-      }
-    }
-    
-    return Array.from(allTags).sort();
-  }
-
-  async cleanupOldMemories(repositoryPath: string, olderThanDays = 30): Promise<number> {
-    const resolvedRepositoryPath = PathUtils.resolveRepositoryPath(repositoryPath, 'cleanup old memories');
-    return await this.memoryRepo.cleanup(resolvedRepositoryPath, { maxAgedays: olderThanDays });
-  }
-
-  async deleteAgentMemories(agentId: string, repositoryPath?: string): Promise<number> {
-    const memories = await this.memoryRepo.findByAgent(agentId, repositoryPath);
-    let deletedCount = 0;
-    
-    for (const memory of memories) {
-      const deleted = await this.memoryRepo.delete(memory.id);
-      if (deleted) {
-        deletedCount++;
-      }
-    }
-    
-    return deletedCount;
-  }
-
-  // Batch operations
-  async createMemoryBatch(requests: CreateMemoryRequest[]): Promise<Memory[]> {
-    const results: Memory[] = [];
-    
-    await this.memoryRepo.transaction(async () => {
-      for (const request of requests) {
-        try {
-          const memory = await this.createMemory(request);
-          results.push(memory);
-        } catch (error) {
-          console.error(`Failed to create memory for ${request.agentId}:`, error);
-        }
-      }
-    });
-
-    return results;
-  }
-
-  // Export/Import for knowledge transfer
-  async exportMemories(repositoryPath: string, options: {
-    agentId?: string;
-    memoryType?: MemoryType;
-    tags?: string[];
-    sinceDate?: Date;
-  } = {}): Promise<Array<{
-    id: string;
-    title: string;
-    content: string;
-    agentId: string;
-    memoryType: MemoryType;
-    tags: string[];
-    metadata: Record<string, any>;
-    createdAt: string;
-  }>> {
-    let allMemories = await this.memoryRepo.findByRepositoryPath(repositoryPath);
-    
-    // Apply filters
-    if (options.agentId) {
-      allMemories = allMemories.filter((m: Memory) => m.agentId === options.agentId);
-    }
-    
-    if (options.memoryType) {
-      allMemories = allMemories.filter((m: Memory) => m.memoryType === options.memoryType);
-    }
-    
-    if (options.tags && options.tags.length > 0) {
-      allMemories = allMemories.filter((m: Memory) => 
-        options.tags!.some(tag => (m.tags || []).includes(tag))
-      );
-    }
-    
-    if (options.sinceDate) {
-      allMemories = allMemories.filter((m: Memory) => new Date(m.createdAt) >= options.sinceDate!);
-    }
-
-    return allMemories.map((memory: Memory) => ({
-      id: memory.id,
-      title: memory.title,
-      content: memory.content,
-      agentId: memory.agentId,
-      memoryType: memory.memoryType,
-      tags: memory.tags || [],
-      metadata: memory.miscData || {},
-      createdAt: memory.createdAt
-    }));
   }
 
   // Convenience method for quick memory storage  
@@ -539,6 +433,7 @@ export class MemoryService {
     });
   }
 
+  // Utility methods
   private generateMemoryId(): string {
     return `mem_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
@@ -565,5 +460,77 @@ export class MemoryService {
     if (end < content.length) snippet = snippet + '...';
     
     return snippet;
+  }
+
+  /**
+   * Convert knowledge graph entity to memory format
+   */
+  private convertEntityToMemory(entity: KnowledgeEntity): Memory {
+    const properties = entity.properties as any || {};
+    
+    return {
+      id: entity.id,
+      repositoryPath: entity.repositoryPath,
+      agentId: properties.agentId || entity.discoveredBy,
+      memoryType: properties.memoryType || this.mapEntityTypeToMemoryType(entity.entityType),
+      title: entity.name,
+      content: entity.description || '',
+      tags: properties.tags || [],
+      miscData: properties.metadata || {},
+      confidence: entity.confidenceScore || 0.8,
+      relevanceScore: entity.relevanceScore || 1.0,
+      usefulnessScore: properties.usefulnessScore || 0.0,
+      accessedCount: properties.accessedCount || 0,
+      referencedCount: properties.referencedCount || 0,
+      createdAt: entity.createdAt
+    };
+  }
+
+  /**
+   * Map memory type to knowledge graph entity type
+   */
+  private mapMemoryTypeToEntityType(memoryType: MemoryType): KnowledgeEntityType {
+    switch (memoryType) {
+      case 'insight':
+        return 'insight';
+      case 'error':
+        return 'error';
+      case 'decision':
+        return 'decision';
+      case 'progress':
+        return 'feature'; // Progress maps to feature completion
+      case 'learning':
+        return 'concept';
+      case 'pattern':
+        return 'pattern';
+      case 'solution':
+        return 'solution';
+      default:
+        return 'concept';
+    }
+  }
+
+  /**
+   * Map knowledge graph entity type to memory type
+   */
+  private mapEntityTypeToMemoryType(entityType: KnowledgeEntityType): MemoryType {
+    switch (entityType) {
+      case 'insight':
+        return 'insight';
+      case 'error':
+        return 'error';
+      case 'decision':
+        return 'decision';
+      case 'feature':
+        return 'progress';
+      case 'concept':
+        return 'learning';
+      case 'pattern':
+        return 'pattern';
+      case 'solution':
+        return 'solution';
+      default:
+        return 'insight';
+    }
   }
 }

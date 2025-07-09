@@ -32,7 +32,7 @@ import { TreeSummaryTools } from '../tools/TreeSummaryTools.js';
 // CacheMcpTools removed - foundation caching now automatic
 import { BrowserTools } from '../tools/BrowserTools.js';
 import { WebScrapingService } from '../services/WebScrapingService.js';
-import { AgentService, MemoryService, FileOperationsService, TreeSummaryService, fileOperationsService } from '../services/index.js';
+import { AgentService, KnowledgeGraphService, VectorSearchService, FileOperationsService, TreeSummaryService, fileOperationsService } from '../services/index.js';
 import { ResourceManager } from '../managers/ResourceManager.js';
 import { PromptManager } from '../managers/PromptManager.js';
 import { PathUtils } from '../utils/pathUtils.js';
@@ -98,7 +98,8 @@ export class McpServer {
     
     // Initialize services
     const agentService = new AgentService(this.db);
-    const memoryService = new MemoryService(this.db);
+    const vectorService = new VectorSearchService(this.db);
+    const knowledgeGraphService = new KnowledgeGraphService(this.db, vectorService);
     this.webScrapingService = new WebScrapingService(
       this.db,
       this.repositoryPath
@@ -111,10 +112,10 @@ export class McpServer {
     // Initialize tools
     this.orchestrationTools = new AgentOrchestrationTools(this.db, this.repositoryPath);
     
-    const browserTools = new BrowserTools(memoryService, this.repositoryPath);
-    this.browserMcpTools = new BrowserMcpTools(browserTools, memoryService, this.repositoryPath);
-    this.webScrapingMcpTools = new WebScrapingMcpTools(this.webScrapingService, memoryService, this.repositoryPath);
-    this.analysisMcpTools = new AnalysisMcpTools(memoryService, this.repositoryPath);
+    const browserTools = new BrowserTools(knowledgeGraphService, this.repositoryPath);
+    this.browserMcpTools = new BrowserMcpTools(browserTools, knowledgeGraphService, this.repositoryPath, this.db);
+    this.webScrapingMcpTools = new WebScrapingMcpTools(this.webScrapingService, knowledgeGraphService, this.repositoryPath, this.db);
+    this.analysisMcpTools = new AnalysisMcpTools(knowledgeGraphService, this.repositoryPath);
     this.treeSummaryTools = new TreeSummaryTools();
     // Foundation caching is now automatic - no manual tools needed
 
@@ -637,6 +638,95 @@ export class McpServer {
           },
           required: ["room_name"]
         }
+      },
+      {
+        name: "create_delayed_room",
+        description: "Create a communication room when agents realize they need coordination",
+        inputSchema: {
+          type: "object",
+          properties: {
+            agent_id: {
+              type: "string",
+              description: "ID of the agent requesting room creation"
+            },
+            repository_path: {
+              type: "string",
+              description: "Path to the repository"
+            },
+            reason: {
+              type: "string",
+              description: "Reason for creating the coordination room"
+            },
+            participants: {
+              type: "array",
+              items: { type: "string" },
+              description: "List of expected participants (agent IDs)"
+            }
+          },
+          required: ["agent_id", "repository_path", "reason"]
+        }
+      },
+      {
+        name: "analyze_coordination_patterns",
+        description: "Analyze coordination patterns and provide efficiency recommendations",
+        inputSchema: {
+          type: "object",
+          properties: {
+            repository_path: {
+              type: "string",
+              description: "Path to the repository to analyze"
+            }
+          },
+          required: ["repository_path"]
+        }
+      },
+      {
+        name: "monitor_agents",
+        description: "Monitor agents with real-time updates and immersive timeout-aware reporting",
+        inputSchema: {
+          type: "object",
+          properties: {
+            agent_id: {
+              type: "string",
+              description: "Monitor specific agent (optional)"
+            },
+            orchestration_id: {
+              type: "string", 
+              description: "Monitor orchestration (optional)"
+            },
+            room_name: {
+              type: "string",
+              description: "Monitor room communication (optional)"
+            },
+            repository_path: {
+              type: "string",
+              description: "Monitor all agents in repository (optional)"
+            },
+            monitoring_mode: {
+              type: "string",
+              enum: ["status", "activity", "communication", "full"],
+              description: "Monitoring mode - status, activity, communication, or full (default: status)"
+            },
+            update_interval: {
+              type: "number",
+              description: "Update interval in milliseconds (default: 2000)",
+              minimum: 1000,
+              maximum: 10000
+            },
+            max_duration: {
+              type: "number", 
+              description: "Maximum monitoring duration in milliseconds (default: 50000)",
+              minimum: 5000,
+              maximum: 55000
+            },
+            detail_level: {
+              type: "string",
+              enum: ["summary", "detailed", "verbose"],
+              description: "Detail level - summary, detailed, or verbose (default: summary)"
+            }
+          },
+          required: []
+        }
       }
     ];
   }
@@ -776,6 +866,31 @@ export class McpServer {
           args.limit || 50,
           args.offset || 0,
           args.since_timestamp
+        );
+
+      case "create_delayed_room":
+        return await this.orchestrationTools.createDelayedRoom(
+          args.agent_id,
+          args.repository_path,
+          args.reason,
+          args.participants || []
+        );
+
+      case "analyze_coordination_patterns":
+        return await this.orchestrationTools.analyzeCoordinationPatterns(
+          args.repository_path
+        );
+
+      case "monitor_agents":
+        return await this.orchestrationTools.monitorAgents(
+          args.agent_id,
+          args.orchestration_id,
+          args.room_name,
+          args.repository_path,
+          args.monitoring_mode || 'status',
+          args.update_interval || 2000,
+          args.max_duration || 50000,
+          args.detail_level || 'summary'
         );
 
       default:

@@ -61,7 +61,7 @@ export class CommunicationRepository extends BaseRepository<
       throw new RepositoryError(
         `Failed to get room by name: ${name}`,
         'getRoomByName',
-        this.table?._?.name || 'unknown-table',
+        this.getTableName(),
         error
       );
     }
@@ -211,7 +211,7 @@ export class CommunicationRepository extends BaseRepository<
       throw new RepositoryError(
         'Failed to list rooms',
         'listRooms',
-        this.table?._?.name || 'unknown-table',
+        this.getTableName(),
         error
       );
     }
@@ -239,7 +239,7 @@ export class CommunicationRepository extends BaseRepository<
       throw new RepositoryError(
         `Failed to delete room: ${name}`,
         'deleteRoom',
-        this.table?._?.name || 'unknown-table',
+        this.getTableName(),
         error
       );
     }

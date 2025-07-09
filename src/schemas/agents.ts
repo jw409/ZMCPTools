@@ -43,7 +43,8 @@ export const toolCategorySchema = z.enum([
   'browser_tools',        // browser automation and navigation
   'web_tools',            // web scraping and documentation
   'cache_tools',          // foundation caching and optimization
-  'tree_tools'            // tree summary and project analysis
+  'tree_tools',           // tree summary and project analysis
+  'thinking_tools'        // sequential thinking and complex reasoning
 ]);
 
 // Comprehensive tool permissions schema
@@ -145,7 +146,7 @@ export const AGENT_TYPE_DEFINITIONS: AgentTypeDefinitions = {
   architect: {
     description: 'High-level coordinator that orchestrates multiple specialized agents',
     defaultCapabilities: ['ALL_TOOLS'],
-    defaultAllowedCategories: ['core_tools', 'execution_tools', 'communication_tools', 'memory_tools', 'agent_tools', 'orchestration_tools', 'file_tools', 'analysis_tools'],
+    defaultAllowedCategories: ['core_tools', 'execution_tools', 'communication_tools', 'memory_tools', 'agent_tools', 'orchestration_tools', 'file_tools', 'analysis_tools', 'thinking_tools'],
     autoCreateRoom: true,
     roomNamingPattern: 'architect_{timestamp}',
     maxConcurrentAgents: 1
@@ -193,7 +194,7 @@ export const AGENT_TYPE_DEFINITIONS: AgentTypeDefinitions = {
   planner_agent: {
     description: 'Strategic planning, task breakdown, and project coordination',
     defaultCapabilities: ['project_planning', 'task_management', 'coordination'],
-    defaultAllowedCategories: ['core_tools', 'communication_tools', 'memory_tools', 'orchestration_tools', 'analysis_tools'],
+    defaultAllowedCategories: ['core_tools', 'communication_tools', 'memory_tools', 'orchestration_tools', 'analysis_tools', 'thinking_tools'],
     defaultDisallowedCategories: ['execution_tools', 'browser_tools', 'web_tools'],
     autoCreateRoom: true,
     roomNamingPattern: 'planner_{timestamp}'
@@ -225,7 +226,7 @@ export const AGENT_TYPE_DEFINITIONS: AgentTypeDefinitions = {
   general_agent: {
     description: 'General purpose agent with balanced capabilities',
     defaultCapabilities: ['general_development', 'problem_solving'],
-    defaultAllowedCategories: ['core_tools', 'execution_tools', 'communication_tools', 'memory_tools', 'file_tools', 'analysis_tools'],
+    defaultAllowedCategories: ['core_tools', 'execution_tools', 'communication_tools', 'memory_tools', 'file_tools', 'analysis_tools', 'thinking_tools'],
     defaultDisallowedCategories: ['agent_tools', 'orchestration_tools'],
     autoCreateRoom: true,
     roomNamingPattern: 'general_{timestamp}'
@@ -245,5 +246,6 @@ export const TOOL_CATEGORY_MAPPINGS: Record<ToolCategory, string[]> = {
   browser_tools: ['mcp__claude-mcp-tools__create_browser_session', 'mcp__claude-mcp-tools__navigate_and_scrape', 'mcp__claude-mcp-tools__interact_with_page', 'mcp__claude-mcp-tools__manage_browser_sessions'],
   web_tools: ['mcp__claude-mcp-tools__scrape_documentation', 'mcp__claude-mcp-tools__get_scraping_status', 'mcp__claude-mcp-tools__start_scraping_worker', 'mcp__claude-mcp-tools__stop_scraping_worker'],
   cache_tools: ['mcp__claude-mcp-tools__create_foundation_session', 'mcp__claude-mcp-tools__derive_session_from_foundation', 'mcp__claude-mcp-tools__get_cached_analysis', 'mcp__claude-mcp-tools__cache_analysis_result'],
-  tree_tools: ['mcp__claude-mcp-tools__update_file_analysis', 'mcp__claude-mcp-tools__get_project_overview', 'mcp__claude-mcp-tools__cleanup_stale_analyses']
+  tree_tools: ['mcp__claude-mcp-tools__update_file_analysis', 'mcp__claude-mcp-tools__get_project_overview', 'mcp__claude-mcp-tools__cleanup_stale_analyses'],
+  thinking_tools: ['mcp__sequential-thinking__sequential_thinking']
 };

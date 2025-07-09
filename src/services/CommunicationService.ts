@@ -392,6 +392,52 @@ export class CommunicationService {
     }
   }
 
+  // On-demand room creation for agents
+  async createRoomForAgent(
+    agentName: string,
+    repositoryPath: string,
+    reason: string,
+    participants: string[] = []
+  ): Promise<{
+    roomName: string;
+    room: ChatRoom;
+    joined: boolean;
+  }> {
+    // Generate room name based on agent and timestamp
+    const roomName = `agent_${agentName}_${Date.now()}`;
+    
+    // Create room with agent coordination metadata
+    const room = await this.createRoom({
+      name: roomName,
+      description: `Agent coordination room created by ${agentName}: ${reason}`,
+      repositoryPath,
+      metadata: {
+        createdBy: agentName,
+        reason,
+        participants,
+        onDemandCreation: true,
+        createdAt: new Date().toISOString()
+      }
+    });
+
+    // Join the creating agent to the room
+    await this.joinRoom(roomName, agentName);
+
+    // Send initial message about room creation
+    await this.sendMessage({
+      roomName,
+      agentName,
+      message: `Room created for coordination: ${reason}`,
+      messageType: 'system'
+    });
+
+    return {
+      roomName,
+      room,
+      joined: true
+    };
+  }
+
   // Clean up old messages
   async cleanupOldMessages(repositoryPath: string, olderThanDays = 7): Promise<number> {
     const resolvedRepositoryPath = PathUtils.resolveRepositoryPath(repositoryPath, 'cleanup old messages');
