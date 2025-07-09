@@ -155,17 +155,72 @@ export class PatternMatcher {
   }
 
   /**
-   * Validate if a pattern is a valid glob, regex or plain pattern
+   * Validate if a pattern is a valid glob, regex, plain, or json pattern
    */
-  static validatePattern(pattern: string): { 
+  static validatePattern(pattern: string | ScrapingPattern): { 
     valid: boolean; 
-    type: 'glob' | 'regex' | 'plain'; 
+    type: 'glob' | 'regex' | 'plain' | 'json'; 
     error?: string; 
   } {
+    // Handle JSON/object patterns
+    if (typeof pattern === 'object' && pattern !== null) {
+      try {
+        // Basic validation that it's a valid ScrapingPattern object
+        const hasValidProperty = (
+          'startsWith' in pattern || 'endsWith' in pattern || 'contains' in pattern || 
+          'equals' in pattern || 'regex' in pattern || 'path_segment' in pattern ||
+          'path_segments' in pattern || 'extension' in pattern || 'filename' in pattern ||
+          'version' in pattern || 'version_range' in pattern || 'and' in pattern ||
+          'or' in pattern || 'not' in pattern || 'if' in pattern || 'number' in pattern ||
+          'range' in pattern || 'followed_by' in pattern || 'preceded_by' in pattern ||
+          'between' in pattern
+        );
+        
+        if (!hasValidProperty) {
+          return {
+            valid: false,
+            type: 'json',
+            error: 'JSON pattern must contain at least one valid property'
+          };
+        }
+        
+        return { valid: true, type: 'json' };
+      } catch (error) {
+        return {
+          valid: false,
+          type: 'json',
+          error: `Invalid JSON pattern: ${error instanceof Error ? error.message : 'Unknown error'}`
+        };
+      }
+    }
+
+    // Handle string patterns
+    if (typeof pattern !== 'string') {
+      return {
+        valid: false,
+        type: 'plain',
+        error: 'Pattern must be a string or valid JSON object'
+      };
+    }
+
     // First expand common patterns (@assets, etc.)
     const expandedPattern = this.expandCommonPattern(pattern);
     
-    // 1. Check if it's a glob pattern (contains glob characters)  
+    // 1. Check if it's a regex pattern (enclosed in forward slashes) - PRIORITY CHECK
+    if (pattern.startsWith('/') && pattern.endsWith('/')) {
+      try {
+        new RegExp(pattern.slice(1, -1));
+        return { valid: true, type: 'regex' };
+      } catch (error) {
+        return { 
+          valid: false, 
+          type: 'regex', 
+          error: `Invalid regex pattern: ${error instanceof Error ? error.message : 'Unknown error'}` 
+        };
+      }
+    }
+
+    // 2. Check if it's a glob pattern (contains glob characters)  
     if (expandedPattern.includes('*') || expandedPattern.includes('?') || expandedPattern.includes('[') || expandedPattern.includes('{')) {
       try {
         // Test the glob pattern with a dummy string
@@ -176,20 +231,6 @@ export class PatternMatcher {
           valid: false, 
           type: 'glob', 
           error: `Invalid glob pattern: ${error instanceof Error ? error.message : 'Unknown error'}` 
-        };
-      }
-    }
-
-    // 2. Check if it's a regex pattern (enclosed in forward slashes)
-    if (pattern.startsWith('/') && pattern.endsWith('/')) {
-      try {
-        new RegExp(pattern.slice(1, -1));
-        return { valid: true, type: 'regex' };
-      } catch (error) {
-        return { 
-          valid: false, 
-          type: 'regex', 
-          error: `Invalid regex pattern: ${error instanceof Error ? error.message : 'Unknown error'}` 
         };
       }
     }
@@ -228,6 +269,7 @@ export class PatternMatcher {
 
     try {
       let matches = false;
+      const expandedPattern = this.expandCommonPattern(pattern);
 
       switch (validation.type) {
         case 'regex':
@@ -236,12 +278,16 @@ export class PatternMatcher {
           break;
         
         case 'glob':
-          matches = minimatch(url, pattern);
+          matches = minimatch(url, expandedPattern);
           break;
         
         case 'plain':
           matches = url.includes(pattern);
           break;
+        
+        case 'json':
+          // This shouldn't happen for string patterns, but handle it
+          return this.matchesJSONPattern(url, pattern as ScrapingPattern);
       }
 
       return {
@@ -667,3 +713,42 @@ String Pattern → JSON Pattern:
 `;
   }
 }
+
+// Types are already exported above, no need to re-export
+
+// Export specific pattern builder functions for MCP tool parameters
+export const PatternTypes = {
+  // String pattern builders
+  string: {
+    startsWith: (value: string): StringPattern => ({ startsWith: value }),
+    endsWith: (value: string): StringPattern => ({ endsWith: value }),
+    contains: (value: string): StringPattern => ({ contains: value }),
+    equals: (value: string): StringPattern => ({ equals: value }),
+    regex: (value: string): StringPattern => ({ regex: value })
+  },
+  
+  // Path pattern builders
+  path: {
+    segment: (value: string): PathPattern => ({ path_segment: value }),
+    segments: (values: string[]): PathPattern => ({ path_segments: values }),
+    extension: (value: string | string[]): PathPattern => ({ extension: value }),
+    filename: (value: string): PathPattern => ({ filename: value })
+  },
+  
+  // Version pattern builders
+  version: {
+    exact: (prefix: string, major?: number, minor?: number, patch?: number): VersionPattern => ({
+      version: { prefix, major, minor, patch }
+    }),
+    range: (prefix: string, min?: string, max?: string): VersionPattern => ({
+      version_range: { prefix, min, max }
+    })
+  },
+  
+  // Logical pattern builders  
+  logic: {
+    and: (patterns: ScrapingPattern[]): LogicalPattern => ({ and: patterns }),
+    or: (patterns: ScrapingPattern[]): LogicalPattern => ({ or: patterns }),
+    not: (pattern: ScrapingPattern): LogicalPattern => ({ not: pattern })
+  }
+} as const;

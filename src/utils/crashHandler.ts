@@ -2,6 +2,8 @@ import { writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import { Logger } from './logger.js';
+import type { DatabaseManager } from '../database/index.js';
+import { ScrapeJobRepository } from '../repositories/ScrapeJobRepository.js';
 
 const logger = new Logger('CrashHandler');
 
@@ -9,6 +11,8 @@ export class CrashHandler {
   private static instance: CrashHandler | null = null;
   private crashLogDir: string;
   private isSetup = false;
+  private dbManager: DatabaseManager | null = null;
+  private scrapeJobRepository: ScrapeJobRepository | null = null;
 
   constructor() {
     this.crashLogDir = join(homedir(), '.mcptools', 'logs', 'crashes');
@@ -20,6 +24,14 @@ export class CrashHandler {
       CrashHandler.instance = new CrashHandler();
     }
     return CrashHandler.instance;
+  }
+
+  /**
+   * Set database manager for handling active jobs during shutdown
+   */
+  setDatabaseManager(dbManager: DatabaseManager): void {
+    this.dbManager = dbManager;
+    this.scrapeJobRepository = new ScrapeJobRepository(dbManager);
   }
 
   private ensureCrashLogDir(): void {
@@ -64,14 +76,16 @@ export class CrashHandler {
     });
 
     // Handle SIGTERM gracefully
-    process.on('SIGTERM', () => {
+    process.on('SIGTERM', async () => {
       this.logShutdown('SIGTERM', 'Graceful shutdown requested');
+      await this.handleActiveJobs('SIGTERM');
       process.exit(0);
     });
 
     // Handle SIGINT gracefully
-    process.on('SIGINT', () => {
+    process.on('SIGINT', async () => {
       this.logShutdown('SIGINT', 'Interrupt signal received');
+      await this.handleActiveJobs('SIGINT');
       process.exit(0);
     });
 
@@ -84,6 +98,52 @@ export class CrashHandler {
     logger.info('Global crash handlers initialized', {
       crashLogDir: this.crashLogDir
     });
+  }
+
+  /**
+   * Handle active scraping jobs during shutdown
+   */
+  private async handleActiveJobs(signal: string): Promise<void> {
+    if (!this.scrapeJobRepository) {
+      logger.warn('No database manager available for handling active jobs during shutdown');
+      return;
+    }
+
+    try {
+      // Find all running jobs
+      const runningJobs = await this.scrapeJobRepository.findByStatus('running');
+      
+      if (runningJobs.length === 0) {
+        logger.info('No active scraping jobs to handle during shutdown');
+        return;
+      }
+
+      logger.info(`Pausing ${runningJobs.length} active scraping jobs for graceful shutdown`, {
+        signal,
+        jobIds: runningJobs.map(job => job.id)
+      });
+
+      // Reset running jobs to pending so they can be picked up again
+      const resetPromises = runningJobs.map(job => 
+        this.scrapeJobRepository!.update(job.id, {
+          status: 'pending',
+          lockedBy: null,
+          lockedAt: null,
+          errorMessage: `Job paused due to ${signal} shutdown - can be resumed`,
+        } as any)
+      );
+
+      await Promise.all(resetPromises);
+      
+      logger.info(`Successfully paused ${runningJobs.length} scraping jobs`, {
+        signal,
+        pausedJobs: runningJobs.length
+      });
+
+    } catch (error) {
+      logger.error('Failed to handle active jobs during shutdown', error);
+      // Don't throw - we still want to shutdown gracefully
+    }
   }
 
   /**

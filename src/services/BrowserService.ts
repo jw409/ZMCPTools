@@ -104,7 +104,7 @@ export interface ScrapingOptions {
   includeSubdomains?: boolean;
   respectRobotsTxt?: boolean;
   crawlDelay?: number;
-  selectors?: Record<string, string>;
+  selectors?: string; // Plain string selector - CSS selector or JavaScript code
   followRedirects?: boolean;
   saveToDatabase?: boolean;
   enableVectorIndexing?: boolean;

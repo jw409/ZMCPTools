@@ -19,10 +19,11 @@ import { DocumentationRepository } from '../repositories/DocumentationRepository
 import { WebsiteRepository } from '../repositories/WebsiteRepository.js';
 import { WebsitePagesRepository } from '../repositories/WebsitePagesRepository.js';
 import type { DocumentationSource } from '../lib.js';
+import type { ScrapeJobUpdate } from '../schemas/index.js';
 
 export interface ScrapeJobParams {
   forceRefresh?: boolean;
-  selectors?: Record<string, string>;
+  selectors?: string; // Plain string selector - CSS selector or JavaScript code
   crawlDepth?: number;
   allowPatterns?: (string | ScrapingPattern)[];
   ignorePatterns?: (string | ScrapingPattern)[];
@@ -60,6 +61,12 @@ export class WebScrapingService {
   private workerConfig: ScrapingWorkerConfig;
   private logger: Logger;
   private turndownService: TurndownService;
+  
+  // Throttled progress tracking
+  private progressUpdateThrottlers = new Map<string, {
+    lastUpdateTime: number;
+    pagesSinceLastUpdate: number;
+  }>();
 
   constructor(
     private db: DatabaseManager,
@@ -125,7 +132,7 @@ export class WebScrapingService {
       maxConcurrentJobs: 2,
       browserPoolSize: 3,
       jobTimeoutSeconds: 3600,
-      pollIntervalMs: 5000
+      pollIntervalMs: 15000
     };
   }
 
@@ -198,7 +205,9 @@ export class WebScrapingService {
     }
 
     this.isWorkerRunning = true;
-    process.stderr.write(`🤖 Starting scraping worker: ${this.workerConfig.workerId}\n`);
+    if (process.env.NODE_ENV === 'development' || process.env.DEBUG || process.env.VERBOSE_LOGGING) {
+      process.stderr.write(`🤖 Starting scraping worker: ${this.workerConfig.workerId}\n`);
+    }
 
     // Main worker loop
     while (this.isWorkerRunning) {
@@ -218,7 +227,9 @@ export class WebScrapingService {
   async stopScrapingWorker(): Promise<void> {
     this.isWorkerRunning = false;
     await domainBrowserManager.cleanupAllDomains(true);
-    process.stderr.write(`🛑 Stopped scraping worker: ${this.workerConfig.workerId}\n`);
+    if (process.env.NODE_ENV === 'development' || process.env.DEBUG || process.env.VERBOSE_LOGGING) {
+      process.stderr.write(`🛑 Stopped scraping worker: ${this.workerConfig.workerId}\n`);
+    }
   }
 
   /**
@@ -236,7 +247,9 @@ export class WebScrapingService {
     }
 
     const startTime = performance.now();
-    process.stderr.write(`🔄 Processing scrape job: ${job.id}\n`);
+    if (process.env.NODE_ENV === 'development' || process.env.DEBUG || process.env.VERBOSE_LOGGING) {
+      process.stderr.write(`🔄 Processing scrape job: ${job.id}\n`);
+    }
 
     try {
       // Parse job parameters
@@ -245,14 +258,13 @@ export class WebScrapingService {
       // Process job directly using enhanced scraping
       await this.processJobDirectly(job, jobParams);
 
-      // Mark job as completed
-      await this.scrapeJobRepository.markCompleted(job.id, {
-        processingMethod: 'completed',
-        completedAt: new Date().toISOString()
-      });
+      // Mark job as completed - this will be handled by processJobDirectly method
+      // The final page count and status will be updated in a single call
 
       const duration = performance.now() - startTime;
-      process.stderr.write(`✅ Completed scrape job: ${job.id} (${duration.toFixed(2)}ms)\n`);
+      if (process.env.NODE_ENV === 'development' || process.env.DEBUG || process.env.VERBOSE_LOGGING) {
+        process.stderr.write(`✅ Completed scrape job: ${job.id} (${duration.toFixed(2)}ms)\n`);
+      }
 
     } catch (error) {
       console.error(`❌ Failed scrape job: ${job.id}`, error);
@@ -272,7 +284,9 @@ export class WebScrapingService {
    * Process job directly using domain-aware browser managers with crawling
    */
   private async processJobDirectly(job: any, jobParams: ScrapeJobParams): Promise<void> {
-    process.stderr.write(`🔧 Processing scraping job directly: ${job.id}\n`);
+    if (process.env.NODE_ENV === 'development' || process.env.DEBUG || process.env.VERBOSE_LOGGING) {
+      process.stderr.write(`🔧 Processing scraping job directly: ${job.id}\n`);
+    }
 
     // Get domain-specific browser
     const { browser } = await domainBrowserManager.getBrowserForDomain(jobParams.sourceUrl, job.sourceId);
@@ -332,11 +346,15 @@ export class WebScrapingService {
           );
           
           if (!urlCheck.allowed) {
-            process.stderr.write(`🚫 URL blocked by pattern: ${url} - ${urlCheck.reason}\n`);
+            if (process.env.NODE_ENV === 'development' || process.env.DEBUG || process.env.VERBOSE_LOGGING) {
+              process.stderr.write(`🚫 URL blocked by pattern: ${url} - ${urlCheck.reason}\n`);
+            }
             processedUrls.add(url);
             continue;
           } else {
-            process.stderr.write(`✅ URL allowed: ${url} - ${urlCheck.reason}\n`);
+            if (process.env.NODE_ENV === 'development' || process.env.DEBUG || process.env.VERBOSE_LOGGING) {
+              process.stderr.write(`✅ URL allowed: ${url} - ${urlCheck.reason}\n`);
+            }
           }
         }
 
@@ -353,6 +371,28 @@ export class WebScrapingService {
             continue;
           }
 
+          // Get the final URL after any redirects
+          const finalUrl = page.url();
+          this.logger.debug(`URL after navigation: ${url} -> ${finalUrl}`);
+          
+          // If the URL redirected, check if the final URL should be allowed
+          if (finalUrl !== url && (jobParams.allowPatterns?.length || jobParams.ignorePatterns?.length)) {
+            const finalUrlCheck = PatternMatcher.shouldAllowUrl(
+              finalUrl,
+              jobParams.allowPatterns,
+              jobParams.ignorePatterns
+            );
+            
+            if (!finalUrlCheck.allowed) {
+              if (process.env.NODE_ENV === 'development' || process.env.DEBUG || process.env.VERBOSE_LOGGING) {
+                process.stderr.write(`🚫 Final URL blocked by pattern: ${finalUrl} - ${finalUrlCheck.reason}\n`);
+              }
+              processedUrls.add(url);
+              processedUrls.add(finalUrl);
+              continue;
+            }
+          }
+
           // Wait for page to fully load and expand navigation elements
           await this.expandNavigationElements(page, url);
 
@@ -362,34 +402,32 @@ export class WebScrapingService {
           let markdownContent = '';
           let usedSelectors = false;
 
+          // Get domain-specific selectors or use provided selectors
+          const domainSelectors = this.getDomainSpecificSelectors(finalUrl);
+          const providedSelectors = jobParams.selectors;
+          
+          // Use provided selector or domain-specific selector
+          let selectorToUse: string | null = null;
+          
+          if (providedSelectors) {
+            selectorToUse = providedSelectors;
+          } else if (domainSelectors) {
+            // Convert domain-specific Record<string, string> to a single content selector
+            selectorToUse = domainSelectors.content || Object.values(domainSelectors)[0] || null;
+          }
+          
           // Apply selector-based extraction if provided
-          if (jobParams.selectors && Object.keys(jobParams.selectors).length > 0) {
-            const selectorResults: Record<string, string> = {};
+          if (selectorToUse) {
+            const extractedContent = await this.extractTextWithPageEvaluate(page, selectorToUse);
             
-            for (const [key, selector] of Object.entries(jobParams.selectors)) {
-              const extractedText = await browser.extractText(page, selector);
-              if (extractedText && extractedText.trim().length > 0) {
-                selectorResults[key] = extractedText.trim();
-              }
-            }
-            
-            // Check if selector-based extraction yielded meaningful content
-            const totalSelectorContent = Object.values(selectorResults).join('').trim();
-            const hasValidSelectorContent = totalSelectorContent.length > 100; // Minimum threshold for meaningful content
-            
-            if (hasValidSelectorContent) {
-              // Convert selector results to HTML and markdown
-              htmlContent = Object.entries(selectorResults)
-                .map(([key, value]) => `<section data-selector="${key}">${value}</section>`)
-                .join('\n');
-              markdownContent = Object.entries(selectorResults)
-                .map(([key, value]) => `## ${key}\n\n${value}`)
-                .join('\n\n');
+            if (extractedContent && extractedContent.trim().length > 100) {
+              htmlContent = `<section data-selector="content">${extractedContent}</section>`;
+              markdownContent = extractedContent.trim();
               usedSelectors = true;
               
-              this.logger.info(`Used selector-based extraction for ${url}, content length: ${totalSelectorContent.length}`);
+              this.logger.info(`Used selector-based extraction for ${url}, content length: ${extractedContent.length}`);
             } else {
-              this.logger.warn(`Selector-based extraction yielded insufficient content for ${url} (${totalSelectorContent.length} chars), falling back to full page`);
+              this.logger.warn(`Selector extraction yielded insufficient content for ${url} (${extractedContent?.length || 0} chars), falling back to full page`);
             }
           }
           
@@ -401,8 +439,8 @@ export class WebScrapingService {
             this.logger.info(`Used full page extraction for ${url}, markdown length: ${markdownContent.length}`);
           }
 
-          // Normalize URL for consistent storage
-          const normalizedUrl = this.websitePagesRepository.normalizeUrl(url);
+          // Normalize the final URL (after redirects) for consistent storage
+          const normalizedUrl = this.websitePagesRepository.normalizeUrl(finalUrl);
           const contentHash = this.websitePagesRepository.generateContentHash(markdownContent);
           
           // Create or update website page
@@ -413,7 +451,7 @@ export class WebScrapingService {
             contentHash,
             htmlContent,
             markdownContent,
-            selector: jobParams.selectors ? JSON.stringify(jobParams.selectors) : undefined,
+            selector: selectorToUse || undefined,
             title: pageContent.title || new URL(url).pathname,
             httpStatus: 200
           });
@@ -436,7 +474,15 @@ export class WebScrapingService {
           }
 
           pagesScraped++;
+          
+          // Update job progress with throttling (every 5 pages or 60 seconds)
+          await this.updateJobProgressThrottled(job.id, pagesScraped);
+          
           processedUrls.add(url);
+          // Also add the final URL to avoid reprocessing redirected URLs
+          if (finalUrl !== url) {
+            processedUrls.add(finalUrl);
+          }
 
           // Add internal links to crawl queue if we haven't reached max depth
           if (depth < maxDepth) {
@@ -495,9 +541,14 @@ export class WebScrapingService {
         totalProcessed: processedUrls.size
       });
 
-      // Update job results
+      // Final progress update - single update with all completion data
       await this.scrapeJobRepository.update(job.id, {
         pagesScraped: pagesScraped,
+        updatedAt: new Date().toISOString(),
+        status: 'completed',
+        lockedBy: null,
+        lockedAt: null,
+        completedAt: new Date().toISOString(),
         resultData: {
           processing_method: 'direct',
           pages_scraped: pagesScraped,
@@ -508,9 +559,12 @@ export class WebScrapingService {
           total_discovered: processedUrls.size + crawlQueue.length,
           completed_at: new Date().toISOString()
         }
-      });
+      } as ScrapeJobUpdate);
 
     } finally {
+      // Clean up progress throttler
+      this.progressUpdateThrottlers.delete(job.id);
+      
       // Clean up page
       if (page) {
         try {
@@ -589,6 +643,43 @@ export class WebScrapingService {
       return { 
         success: false, 
         error: error instanceof Error ? error.message : 'Failed to cancel job' 
+      };
+    }
+  }
+
+  /**
+   * Force unlock a stuck job - useful for debugging and recovery
+   */
+  async forceUnlockJob(jobId: string, reason?: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const job = await this.scrapeJobRepository.findById(jobId);
+      if (!job) {
+        return { success: false, error: 'Job not found' };
+      }
+
+      await this.scrapeJobRepository.forceUnlockJob(jobId, reason);
+
+      return { success: true };
+    } catch (error) {
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Failed to force unlock job' 
+      };
+    }
+  }
+
+  /**
+   * Force unlock all stuck jobs
+   */
+  async forceUnlockStuckJobs(stuckThresholdMinutes = 30): Promise<{ success: boolean; unlockedCount?: number; error?: string }> {
+    try {
+      const unlockedCount = await this.scrapeJobRepository.forceUnlockStuckJobs(stuckThresholdMinutes);
+      
+      return { success: true, unlockedCount };
+    } catch (error) {
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Failed to force unlock stuck jobs' 
       };
     }
   }
@@ -858,9 +949,9 @@ export class WebScrapingService {
     name?: string;
     sourceType?: string;
     crawlDepth?: number;
-    selectors?: Record<string, string>;
-    allowPatterns?: string[];
-    ignorePatterns?: string[];
+    selectors?: string; // Plain string selector - CSS selector or JavaScript code
+    allowPatterns?: (string | ScrapingPattern)[];
+    ignorePatterns?: (string | ScrapingPattern)[];
     includeSubdomains?: boolean;
     updateFrequency?: DocumentationSource['updateFrequency'];
   }): Promise<string> {
@@ -882,7 +973,7 @@ export class WebScrapingService {
       url: params.url,
       sourceType: (params.sourceType || 'guide') as any,
       crawlDepth: params.crawlDepth || 3,
-      selectors: params.selectors || {},
+      selectors: params.selectors,
       allowPatterns: params.allowPatterns || [],
       ignorePatterns: params.ignorePatterns || [],
       includeSubdomains: params.includeSubdomains || false,
@@ -1035,6 +1126,235 @@ export class WebScrapingService {
       return nonContentExtensions.some(ext => urlPath.endsWith(ext));
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Get domain-specific selectors for better content extraction
+   */
+  private getDomainSpecificSelectors(url: string): Record<string, string> | null {
+    try {
+      const hostname = new URL(url).hostname.toLowerCase();
+      
+      // Domain-specific selector mappings
+      const domainSelectors: Record<string, Record<string, string>> = {
+        'stenciljs.com': {
+          content: 'article, main .markdown-body, .content-wrapper, .main-content'
+        },
+        'reactjs.org': {
+          content: 'article, .markdown-body, .content-wrapper'
+        },
+        'vuejs.org': {
+          content: 'article, .content, .markdown-body'
+        },
+        'angular.io': {
+          content: 'article, .docs-content, .content'
+        },
+        'docs.github.com': {
+          content: 'article, .markdown-body'
+        },
+        'developer.mozilla.org': {
+          content: 'article, .main-page-content'
+        },
+        'stackoverflow.com': {
+          content: '.question, .answer, .post-text'
+        },
+        'medium.com': {
+          content: 'article, .postArticle-content'
+        }
+      };
+      
+      // Check for exact hostname match
+      if (domainSelectors[hostname]) {
+        this.logger.info(`Using domain-specific selectors for ${hostname}`);
+        return domainSelectors[hostname];
+      }
+      
+      // Check for subdomain matches
+      for (const [domain, selectors] of Object.entries(domainSelectors)) {
+        if (hostname.endsWith(`.${domain}`)) {
+          this.logger.info(`Using domain-specific selectors for ${hostname} (matches ${domain})`);
+          return selectors;
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      this.logger.warn(`Failed to get domain-specific selectors for ${url}`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Update job progress with throttling to avoid overwhelming database
+   * Updates only when:
+   * - Every 5 pages have been processed, OR
+   * - 60 seconds have passed since last update, OR
+   * - Force update is requested (job completion)
+   * Always updates the updatedAt timestamp to show the job is active
+   */
+  private async updateJobProgressThrottled(
+    jobId: string, 
+    pagesScraped: number, 
+    forceUpdate: boolean = false
+  ): Promise<void> {
+    const now = Date.now();
+    const PAGE_THRESHOLD = 5;
+    const TIME_THRESHOLD_MS = 60000; // 60 seconds
+    
+    let throttler = this.progressUpdateThrottlers.get(jobId);
+    if (!throttler) {
+      throttler = {
+        lastUpdateTime: now,
+        pagesSinceLastUpdate: 0
+      };
+      this.progressUpdateThrottlers.set(jobId, throttler);
+    }
+    
+    // Only increment if this is not a force update (to avoid double counting on completion)
+    if (!forceUpdate) {
+      throttler.pagesSinceLastUpdate++;
+    }
+    
+    const timeSinceLastUpdate = now - throttler.lastUpdateTime;
+    const shouldUpdateByPages = throttler.pagesSinceLastUpdate >= PAGE_THRESHOLD;
+    const shouldUpdateByTime = timeSinceLastUpdate >= TIME_THRESHOLD_MS;
+    
+    if (forceUpdate || shouldUpdateByPages || shouldUpdateByTime) {
+      try {
+        // Always update both pagesScraped and updatedAt to show activity
+        await this.scrapeJobRepository.update(jobId, {
+          pagesScraped: pagesScraped,
+          updatedAt: new Date().toISOString()
+        } as any);
+        
+        // Reset throttler
+        throttler.lastUpdateTime = now;
+        throttler.pagesSinceLastUpdate = 0;
+        
+        if (forceUpdate) {
+          this.logger.debug(`Force updated job progress: ${jobId} (${pagesScraped} pages)`);
+        } else if (shouldUpdateByPages) {
+          this.logger.debug(`Updated job progress by page count: ${jobId} (${pagesScraped} pages)`);
+        } else if (shouldUpdateByTime) {
+          this.logger.debug(`Updated job progress by time: ${jobId} (${pagesScraped} pages, ${timeSinceLastUpdate}ms elapsed)`);
+        }
+      } catch (error) {
+        this.logger.error(`Failed to update job progress for ${jobId}`, error);
+      }
+    } else {
+      // Even if we don't update the page count, at least update the timestamp every 10 seconds
+      // to show that the job is still active
+      const HEARTBEAT_THRESHOLD_MS = 10000; // 10 seconds
+      if (timeSinceLastUpdate >= HEARTBEAT_THRESHOLD_MS) {
+        try {
+          await this.scrapeJobRepository.update(jobId, {
+            updatedAt: new Date().toISOString()
+          } as any);
+          
+          throttler.lastUpdateTime = now;
+          this.logger.debug(`Updated job heartbeat: ${jobId} (${pagesScraped} pages)`);
+        } catch (error) {
+          this.logger.error(`Failed to update job heartbeat for ${jobId}`, error);
+        }
+      }
+    }
+  }
+
+  /**
+   * Extract text using page.evaluate for better SPA compatibility
+   * With improved timeout handling and error recovery
+   */
+  private async extractTextWithPageEvaluate(page: Page, selector: string): Promise<string | null> {
+    try {
+      // Add a timeout to the page.evaluate call to prevent hanging
+      const result = await Promise.race([
+        page.evaluate(async (sel: string) => {
+          // Helper function to wait for element with timeout
+          const waitForElement = (selector: string, timeout: number = 5000): Promise<Element | null> => {
+            return new Promise((resolve) => {
+              const startTime = Date.now();
+              
+              const checkElement = () => {
+                try {
+                  const element = document.querySelector(selector);
+                  if (element) {
+                    resolve(element);
+                    return;
+                  }
+                  
+                  if (Date.now() - startTime > timeout) {
+                    resolve(null);
+                    return;
+                  }
+                  
+                  // Use requestAnimationFrame for better performance
+                  requestAnimationFrame(checkElement);
+                } catch (error) {
+                  resolve(null);
+                }
+              };
+              
+              checkElement();
+            });
+          };
+          
+          try {
+            // Wait for element to appear (important for SPAs) - reduced timeout
+            const element = await waitForElement(sel, 5000);
+            if (!element) {
+              return null;
+            }
+            
+            // Check if element is visible
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            const isVisible = rect.width > 0 && rect.height > 0 && 
+                             style.visibility !== 'hidden' &&
+                             style.display !== 'none' &&
+                             style.opacity !== '0';
+            
+            if (!isVisible) {
+              return null;
+            }
+            
+            // Get text content, trying different methods for better compatibility
+            const textContent = element.textContent || (element as HTMLElement).innerText || '';
+            
+            // If the element is a container, try to get meaningful content
+            if (textContent.length < 50 && element.children.length > 0) {
+              // Try to get content from immediate children
+              const childTexts: string[] = [];
+              for (const child of Array.from(element.children)) {
+                const childText = (child.textContent || (child as HTMLElement).innerText || '').trim();
+                if (childText.length > 0) {
+                  childTexts.push(childText);
+                }
+              }
+              
+              if (childTexts.length > 0) {
+                return childTexts.join('\n\n');
+              }
+            }
+            
+            return textContent;
+          } catch (error) {
+            // Return null if there's any error in the evaluation
+            return null;
+          }
+        }, selector),
+        // Add a 10 second timeout to prevent hanging
+        new Promise<string | null>((resolve) => {
+          setTimeout(() => {
+            resolve(null);
+          }, 10000);
+        })
+      ]);
+      
+      return result && result.trim().length > 0 ? result.trim() : null;
+    } catch (error) {
+      this.logger.debug(`Failed to extract text with page.evaluate for selector: ${selector}`, error);
+      return null;
     }
   }
 

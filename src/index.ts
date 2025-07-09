@@ -32,6 +32,10 @@ async function mainServer() {
     databasePath
   });
 
+  // Set up crash handler with database manager for handling active jobs
+  const crashHandler = CrashHandler.getInstance();
+  crashHandler.setDatabaseManager(server.getDatabaseManager());
+
   // Handle graceful shutdown
   const shutdown = async () => {
     process.stderr.write('\n🛑 Shutting down gracefully...\n');

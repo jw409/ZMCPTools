@@ -246,6 +246,7 @@ export class ScrapeJobRepository extends BaseRepository<
   async updateProgress(jobId: string, pagesScraped: number): Promise<ScrapeJob | null> {
     return this.update(jobId, {
       pagesScraped,
+      updatedAt: new Date().toISOString(),
     } as ScrapeJobUpdate);
   }
 
@@ -384,6 +385,62 @@ export class ScrapeJobRepository extends BaseRepository<
       completedAt: null,
       errorMessage: null,
     } as ScrapeJobUpdate);
+  }
+
+  /**
+   * Force unlock a stuck job - useful for debugging and recovery
+   */
+  async forceUnlockJob(jobId: string, reason?: string): Promise<ScrapeJob | null> {
+    this.logger.warn('Force unlocking job', { jobId, reason });
+    
+    return this.update(jobId, {
+      status: 'pending',
+      lockedBy: null,
+      lockedAt: null,
+      errorMessage: reason || 'Job was force unlocked',
+    } as ScrapeJobUpdate);
+  }
+
+  /**
+   * Force unlock all stuck jobs (jobs that are running but haven't been updated recently)
+   */
+  async forceUnlockStuckJobs(stuckThresholdMinutes = 30): Promise<number> {
+    const now = new Date();
+    const thresholdTime = new Date(now.getTime() - stuckThresholdMinutes * 60 * 1000).toISOString();
+    
+    const potentiallyStuckJobs = await this.query()
+      .where(and(
+        eq(scrapeJobs.status, 'running'),
+        isNotNull(scrapeJobs.lockedBy),
+        lt(scrapeJobs.updatedAt, thresholdTime)
+      ))
+      .execute();
+
+    let unlockedCount = 0;
+    
+    for (const job of potentiallyStuckJobs) {
+      const unlocked = await this.forceUnlockJob(job.id, 
+        `Job appeared stuck - no updates for ${stuckThresholdMinutes} minutes`
+      );
+      
+      if (unlocked) {
+        unlockedCount++;
+        this.logger.warn('Force unlocked stuck job', { 
+          jobId: job.id,
+          sourceId: job.sourceId,
+          lockedBy: job.lockedBy,
+          lockedAt: job.lockedAt,
+          lastUpdated: job.updatedAt,
+          stuckThresholdMinutes
+        });
+      }
+    }
+
+    if (unlockedCount > 0) {
+      this.logger.info('Force unlocked stuck jobs', { unlockedCount, stuckThresholdMinutes });
+    }
+
+    return unlockedCount;
   }
 
   /**

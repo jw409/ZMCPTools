@@ -7,6 +7,7 @@ import {
   ReadResourceRequestSchema,
   ListPromptsRequestSchema,
   GetPromptRequestSchema,
+  CreateMessageRequestSchema,
   ErrorCode,
   McpError
 } from '@modelcontextprotocol/sdk/types.js';
@@ -17,7 +18,9 @@ import type {
   Resource,
   TextResourceContents,
   Prompt,
-  GetPromptResult
+  GetPromptResult,
+  CreateMessageRequest,
+  CreateMessageResult
 } from '@modelcontextprotocol/sdk/types.js';
 
 import { DatabaseManager } from '../database/index.js';
@@ -49,6 +52,7 @@ export class McpServer {
   private orchestrationTools: AgentOrchestrationTools;
   private browserMcpTools: BrowserMcpTools;
   private webScrapingMcpTools: WebScrapingMcpTools;
+  private webScrapingService: WebScrapingService;
   private analysisMcpTools: AnalysisMcpTools;
   private treeSummaryTools: TreeSummaryTools;
   // cacheMcpTools removed - foundation caching now automatic
@@ -78,6 +82,7 @@ export class McpServer {
           tools: {},
           resources: {},
           prompts: {},
+          sampling: {}
         },
       }
     );
@@ -94,7 +99,7 @@ export class McpServer {
     // Initialize services
     const agentService = new AgentService(this.db);
     const memoryService = new MemoryService(this.db);
-    const webScrapingService = new WebScrapingService(
+    this.webScrapingService = new WebScrapingService(
       this.db,
       this.repositoryPath
     );
@@ -108,7 +113,7 @@ export class McpServer {
     
     const browserTools = new BrowserTools(memoryService, this.repositoryPath);
     this.browserMcpTools = new BrowserMcpTools(browserTools, memoryService, this.repositoryPath);
-    this.webScrapingMcpTools = new WebScrapingMcpTools(webScrapingService, memoryService, this.repositoryPath);
+    this.webScrapingMcpTools = new WebScrapingMcpTools(this.webScrapingService, memoryService, this.repositoryPath);
     this.analysisMcpTools = new AnalysisMcpTools(memoryService, this.repositoryPath);
     this.treeSummaryTools = new TreeSummaryTools();
     // Foundation caching is now automatic - no manual tools needed
@@ -124,6 +129,9 @@ export class McpServer {
 
     // Setup graceful shutdown handlers
     this.setupShutdownHandlers();
+
+    // Make server instance available for sampling requests
+    (globalThis as any).mcpServer = this;
   }
 
   private setupShutdownHandlers(): void {
@@ -233,6 +241,15 @@ export class McpServer {
           `Prompt execution failed: ${errorMessage}`
         );
       }
+    });
+
+    // Handle sampling requests - This is for when the server receives sampling requests
+    // In practice, the server will make sampling requests TO the client, not handle them
+    this.server.setRequestHandler(CreateMessageRequestSchema, async (request) => {
+      throw new McpError(
+        ErrorCode.MethodNotFound,
+        "Sampling requests should be initiated by the server, not received by it"
+      );
     });
   }
 
@@ -788,12 +805,37 @@ export class McpServer {
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
     
+    // Start background scraping worker
+    process.stderr.write('🤖 Starting background scraping worker...\n');
+    try {
+      await this.webScrapingService.startScrapingWorker();
+      process.stderr.write('✅ Background scraping worker started\n');
+    } catch (error) {
+      process.stderr.write(`⚠️ Failed to start scraping worker: ${error}\n`);
+    }
+    
     process.stderr.write('✅ MCP Server started successfully\n');
     process.stderr.write('📡 Listening for MCP requests on stdio...\n');
   }
 
+  /**
+   * Get database manager for crash handler and other internal use
+   */
+  getDatabaseManager(): DatabaseManager {
+    return this.db;
+  }
+
   async stop(): Promise<void> {
     process.stderr.write('🛑 Stopping MCP Server...\n');
+    
+    // Stop background scraping worker
+    process.stderr.write('🤖 Stopping background scraping worker...\n');
+    try {
+      await this.webScrapingService.stopScrapingWorker();
+      process.stderr.write('✅ Background scraping worker stopped\n');
+    } catch (error) {
+      process.stderr.write(`⚠️ Error stopping scraping worker: ${error}\n`);
+    }
     
     // Close LanceDB connection
     process.stderr.write('🔍 Closing LanceDB connection...\n');
@@ -802,6 +844,26 @@ export class McpServer {
     
     await this.server.close();
     process.stderr.write('✅ MCP Server stopped\n');
+  }
+
+  /**
+   * Request sampling from the MCP client
+   */
+  async requestSampling(samplingRequest: any): Promise<CreateMessageResult> {
+    try {
+      // Make a sampling request to the client
+      const response = await this.server.request(
+        {
+          method: 'sampling/createMessage',
+          params: samplingRequest.params
+        },
+        CreateMessageRequestSchema
+      );
+      
+      return response as CreateMessageResult;
+    } catch (error) {
+      throw new Error(`MCP sampling request failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 
   // Health check method

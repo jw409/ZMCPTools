@@ -61,8 +61,10 @@ export class Logger {
   info(message: string, data?: any): void {
     const logEntry = this.formatLogEntry('INFO', message, data);
     this.writeLog(logEntry);
-    // Use stderr for console output to avoid interfering with MCP stdio transport
-    process.stderr.write(`[${this.category}] INFO: ${message}${data ? ' ' + JSON.stringify(data) : ''}\n`);
+    // Only output INFO to stderr in debug mode
+    if (process.env.NODE_ENV === 'development' || process.env.DEBUG || process.env.VERBOSE_LOGGING) {
+      process.stderr.write(`[${this.category}] INFO: ${message}${data ? ' ' + JSON.stringify(data) : ''}\n`);
+    }
   }
 
   debug(message: string, data?: any): void {

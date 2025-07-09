@@ -45,9 +45,9 @@ export const documentationStatusSchema = z.enum([
 ]);
 
 // Schema validation helpers
-export const selectorsSchema = z.record(z.string(), z.string()).optional();
-export const allowPatternsSchema = z.array(z.string()).default([]);
-export const ignorePatternsSchema = z.array(z.string()).default([]);
+export const selectorsSchema = z.string().optional();
+export const allowPatternsSchema = z.array(z.union([z.string(), z.record(z.any())])).default([]);
+export const ignorePatternsSchema = z.array(z.union([z.string(), z.record(z.any())])).default([]);
 export const sourceMetadataSchema = z.record(z.string(), z.any()).optional();
 export const jobDataSchema = z.record(z.string(), z.any());
 export const resultDataSchema = z.record(z.string(), z.any()).optional();
@@ -100,14 +100,12 @@ export const documentationSources = sqliteTable("documentation_sources", {
   })
     .notNull()
     .default("daily"),
-  selectors: text("selectors", { mode: "json" }).$type<
-    Record<string, string>
-  >(),
+  selectors: text("selectors"),  // Plain string selector
   allowPatterns: text("allowPatterns", { mode: "json" })
-    .$type<string[]>()
+    .$type<(string | Record<string, any>)[]>()
     .default([]),
   ignorePatterns: text("ignorePatterns", { mode: "json" })
-    .$type<string[]>()
+    .$type<(string | Record<string, any>)[]>()
     .default([]),
   includeSubdomains: integer("includeSubdomains", { mode: "boolean" }).default(
     false
@@ -141,6 +139,7 @@ export const scrapeJobs = sqliteTable("scrape_jobs", {
   lockedAt: text("lockedAt"), // ISO datetime string
   lockTimeout: integer("lockTimeout").notNull().default(3600), // seconds
   createdAt: text("createdAt").notNull().default("CURRENT_TIMESTAMP"),
+  updatedAt: text("updatedAt").notNull().default("CURRENT_TIMESTAMP"),
   startedAt: text("startedAt"), // ISO datetime string
   completedAt: text("completedAt"), // ISO datetime string
   errorMessage: text("errorMessage"),
@@ -252,9 +251,9 @@ export type DocumentationSource = {
     | "wiki";
   crawlDepth: number;
   updateFrequency: "never" | "daily" | "weekly" | "monthly" | "on_demand";
-  selectors?: Record<string, string>;
-  allowPatterns: string[];
-  ignorePatterns: string[];
+  selectors?: string;
+  allowPatterns: (string | Record<string, any>)[];
+  ignorePatterns: (string | Record<string, any>)[];
   includeSubdomains: boolean;
   lastScraped?: string;
   status: "not_started" | "scraping" | "completed" | "failed" | "stale";
@@ -291,6 +290,7 @@ export type ScrapeJob = {
   lockedAt?: string;
   lockTimeout: number;
   createdAt: string;
+  updatedAt: string;
   startedAt?: string;
   completedAt?: string;
   errorMessage?: string;
@@ -298,8 +298,9 @@ export type ScrapeJob = {
   resultData?: Record<string, any>;
 };
 
-export type NewScrapeJob = Omit<ScrapeJob, "createdAt"> & {
+export type NewScrapeJob = Omit<ScrapeJob, "createdAt" | "updatedAt"> & {
   createdAt?: string;
+  updatedAt?: string;
 };
 
 export type ScrapeJobUpdate = Partial<Omit<ScrapeJob, "id">>;

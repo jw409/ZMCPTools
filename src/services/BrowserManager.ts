@@ -265,16 +265,77 @@ export class BrowserManager {
     const { timeout = 5000, clean = true } = options;
 
     try {
-      await page.waitForSelector(selector, { timeout });
-      const element = page.locator(selector).first();
+      // Use page.evaluate for SPA compatibility - selector can be CSS selector or custom JS
+      const result = await page.evaluate(async (selectorOrCode: string) => {
+        const timeoutMs = 5000; // Use a fixed timeout inside evaluate
+        // Helper function to wait for element with timeout
+        const waitForElement = (selector: string, timeout: number): Promise<Element | null> => {
+          return new Promise((resolve) => {
+            const startTime = Date.now();
+            
+            const checkElement = () => {
+              const element = document.querySelector(selector);
+              if (element) {
+                resolve(element);
+                return;
+              }
+              
+              if (Date.now() - startTime > timeout) {
+                resolve(null);
+                return;
+              }
+              
+              // Check again after a short delay
+              setTimeout(checkElement, 100);
+            };
+            
+            checkElement();
+          });
+        };
+        
+        let element: Element | null = null;
+        
+        // Check if selector looks like JavaScript code (contains function calls, etc.)
+        if (selectorOrCode.includes('(') && selectorOrCode.includes(')')) {
+          try {
+            // Execute as JavaScript and expect it to return an element
+            const result = eval(selectorOrCode);
+            if (result instanceof Element) {
+              element = result;
+            }
+          } catch (e) {
+            // If eval fails, treat as CSS selector
+            element = await waitForElement(selectorOrCode, timeoutMs);
+          }
+        } else {
+          // Treat as CSS selector
+          element = await waitForElement(selectorOrCode, timeoutMs);
+        }
+        
+        if (!element) {
+          return null;
+        }
+        
+        // Check if element is visible
+        const rect = element.getBoundingClientRect();
+        const isVisible = rect.width > 0 && rect.height > 0 && 
+                         window.getComputedStyle(element).visibility !== 'hidden' &&
+                         window.getComputedStyle(element).display !== 'none';
+        
+        if (!isVisible) {
+          return null;
+        }
+        
+        // Get innerHTML for better content extraction
+        return element.innerHTML || element.textContent || (element as HTMLElement).innerText || '';
+      }, selector);
       
-      if (!await element.isVisible({ timeout: 2000 })) {
-        this.logger.debug('Element not visible', { selector });
+      if (!result) {
+        this.logger.debug('Element not found or not visible', { selector });
         return null;
       }
-
-      const text = await element.textContent();
-      return clean && text ? text.trim() : text;
+      
+      return clean ? result.trim() : result;
     } catch (error) {
       this.logger.debug('Failed to extract text', { 
         selector, 
@@ -288,30 +349,68 @@ export class BrowserManager {
     const { timeout = 5000, onlyVisible = true } = options;
 
     try {
-      await page.waitForSelector(selector, { timeout });
-      const elements = page.locator(selector);
-      const count = await elements.count();
-      
-      const results: string[] = [];
-      for (let i = 0; i < count; i++) {
-        try {
-          const element = elements.nth(i);
-          
-          if (onlyVisible && !await element.isVisible({ timeout: 1000 })) {
-            continue;
-          }
-          
-          const text = await element.textContent();
-          if (text && text.trim()) {
-            const cleanedText = text.trim();
-            if (!results.includes(cleanedText)) {
-              results.push(cleanedText);
+      // Use page.evaluate for better SPA compatibility
+      const results = await page.evaluate(async (sel: string) => {
+        const timeoutMs = 10000; // Fixed timeout
+        const checkVisibility = true; // Fixed visibility check
+        // Helper function to wait for elements with timeout
+        const waitForElements = (selector: string, timeout: number): Promise<Element[]> => {
+          return new Promise((resolve) => {
+            const startTime = Date.now();
+            
+            const checkElements = () => {
+              const elements = Array.from(document.querySelectorAll(selector));
+              if (elements.length > 0) {
+                resolve(elements);
+                return;
+              }
+              
+              if (Date.now() - startTime > timeout) {
+                resolve([]);
+                return;
+              }
+              
+              // Check again after a short delay
+              setTimeout(checkElements, 100);
+            };
+            
+            checkElements();
+          });
+        };
+        
+        // Wait for elements to appear (important for SPAs)
+        const elements = await waitForElements(sel, timeoutMs);
+        if (elements.length === 0) {
+          return [];
+        }
+        
+        const textResults: string[] = [];
+        
+        for (const element of elements) {
+          // Check if element is visible if required
+          if (checkVisibility) {
+            const rect = element.getBoundingClientRect();
+            const isVisible = rect.width > 0 && rect.height > 0 && 
+                             window.getComputedStyle(element).visibility !== 'hidden' &&
+                             window.getComputedStyle(element).display !== 'none';
+            
+            if (!isVisible) {
+              continue;
             }
           }
-        } catch (error) {
-          continue;
+          
+          // Get text content
+          const text = element.textContent || (element as HTMLElement).innerText || '';
+          if (text && text.trim()) {
+            const cleanedText = text.trim();
+            if (!textResults.includes(cleanedText)) {
+              textResults.push(cleanedText);
+            }
+          }
         }
-      }
+        
+        return textResults;
+      }, selector);
       
       return results;
     } catch (error) {
