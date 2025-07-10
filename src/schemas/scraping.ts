@@ -52,29 +52,6 @@ export const sourceMetadataSchema = z.record(z.string(), z.any()).optional();
 export const jobDataSchema = z.record(z.string(), z.any());
 export const resultDataSchema = z.record(z.string(), z.any()).optional();
 
-const DocumentationSourceSchema = z.object({
-  id: z.string(),
-  name: z.string().min(1).max(200),
-  url: z.string().url(),
-  sourceType: sourceTypeSchema.default("guide"),
-  crawlDepth: z.number().int().min(1).max(10).default(3),
-  updateFrequency: updateFrequencySchema.default("daily"),
-  selectors: selectorsSchema,
-  allowPatterns: allowPatternsSchema,
-  ignorePatterns: ignorePatternsSchema,
-  includeSubdomains: z.boolean().default(false),
-  lastScraped: z.string().datetime().optional(),
-  status: documentationStatusSchema.default("not_started"),
-  createdAt: z
-    .string()
-    .datetime()
-    .default(() => new Date().toISOString()),
-  updatedAt: z
-    .string()
-    .datetime()
-    .default(() => new Date().toISOString()),
-  sourceMetadata: sourceMetadataSchema,
-});
 
 // Drizzle table definitions
 export const documentationSources = sqliteTable("documentation_sources", {
@@ -94,7 +71,7 @@ export const documentationSources = sqliteTable("documentation_sources", {
   })
     .notNull()
     .default("guide"),
-  crawlDepth: integer("crawlDepth").notNull().default(3),
+  maxPages: integer("maxPages").notNull().default(200),
   updateFrequency: text("updateFrequency", {
     enum: ["never", "daily", "weekly", "monthly", "on_demand"],
   })
@@ -202,14 +179,15 @@ export const websitePagesRelations = relations(websitePages, ({ one }) => ({
 }));
 
 
-// Generated Zod schemas using drizzle-zod
-export const insertDocumentationSourceSchema =
-  createInsertSchema(documentationSources);
+// Generated Zod schemas using drizzle-zod with validation rules
+export const insertDocumentationSourceSchema = createInsertSchema(documentationSources, {
+  name: (schema) => schema.min(1).max(200),
+  url: (schema) => schema.url(),
+  maxPages: (schema) => schema.int().min(1).max(1000),
+});
 
-export const selectDocumentationSourceSchema =
-  createSelectSchema(documentationSources);
-export const updateDocumentationSourceSchema =
-  createUpdateSchema(documentationSources);
+export const selectDocumentationSourceSchema = createSelectSchema(documentationSources);
+export const updateDocumentationSourceSchema = createUpdateSchema(documentationSources);
 
 export const insertScrapeJobSchema = createInsertSchema(scrapeJobs, {
   sourceId: (schema) => schema.min(1),
@@ -236,113 +214,22 @@ export const insertWebsitePageSchema = createInsertSchema(websitePages, {
 export const selectWebsitePageSchema = createSelectSchema(websitePages);
 export const updateWebsitePageSchema = createUpdateSchema(websitePages);
 
-// Type exports - Simple TypeScript interfaces matching camelCase table fields
-export type DocumentationSource = {
-  id: string;
-  name: string;
-  url: string;
-  sourceType:
-    | "api"
-    | "guide"
-    | "reference"
-    | "tutorial"
-    | "documentation"
-    | "blog"
-    | "wiki";
-  crawlDepth: number;
-  updateFrequency: "never" | "daily" | "weekly" | "monthly" | "on_demand";
-  selectors?: string;
-  allowPatterns: (string | Record<string, any>)[];
-  ignorePatterns: (string | Record<string, any>)[];
-  includeSubdomains: boolean;
-  lastScraped?: string;
-  status: "not_started" | "scraping" | "completed" | "failed" | "stale";
-  createdAt: string;
-  updatedAt: string;
-  sourceMetadata?: Record<string, any>;
-};
+// Type exports using drizzle-zod inferred types
+export type DocumentationSource = z.infer<typeof selectDocumentationSourceSchema>;
+export type NewDocumentationSource = z.infer<typeof insertDocumentationSourceSchema>;
+export type DocumentationSourceUpdate = z.infer<typeof updateDocumentationSourceSchema>;
 
-export type NewDocumentationSource = Omit<
-  DocumentationSource,
-  "createdAt" | "updatedAt"
-> & {
-  createdAt?: string;
-  updatedAt?: string;
-};
+export type ScrapeJob = z.infer<typeof selectScrapeJobSchema>;
+export type NewScrapeJob = z.infer<typeof insertScrapeJobSchema>;
+export type ScrapeJobUpdate = z.infer<typeof updateScrapeJobSchema>;
 
-export type DocumentationSourceUpdate = Partial<
-  Omit<DocumentationSource, "id">
->;
+export type Website = z.infer<typeof selectWebsiteSchema>;
+export type NewWebsite = z.infer<typeof insertWebsiteSchema>;
+export type WebsiteUpdate = z.infer<typeof updateWebsiteSchema>;
 
-export type ScrapeJob = {
-  id: string;
-  sourceId: string;
-  jobData: Record<string, any>;
-  status:
-    | "pending"
-    | "running"
-    | "completed"
-    | "failed"
-    | "cancelled"
-    | "timeout";
-  priority: number;
-  lockedBy?: string;
-  lockedAt?: string;
-  lockTimeout: number;
-  createdAt: string;
-  updatedAt: string;
-  startedAt?: string;
-  completedAt?: string;
-  errorMessage?: string;
-  pagesScraped?: number;
-  resultData?: Record<string, any>;
-};
-
-export type NewScrapeJob = Omit<ScrapeJob, "createdAt" | "updatedAt"> & {
-  createdAt?: string;
-  updatedAt?: string;
-};
-
-export type ScrapeJobUpdate = Partial<Omit<ScrapeJob, "id">>;
-
-export type Website = {
-  id: string;
-  name: string;
-  domain: string;
-  metaDescription?: string;
-  sitemapData?: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type NewWebsite = Omit<Website, "createdAt" | "updatedAt"> & {
-  createdAt?: string;
-  updatedAt?: string;
-};
-
-export type WebsiteUpdate = Partial<Omit<Website, "id">>;
-
-export type WebsitePage = {
-  id: string;
-  websiteId: string;
-  url: string;
-  contentHash: string;
-  htmlContent?: string;
-  markdownContent?: string;
-  selector?: string;
-  title?: string;
-  httpStatus?: number;
-  errorMessage?: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type NewWebsitePage = Omit<WebsitePage, "createdAt" | "updatedAt"> & {
-  createdAt?: string;
-  updatedAt?: string;
-};
-
-export type WebsitePageUpdate = Partial<Omit<WebsitePage, "id">>;
+export type WebsitePage = z.infer<typeof selectWebsitePageSchema>;
+export type NewWebsitePage = z.infer<typeof insertWebsitePageSchema>;
+export type WebsitePageUpdate = z.infer<typeof updateWebsitePageSchema>;
 
 export type SourceType = z.infer<typeof sourceTypeSchema>;
 export type UpdateFrequency = z.infer<typeof updateFrequencySchema>;
@@ -354,7 +241,7 @@ export const scrapeDocumentationRequestSchema = z.object({
   url: z.string().url(),
   name: z.string().min(1).max(200).optional(),
   sourceType: sourceTypeSchema.default("guide"),
-  crawlDepth: z.number().int().min(1).max(10).default(3),
+  maxPages: z.number().int().min(1).max(1000).default(200),
   updateFrequency: updateFrequencySchema.default("weekly"),
   allowPatterns: allowPatternsSchema,
   ignorePatterns: ignorePatternsSchema,
