@@ -194,7 +194,7 @@ export const AGENT_TYPE_DEFINITIONS: AgentTypeDefinitions = {
   planner_agent: {
     description: 'Strategic planning, task breakdown, and project coordination',
     defaultCapabilities: ['project_planning', 'task_management', 'coordination'],
-    defaultAllowedCategories: ['core_tools', 'communication_tools', 'memory_tools', 'orchestration_tools', 'analysis_tools', 'thinking_tools'],
+    defaultAllowedCategories: ['core_tools', 'communication_tools', 'memory_tools', 'orchestration_tools', 'analysis_tools', 'thinking_tools', 'file_tools'],
     defaultDisallowedCategories: ['execution_tools', 'browser_tools', 'web_tools'],
     autoCreateRoom: true,
     roomNamingPattern: 'planner_{timestamp}'

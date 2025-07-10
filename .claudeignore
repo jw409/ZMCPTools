@@ -1,0 +1,117 @@
+# Dependencies
+node_modules/
+vendor/
+bower_components/
+jspm_packages/
+
+# Build outputs
+dist/
+build/
+out/
+target/
+.next/
+.nuxt/
+.astro/
+.vite/
+.svelte-kit/
+
+# Cache directories
+.cache/
+.tmp/
+.temp/
+.parcel-cache/
+.pytest_cache/
+.nyc_output/
+coverage/
+
+# Environment and config
+.env
+.env.*
+.venv/
+venv/
+env/
+ENV/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Editor and IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Version control
+.git/
+.hg/
+.svn/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Testing
+.tox/
+.coverage
+.coverage.*
+.nox/
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# Compiled files
+*.com
+*.class
+*.dll
+*.exe
+*.o
+*.so
+*.dylib
+
+# Package files
+*.7z
+*.dmg
+*.gz
+*.iso
+*.jar
+*.rar
+*.tar
+*.zip
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+*.orig
+
+# OS generated files
+.DS_Store?
+ehthumbs.db
+Icon?
+Thumbs.db
+
+# Claude MCP Tools specific
+.mcptools/
+.treesummary/cache/
+_tmp_*
+migrations/

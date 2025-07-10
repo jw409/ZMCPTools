@@ -91,6 +91,46 @@ export class FileOperationsService {
   }
 
   /**
+   * Read and parse .claudeignore file from a directory
+   */
+  private async readClaudeIgnore(directory: string): Promise<string[]> {
+    try {
+      const claudeIgnorePath = join(directory, '.claudeignore');
+      const content = await fs.readFile(claudeIgnorePath, 'utf8');
+      
+      return content
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line && !line.startsWith('#')) // Remove empty lines and comments
+        .map(pattern => {
+          // Convert .claudeignore patterns to glob patterns
+          if (pattern.endsWith('/')) {
+            // Directory patterns
+            return [pattern.slice(0, -1), pattern + '**'];
+          } else if (pattern.includes('*')) {
+            // Already a glob pattern
+            return [pattern];
+          } else {
+            // File or directory patterns - add both exact and recursive versions
+            return [pattern, pattern + '/**'];
+          }
+        })
+        .flat();
+    } catch (error) {
+      // .claudeignore file doesn't exist or can't be read, return empty array
+      return [];
+    }
+  }
+
+  /**
+   * Get combined ignore patterns from default patterns, custom patterns, and .claudeignore
+   */
+  private async getCombinedIgnorePatterns(directory: string, customPatterns: string[] = []): Promise<string[]> {
+    const claudeIgnorePatterns = await this.readClaudeIgnore(directory);
+    return [...this.defaultIgnorePatterns, ...claudeIgnorePatterns, ...customPatterns];
+  }
+
+  /**
    * List files and directories with smart ignore patterns
    */
   async listFiles(directory: string, options: ListFilesOptions = {}): Promise<FileInfo[]> {
@@ -101,7 +141,7 @@ export class FileOperationsService {
       maxDepth = 50
     } = options;
 
-    const allIgnorePatterns = [...this.defaultIgnorePatterns, ...ignorePatterns];
+    const allIgnorePatterns = await this.getCombinedIgnorePatterns(directory, ignorePatterns);
     const result: FileInfo[] = [];
 
     try {

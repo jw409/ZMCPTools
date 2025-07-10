@@ -404,13 +404,14 @@ export class AnalysisMcpTools {
             success: true,
             structure: cachedStructure.structure,
             summary_generated: params.generate_summary,
-            summary_path: params.generate_summary ? path.join(projectPath, '.treesummary') : null,
+            summary_path: params.generate_summary ? path.join(projectPath, '.treesummary', 'structure.txt') : null,
             cached: true
           };
         }
       }
       
-      const structure = await this.buildProjectStructure(projectPath, params.max_depth, params.exclude_patterns);
+      const combinedExcludePatterns = await this.getCombinedExcludePatterns(projectPath, params.exclude_patterns);
+      const structure = await this.buildProjectStructure(projectPath, params.max_depth, combinedExcludePatterns);
       
       // Cache the result if foundation cache is available
       if (this.foundationCache) {
@@ -427,7 +428,8 @@ export class AnalysisMcpTools {
         // Use TreeSummaryService for better integration
         await this.treeSummaryService.updateProjectMetadata(projectPath);
         
-        const summaryPath = path.join(projectPath, '.treesummary');
+        // Write tree summary inside the .treesummary directory structure
+        const summaryPath = path.join(projectPath, '.treesummary', 'structure.txt');
         const summaryContent = this.generateTreeSummary(structure);
         await writeFile(summaryPath, summaryContent, 'utf8');
       }
@@ -436,7 +438,7 @@ export class AnalysisMcpTools {
         success: true,
         structure,
         summary_generated: params.generate_summary,
-        summary_path: params.generate_summary ? path.join(projectPath, '.treesummary') : null,
+        summary_path: params.generate_summary ? path.join(projectPath, '.treesummary', 'structure.txt') : null,
         cached: false
       };
     } catch (error) {
@@ -474,7 +476,12 @@ export class AnalysisMcpTools {
       const overview = await this.treeSummaryService.getProjectOverview(projectPath);
       
       // Build basic structure if not available from overview
-      const structure = overview.structure || await this.buildProjectStructure(projectPath, 5, ['node_modules/**', '.git/**']);
+      let structure = overview.structure;
+      if (!structure) {
+        const defaultExcludePatterns = ['node_modules/**', '.git/**'];
+        const combinedExcludePatterns = await this.getCombinedExcludePatterns(projectPath, defaultExcludePatterns);
+        structure = await this.buildProjectStructure(projectPath, 5, combinedExcludePatterns);
+      }
       
       // Calculate stats
       const stats = this.calculateProjectStats(structure);
@@ -765,6 +772,46 @@ export class AnalysisMcpTools {
         children: []
       };
     }
+  }
+
+  /**
+   * Read and parse .claudeignore file from a directory
+   */
+  private async readClaudeIgnore(directory: string): Promise<string[]> {
+    try {
+      const claudeIgnorePath = path.join(directory, '.claudeignore');
+      const content = await readFile(claudeIgnorePath, 'utf8');
+      
+      return content
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line && !line.startsWith('#')) // Remove empty lines and comments
+        .map(pattern => {
+          // Convert .claudeignore patterns to glob patterns for AnalysisMcpTools
+          if (pattern.endsWith('/')) {
+            // Directory patterns
+            return [pattern.slice(0, -1), pattern + '**'];
+          } else if (pattern.includes('*')) {
+            // Already a glob pattern
+            return [pattern];
+          } else {
+            // File or directory patterns - add both exact and recursive versions
+            return [pattern, pattern + '/**'];
+          }
+        })
+        .flat();
+    } catch (error) {
+      // .claudeignore file doesn't exist or can't be read, return empty array
+      return [];
+    }
+  }
+
+  /**
+   * Get combined exclude patterns including .claudeignore
+   */
+  private async getCombinedExcludePatterns(projectPath: string, excludePatterns: string[]): Promise<string[]> {
+    const claudeIgnorePatterns = await this.readClaudeIgnore(projectPath);
+    return [...excludePatterns, ...claudeIgnorePatterns];
   }
 
   private shouldExclude(filePath: string, excludePatterns: string[]): boolean {

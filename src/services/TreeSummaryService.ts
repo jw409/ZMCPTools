@@ -90,6 +90,39 @@ export class TreeSummaryService {
   }
 
   /**
+   * Read and parse .claudeignore file from a directory
+   */
+  private async readClaudeIgnore(directory: string): Promise<string[]> {
+    try {
+      const claudeIgnorePath = path.join(directory, '.claudeignore');
+      const content = await fs.readFile(claudeIgnorePath, 'utf8');
+      
+      return content
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line && !line.startsWith('#')) // Remove empty lines and comments
+        .map(pattern => {
+          // Convert .claudeignore patterns to simple patterns for TreeSummary
+          if (pattern.endsWith('/')) {
+            return pattern.slice(0, -1); // Remove trailing slash
+          }
+          return pattern;
+        });
+    } catch (error) {
+      // .claudeignore file doesn't exist or can't be read, return empty array
+      return [];
+    }
+  }
+
+  /**
+   * Get combined ignore patterns from default patterns and .claudeignore
+   */
+  private async getCombinedIgnorePatterns(directory: string): Promise<string[]> {
+    const claudeIgnorePatterns = await this.readClaudeIgnore(directory);
+    return [...this.defaultIgnorePatterns, ...claudeIgnorePatterns];
+  }
+
+  /**
    * Update file analysis for a specific file with atomic operations and foundation cache invalidation
    */
   async updateFileAnalysis(filePath: string, analysisData: FileAnalysis): Promise<boolean> {
@@ -499,7 +532,7 @@ export class TreeSummaryService {
       
       for (const entry of entries) {
         // Skip ignored patterns
-        if (this.shouldIgnore(entry.name)) {
+        if (await this.shouldIgnore(entry.name, projectPath)) {
           continue;
         }
         
@@ -521,7 +554,7 @@ export class TreeSummaryService {
             try {
               const grandChildren = await fs.readdir(entryPath, { withFileTypes: true });
               for (const grandChild of grandChildren.slice(0, 10)) { // Limit to first 10 for performance
-                if (!this.shouldIgnore(grandChild.name)) {
+                if (!(await this.shouldIgnore(grandChild.name, projectPath))) {
                   const grandChildPath = path.join(entryPath, grandChild.name);
                   const grandChildStats = await fs.stat(grandChildPath);
                   
@@ -560,8 +593,9 @@ export class TreeSummaryService {
   /**
    * Check if a file or directory should be ignored
    */
-  private shouldIgnore(name: string): boolean {
-    return this.defaultIgnorePatterns.some(pattern => {
+  private async shouldIgnore(name: string, projectPath: string): Promise<boolean> {
+    const combinedPatterns = await this.getCombinedIgnorePatterns(projectPath);
+    return combinedPatterns.some(pattern => {
       if (pattern.includes('*')) {
         // Simple glob pattern matching
         const regex = new RegExp(pattern.replace(/\*/g, '.*'));
