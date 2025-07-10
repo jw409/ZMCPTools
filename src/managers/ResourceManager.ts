@@ -1143,11 +1143,29 @@ export class ResourceManager {
     }
 
     try {
-      // Use the documentation service to search
-      const results = await this.documentationService.searchDocumentation(
+      // Use the web scraping service to search documentation
+      const response = await this.webScrapingService.searchDocumentation(
         query,
-        sourceId ? { sourceId, limit } : { limit }
+        sourceId ? { collection: sourceId, limit } : { limit }
       );
+
+      // Check if the search was successful
+      if (!response.success || !response.results) {
+        return {
+          uri: `docs://search?query=${encodeURIComponent(query)}${sourceId ? `&source_id=${sourceId}` : ""}&limit=${limit}`,
+          mimeType: "application/json",
+          text: JSON.stringify({
+            error: response.error || "Documentation search failed",
+            query,
+            sourceId,
+            results: [],
+            total: 0,
+            timestamp: new Date().toISOString(),
+          }, null, 2),
+        };
+      }
+
+      const results = response.results;
 
       return {
         uri: `docs://search?query=${encodeURIComponent(query)}${sourceId ? `&source_id=${sourceId}` : ""}&limit=${limit}`,
@@ -1160,9 +1178,7 @@ export class ResourceManager {
             title: result.title,
             content: result.content.substring(0, 500) + (result.content.length > 500 ? "..." : ""),
             url: result.url,
-            sourceId: result.sourceId,
-            sourceName: result.sourceName,
-            relevanceScore: result.relevanceScore,
+            similarity: result.similarity,
           })),
           total: results.length,
           timestamp: new Date().toISOString(),
