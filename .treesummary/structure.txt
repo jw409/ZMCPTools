@@ -1,0 +1,24 @@
+📁 ClaudeMcpTools
+  📁 .claude
+  📁 .treesummary
+    📁 files
+    📁 structure.txt
+  📄 CHANGELOG.md
+  📄 CLAUDE.md
+  📄 README.md
+  📄 TOOL_LIST.md
+  📁 examples
+    📁 sequential-thinking-architect.md
+  📁 src
+    📁 cli
+    📁 database
+    📁 index.ts
+    📁 installer
+    📁 lib.ts
+    📁 managers
+    📁 schemas
+    📁 server
+    📁 services
+    📁 utils
+  📁 tmp
+    📁 REPO_FINDINGS.md

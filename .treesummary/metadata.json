@@ -1,0 +1,49 @@
+{
+  "name": "claude-mcp-tools",
+  "technologies": [
+    "Node.js",
+    "TypeScript"
+  ],
+  "dependencies": [
+    "@lancedb/lancedb",
+    "@modelcontextprotocol/sdk",
+    "better-sqlite3",
+    "commander",
+    "drizzle-orm",
+    "drizzle-zod",
+    "minimatch",
+    "patchright",
+    "ts-pattern",
+    "turndown",
+    "user-agents",
+    "xml2js",
+    "zod",
+    "@types/better-sqlite3",
+    "@types/node",
+    "@types/turndown",
+    "@types/user-agents",
+    "@types/xml2js",
+    "@typescript-eslint/eslint-plugin",
+    "@typescript-eslint/parser",
+    "@vitest/ui",
+    "drizzle-kit",
+    "eslint",
+    "tsup",
+    "tsx",
+    "typescript",
+    "vitest"
+  ],
+  "entryPoints": [
+    "dist/server/index.js",
+    "dist/server/index.d.ts"
+  ],
+  "configFiles": [
+    "package.json",
+    "tsconfig.json"
+  ],
+  "buildOutputs": [
+    "dist"
+  ],
+  "description": "TypeScript implementation of ClaudeMcpTools with enhanced MCP tools and multi-agent orchestration",
+  "version": "0.1.0"
+}
