@@ -1,25 +1,58 @@
+import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import { z } from 'zod';
 import { DatabaseManager } from '../database/index.js';
 import { AgentService, TaskService, CommunicationService, KnowledgeGraphService } from '../services/index.js';
 import { WebScrapingService } from '../services/WebScrapingService.js';
 import { AgentMonitoringService } from '../services/AgentMonitoringService.js';
 import { ProgressTracker } from '../services/ProgressTracker.js';
 import { ClaudeSpawner } from '../process/ClaudeSpawner.js';
-import type { TaskType, AgentStatus, MessageType } from '../schemas/index.js';
+import type { TaskType, AgentStatus, MessageType, EntityType } from '../schemas/index.js';
 
-export interface OrchestrationResult {
-  success: boolean;
-  message: string;
-  data?: any;
-}
+// Import centralized request schemas
+import {
+  OrchestrationObjectiveSchema,
+  SpawnAgentSchema,
+  CreateTaskSchema,
+  JoinRoomSchema,
+  SendMessageSchema,
+  WaitForMessagesSchema,
+  StoreMemorySchema,
+  SearchMemorySchema,
+  ListAgentsSchema,
+  TerminateAgentSchema,
+  CloseRoomSchema,
+  DeleteRoomSchema,
+  ListRoomsSchema,
+  ListRoomMessagesSchema,
+  MonitorAgentsSchema
+} from '../schemas/toolRequests.js';
 
-export interface SpawnAgentOptions {
-  agentType: string;
-  repositoryPath: string;
-  taskDescription: string;
-  capabilities?: string[];
-  dependsOn?: string[];
-  metadata?: Record<string, any>;
-}
+// Import centralized response schemas
+import {
+  AgentOrchestrationResponseSchema,
+  createSuccessResponse,
+  createErrorResponse,
+  type AgentOrchestrationResponse
+} from '../schemas/toolResponses.js';
+
+// Legacy types for backward compatibility
+export const OrchestrationResultSchema = z.object({
+  success: z.boolean(),
+  message: z.string(),
+  data: z.any().optional(),
+});
+
+export const SpawnAgentOptionsSchema = z.object({
+  agentType: z.string(),
+  repositoryPath: z.string(),
+  taskDescription: z.string(),
+  capabilities: z.array(z.string()).optional(),
+  dependsOn: z.array(z.string()).optional(),
+  metadata: z.record(z.string(), z.any()).optional(),
+});
+
+export type OrchestrationResult = z.infer<typeof OrchestrationResultSchema>;
+export type SpawnAgentOptions = z.infer<typeof SpawnAgentOptionsSchema>;
 
 export class AgentOrchestrationTools {
   private agentService: AgentService;
@@ -57,6 +90,336 @@ export class AgentOrchestrationTools {
         findEntitiesBySemanticSearch: async () => []
       } as any;
     }
+  }
+
+  /**
+   * Get MCP tools for agent orchestration
+   * Returns properly structured Tool objects with MCP schema compliance
+   */
+  getTools(): Tool[] {
+    return [
+      {
+        name: 'orchestrate_objective',
+        description: 'Spawn architect agent to coordinate multi-agent objective completion',
+        inputSchema: OrchestrationObjectiveSchema.shape,
+        outputSchema: AgentOrchestrationResponseSchema.shape
+      },
+      {
+        name: 'spawn_agent',
+        description: 'Spawn fully autonomous Claude agent with complete tool access',
+        inputSchema: SpawnAgentSchema.shape,
+        outputSchema: AgentOrchestrationResponseSchema.shape
+      },
+      {
+        name: 'create_task',
+        description: 'Create and assign task to agents with enhanced capabilities',
+        inputSchema: CreateTaskSchema.shape,
+        outputSchema: AgentOrchestrationResponseSchema.shape
+      },
+      {
+        name: 'join_room',
+        description: 'Join communication room for coordination',
+        inputSchema: JoinRoomSchema.shape,
+        outputSchema: AgentOrchestrationResponseSchema.shape
+      },
+      {
+        name: 'send_message',
+        description: 'Send message to coordination room',
+        inputSchema: SendMessageSchema.shape,
+        outputSchema: AgentOrchestrationResponseSchema.shape
+      },
+      {
+        name: 'wait_for_messages',
+        description: 'Wait for messages in a room',
+        inputSchema: WaitForMessagesSchema.shape,
+        outputSchema: AgentOrchestrationResponseSchema.shape
+      },
+      {
+        name: 'store_memory',
+        description: 'Store insights and learnings in shared memory',
+        inputSchema: StoreMemorySchema.shape,
+        outputSchema: AgentOrchestrationResponseSchema.shape
+      },
+      {
+        name: 'search_memory',
+        description: 'Search shared memory for insights',
+        inputSchema: SearchMemorySchema.shape,
+        outputSchema: AgentOrchestrationResponseSchema.shape
+      },
+      {
+        name: 'list_agents',
+        description: 'Get list of active agents',
+        inputSchema: ListAgentsSchema.shape,
+        outputSchema: AgentOrchestrationResponseSchema.shape
+      },
+      {
+        name: 'terminate_agent',
+        description: 'Terminate one or more agents',
+        inputSchema: TerminateAgentSchema.shape,
+        outputSchema: AgentOrchestrationResponseSchema.shape
+      },
+      {
+        name: 'close_room',
+        description: 'Close a communication room (soft delete - marks as closed but keeps data)',
+        inputSchema: CloseRoomSchema.shape,
+        outputSchema: AgentOrchestrationResponseSchema.shape
+      },
+      {
+        name: 'delete_room',
+        description: 'Permanently delete a communication room and all its messages',
+        inputSchema: DeleteRoomSchema.shape,
+        outputSchema: AgentOrchestrationResponseSchema.shape
+      },
+      {
+        name: 'list_rooms',
+        description: 'List communication rooms with filtering and pagination',
+        inputSchema: ListRoomsSchema.shape,
+        outputSchema: AgentOrchestrationResponseSchema.shape
+      },
+      {
+        name: 'list_room_messages',
+        description: 'List messages from a specific room with pagination',
+        inputSchema: ListRoomMessagesSchema.shape,
+        outputSchema: AgentOrchestrationResponseSchema.shape
+      },
+      {
+        name: 'monitor_agents',
+        description: 'Monitor agents with real-time updates using EventBus system',
+        inputSchema: MonitorAgentsSchema.shape,
+        outputSchema: AgentOrchestrationResponseSchema.shape
+      }
+    ];
+  }
+
+  /**
+   * Handle MCP tool calls for agent orchestration
+   * Routes tool calls to appropriate methods and ensures proper response format
+   */
+  async handleToolCall(name: string, args: any): Promise<AgentOrchestrationResponse> {
+    const startTime = performance.now();
+    
+    try {
+      let result: any;
+      
+      switch (name) {
+        case 'orchestrate_objective':
+          const orchestrationArgs = OrchestrationObjectiveSchema.parse(args);
+          result = await this.orchestrateObjective(
+            orchestrationArgs.title,
+            orchestrationArgs.objective,
+            orchestrationArgs.repositoryPath,
+            orchestrationArgs.foundationSessionId
+          );
+          break;
+          
+        case 'spawn_agent':
+          const spawnArgs = SpawnAgentSchema.parse(args);
+          result = await this.spawnAgent({
+            agentType: spawnArgs.agentType,
+            repositoryPath: spawnArgs.repositoryPath,
+            taskDescription: spawnArgs.taskDescription,
+            capabilities: spawnArgs.capabilities,
+            dependsOn: spawnArgs.dependsOn,
+            metadata: spawnArgs.metadata
+          });
+          break;
+          
+        case 'create_task':
+          const taskArgs = CreateTaskSchema.parse(args);
+          result = await this.createTask(
+            taskArgs.repositoryPath,
+            taskArgs.taskType,
+            taskArgs.title,
+            taskArgs.description,
+            taskArgs.requirements,
+            taskArgs.dependencies
+          );
+          break;
+          
+        case 'join_room':
+          const joinArgs = JoinRoomSchema.parse(args);
+          result = await this.joinRoom(joinArgs.roomName, joinArgs.agentName);
+          break;
+          
+        case 'send_message':
+          const messageArgs = SendMessageSchema.parse(args);
+          result = await this.sendMessage(
+            messageArgs.roomName,
+            messageArgs.agentName,
+            messageArgs.message,
+            messageArgs.mentions
+          );
+          break;
+          
+        case 'wait_for_messages':
+          const waitArgs = WaitForMessagesSchema.parse(args);
+          result = await this.waitForMessages(
+            waitArgs.roomName,
+            waitArgs.timeout,
+            waitArgs.sinceTimestamp ? new Date(waitArgs.sinceTimestamp) : undefined
+          );
+          break;
+          
+        case 'store_memory':
+          const storeArgs = StoreMemorySchema.parse(args);
+          result = await this.storeMemory(
+            storeArgs.repositoryPath,
+            storeArgs.agentId,
+            storeArgs.entryType,
+            storeArgs.title,
+            storeArgs.content,
+            storeArgs.tags
+          );
+          break;
+          
+        case 'search_memory':
+          const searchArgs = SearchMemorySchema.parse(args);
+          result = await this.searchMemory(
+            searchArgs.repositoryPath,
+            searchArgs.queryText,
+            searchArgs.agentId,
+            searchArgs.limit
+          );
+          break;
+          
+        case 'list_agents':
+          const listArgs = ListAgentsSchema.parse(args);
+          result = await this.listAgents(
+            listArgs.repositoryPath,
+            listArgs.status,
+            listArgs.limit,
+            listArgs.offset
+          );
+          break;
+          
+        case 'terminate_agent':
+          const terminateArgs = TerminateAgentSchema.parse(args);
+          result = await this.terminateAgent(terminateArgs.agentIds);
+          break;
+          
+        case 'close_room':
+          const closeArgs = CloseRoomSchema.parse(args);
+          result = await this.closeRoom(closeArgs.roomName, closeArgs.terminateAgents);
+          break;
+          
+        case 'delete_room':
+          const deleteArgs = DeleteRoomSchema.parse(args);
+          result = await this.deleteRoom(deleteArgs.roomName, deleteArgs.forceDelete);
+          break;
+          
+        case 'list_rooms':
+          const listRoomsArgs = ListRoomsSchema.parse(args);
+          result = await this.listRooms(
+            listRoomsArgs.repositoryPath,
+            listRoomsArgs.status,
+            listRoomsArgs.limit,
+            listRoomsArgs.offset
+          );
+          break;
+          
+        case 'list_room_messages':
+          const listMessagesArgs = ListRoomMessagesSchema.parse(args);
+          result = await this.listRoomMessages(
+            listMessagesArgs.roomName,
+            listMessagesArgs.limit,
+            listMessagesArgs.offset,
+            listMessagesArgs.sinceTimestamp
+          );
+          break;
+          
+        case 'monitor_agents':
+          const monitorArgs = MonitorAgentsSchema.parse(args);
+          result = await this.monitorAgents(
+            monitorArgs.agentId,
+            monitorArgs.orchestrationId,
+            monitorArgs.roomName,
+            monitorArgs.repositoryPath,
+            monitorArgs.monitoringMode,
+            monitorArgs.updateInterval,
+            monitorArgs.maxDuration,
+            monitorArgs.detailLevel
+          );
+          break;
+          
+        default:
+          throw new Error(`Unknown agent orchestration tool: ${name}`);
+      }
+      
+      const executionTime = performance.now() - startTime;
+      
+      // Transform legacy OrchestrationResult to MCP format
+      if (result && typeof result === 'object' && 'success' in result) {
+        return createSuccessResponse(
+          result.message || `${name} completed successfully`,
+          this.transformResultData(result, name),
+          executionTime
+        ) as AgentOrchestrationResponse;
+      } else {
+        return createSuccessResponse(
+          `${name} completed successfully`,
+          this.transformResultData(result, name),
+          executionTime
+        ) as AgentOrchestrationResponse;
+      }
+    } catch (error) {
+      const executionTime = performance.now() - startTime;
+      return createErrorResponse(
+        `${name} failed to execute`,
+        error instanceof Error ? error.message : 'Unknown error occurred',
+        'AGENT_ORCHESTRATION_ERROR'
+      ) as AgentOrchestrationResponse;
+    }
+  }
+
+  /**
+   * Transform legacy result data to match AgentOrchestrationResponse schema
+   */
+  private transformResultData(result: any, toolName: string): any {
+    if (!result || typeof result !== 'object') {
+      return { monitoring_data: result };
+    }
+    
+    const data: any = {};
+    
+    // Map common fields based on the result structure
+    if (result.data) {
+      // Handle nested data structure
+      const resultData = result.data;
+      
+      if (resultData.agentId) data.agent_id = resultData.agentId;
+      if (resultData.taskId) data.task_id = resultData.taskId;
+      if (resultData.roomName) data.room_name = resultData.roomName;
+      if (resultData.orchestrationId) data.orchestration_id = resultData.orchestrationId;
+      if (resultData.architectAgentId) data.agent_id = resultData.architectAgentId;
+      if (resultData.masterTaskId) data.task_id = resultData.masterTaskId;
+      
+      // Handle arrays
+      if (resultData.agents) data.agents = resultData.agents;
+      if (resultData.messages) data.messages = resultData.messages;
+      if (resultData.rooms) data.rooms = resultData.rooms;
+      if (resultData.insights) data.memory_entries = resultData.insights;
+      
+      // Handle monitoring data
+      if (resultData.monitoringType || resultData.finalStatus) {
+        data.monitoring_data = resultData;
+      }
+      
+      // Handle coordination patterns
+      if (resultData.patterns || resultData.analytics) {
+        data.patterns = resultData;
+      }
+      
+      // Include any additional data
+      Object.keys(resultData).forEach(key => {
+        const mappedFields = ['agentId', 'taskId', 'roomName', 'orchestrationId', 'architectAgentId', 'masterTaskId', 'agents', 'messages', 'rooms', 'insights'];
+        if (!mappedFields.includes(key) && !data.hasOwnProperty(key)) {
+          if (!data.patterns) data.patterns = {};
+          data.patterns[key] = resultData[key];
+        }
+      });
+    }
+    
+    return data;
   }
 
   /**
@@ -495,7 +858,7 @@ export class AgentOrchestrationTools {
   async storeMemory(
     repositoryPath: string,
     agentId: string,
-    entryType: 'insight' | 'error' | 'decision' | 'task',
+    entryType: EntityType,
     title: string,
     content: string,
     tags?: string[]

@@ -3,6 +3,7 @@
  * Provides web scraping, automation, and interaction capabilities for agents
  */
 
+import { z } from 'zod';
 import { chromium, firefox, webkit } from 'patchright';
 import type { Browser, Page, BrowserContext } from 'patchright';
 import UserAgent from 'user-agents';
@@ -46,45 +47,53 @@ class UserAgentGenerator {
   }
 }
 
-export interface BrowserSession {
-  id: string;
-  browser: Browser;
-  context: BrowserContext;
-  page: Page;
-  browserType: 'chromium' | 'firefox' | 'webkit';
-  createdAt: Date;
-  lastUsed: Date;
-  repositoryPath: string;
-  agentId?: string;
-}
+export const BrowserSessionSchema = z.object({
+  id: z.string(),
+  browser: z.any(), // Browser type from Patchright
+  context: z.any(), // BrowserContext type from Patchright
+  page: z.any(), // Page type from Patchright
+  browserType: z.enum(['chromium', 'firefox', 'webkit']),
+  createdAt: z.date(),
+  lastUsed: z.date(),
+  repositoryPath: z.string(),
+  agentId: z.string().optional(),
+});
 
-export interface ScreenshotOptions {
-  fullPage?: boolean;
-  clip?: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  };
-  quality?: number;
-  type?: 'png' | 'jpeg';
-}
+export type BrowserSession = z.infer<typeof BrowserSessionSchema>;
 
-export interface NavigationOptions {
-  waitUntil?: 'load' | 'domcontentloaded' | 'networkidle';
-  timeout?: number;
-}
+export const ScreenshotOptionsSchema = z.object({
+  fullPage: z.boolean().optional(),
+  clip: z.object({
+    x: z.number(),
+    y: z.number(),
+    width: z.number(),
+    height: z.number(),
+  }).optional(),
+  quality: z.number().optional(),
+  type: z.enum(['png', 'jpeg']).optional(),
+});
 
-export interface ScrapeOptions {
-  selector?: string;
-  waitForSelector?: string;
-  extractText?: boolean;
-  extractHtml?: boolean;
-  extractLinks?: boolean;
-  extractImages?: boolean;
-  followPagination?: boolean;
-  maxPages?: number;
-}
+export type ScreenshotOptions = z.infer<typeof ScreenshotOptionsSchema>;
+
+export const NavigationOptionsSchema = z.object({
+  waitUntil: z.enum(['load', 'domcontentloaded', 'networkidle']).optional(),
+  timeout: z.number().optional(),
+});
+
+export type NavigationOptions = z.infer<typeof NavigationOptionsSchema>;
+
+export const ScrapeOptionsSchema = z.object({
+  selector: z.string().optional(),
+  waitForSelector: z.string().optional(),
+  extractText: z.boolean().optional(),
+  extractHtml: z.boolean().optional(),
+  extractLinks: z.boolean().optional(),
+  extractImages: z.boolean().optional(),
+  followPagination: z.boolean().optional(),
+  maxPages: z.number().optional(),
+});
+
+export type ScrapeOptions = z.infer<typeof ScrapeOptionsSchema>;
 
 export class BrowserTools {
   private sessions = new Map<string, BrowserSession>();

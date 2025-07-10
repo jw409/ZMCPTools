@@ -11,6 +11,7 @@ import type { KnowledgeGraphService } from '../services/KnowledgeGraphService.js
 import { MemoryService } from '../services/MemoryService.js';
 import { PatternMatcher, type ScrapingPattern, type StringPattern, type PathPattern, type VersionPattern } from '../utils/patternMatcher.js';
 import { ScrapingOptimizer } from '../utils/scrapingOptimizer.js';
+import { WebScrapingResponseSchema, createSuccessResponse, createErrorResponse, type WebScrapingResponse } from '../schemas/toolResponses.js';
 
 // Pattern validation function
 const validatePatternArray = (patterns: (string | ScrapingPattern)[]): boolean => {
@@ -109,6 +110,28 @@ const DeleteAllWebsitePagesSchema = z.object({
   website_id: z.string(),
   confirm: z.boolean().default(false)
 });
+
+// Export schemas for MCP server registration
+export { 
+  ScrapeDocumentationSchema,
+  GetScrapingStatusSchema,
+  CancelScrapeJobSchema,
+  ForceUnlockJobSchema,
+  ForceUnlockStuckJobsSchema,
+  DeletePagesByPatternSchema,
+  DeletePagesByIdsSchema,
+  DeleteAllWebsitePagesSchema
+};
+
+// Export inferred types
+export type ScrapeDocumentationInput = z.infer<typeof ScrapeDocumentationSchema>;
+export type GetScrapingStatusInput = z.infer<typeof GetScrapingStatusSchema>;
+export type CancelScrapeJobInput = z.infer<typeof CancelScrapeJobSchema>;
+export type ForceUnlockJobInput = z.infer<typeof ForceUnlockJobSchema>;
+export type ForceUnlockStuckJobsInput = z.infer<typeof ForceUnlockStuckJobsSchema>;
+export type DeletePagesByPatternInput = z.infer<typeof DeletePagesByPatternSchema>;
+export type DeletePagesByIdsInput = z.infer<typeof DeletePagesByIdsSchema>;
+export type DeleteAllWebsitePagesInput = z.infer<typeof DeleteAllWebsitePagesSchema>;
 
 // Convert typed parameters to internal ScrapingPattern format
 function convertTypedParametersToPatterns(params: any): {
@@ -395,7 +418,8 @@ export class WebScrapingMcpTools {
             }
           },
           required: ['url']
-        }
+        },
+        outputSchema: WebScrapingResponseSchema
       },
       {
         name: 'get_scraping_status',
@@ -414,7 +438,8 @@ export class WebScrapingMcpTools {
             }
           },
           required: []
-        }
+        },
+        outputSchema: WebScrapingResponseSchema
       },
       {
         name: 'cancel_scrape_job',
@@ -428,7 +453,8 @@ export class WebScrapingMcpTools {
             }
           },
           required: ['job_id']
-        }
+        },
+        outputSchema: WebScrapingResponseSchema
       },
       {
         name: 'force_unlock_job',
@@ -446,7 +472,8 @@ export class WebScrapingMcpTools {
             }
           },
           required: ['job_id']
-        }
+        },
+        outputSchema: WebScrapingResponseSchema
       },
       {
         name: 'force_unlock_stuck_jobs',
@@ -463,7 +490,8 @@ export class WebScrapingMcpTools {
             }
           },
           required: []
-        }
+        },
+        outputSchema: WebScrapingResponseSchema
       },
       // Manual worker control tools removed - worker now starts/stops automatically with MCP server
       {
@@ -479,7 +507,8 @@ export class WebScrapingMcpTools {
             }
           },
           required: []
-        }
+        },
+        outputSchema: WebScrapingResponseSchema
       },
       {
         name: 'delete_pages_by_pattern',
@@ -503,7 +532,8 @@ export class WebScrapingMcpTools {
             }
           },
           required: ['website_id', 'url_patterns']
-        }
+        },
+        outputSchema: WebScrapingResponseSchema
       },
       {
         name: 'delete_pages_by_ids',
@@ -519,7 +549,8 @@ export class WebScrapingMcpTools {
             }
           },
           required: ['page_ids']
-        }
+        },
+        outputSchema: WebScrapingResponseSchema
       },
       {
         name: 'delete_all_website_pages',
@@ -538,7 +569,8 @@ export class WebScrapingMcpTools {
             }
           },
           required: ['website_id', 'confirm']
-        }
+        },
+        outputSchema: WebScrapingResponseSchema
       }
     ];
   }
@@ -546,51 +578,81 @@ export class WebScrapingMcpTools {
   /**
    * Handle MCP tool calls for web scraping functionality
    */
-  async handleToolCall(name: string, arguments_: any): Promise<any> {
+  async handleToolCall(name: string, arguments_: any): Promise<WebScrapingResponse> {
+    const startTime = Date.now();
+    
     try {
+      let result: WebScrapingResponse;
+      
       switch (name) {
         case 'scrape_documentation':
-          return await this.scrapeDocumentation(arguments_);
+          result = await this.scrapeDocumentation(arguments_);
+          break;
         
         case 'get_scraping_status':
-          return await this.getScrapingStatus(arguments_);
+          result = await this.getScrapingStatus(arguments_);
+          break;
         
         case 'cancel_scrape_job':
-          return await this.cancelScrapeJob(arguments_);
+          result = await this.cancelScrapeJob(arguments_);
+          break;
         
         case 'force_unlock_job':
-          return await this.forceUnlockJob(arguments_);
+          result = await this.forceUnlockJob(arguments_);
+          break;
         
         case 'force_unlock_stuck_jobs':
-          return await this.forceUnlockStuckJobs(arguments_);
+          result = await this.forceUnlockStuckJobs(arguments_);
+          break;
         
         // Manual worker control cases removed - worker now starts/stops automatically
         
         case 'list_documentation_sources':
-          return await this.listDocumentationSources(arguments_);
+          result = await this.listDocumentationSources(arguments_);
+          break;
         
         case 'delete_pages_by_pattern':
-          return await this.deletePagesByPattern(arguments_);
+          result = await this.deletePagesByPattern(arguments_);
+          break;
         
         case 'delete_pages_by_ids':
-          return await this.deletePagesByIds(arguments_);
+          result = await this.deletePagesByIds(arguments_);
+          break;
         
         case 'delete_all_website_pages':
-          return await this.deleteAllWebsitePages(arguments_);
+          result = await this.deleteAllWebsitePages(arguments_);
+          break;
         
         default:
-          throw new Error(`Unknown web scraping tool: ${name}`);
+          return createErrorResponse(
+            `Unknown web scraping tool: ${name}`,
+            `Tool '${name}' is not implemented in WebScrapingMcpTools`,
+            'UNKNOWN_TOOL'
+          );
       }
+      
+      // Ensure execution time is set
+      if (!result.execution_time_ms) {
+        result.execution_time_ms = Date.now() - startTime;
+      }
+      
+      return result;
+      
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error occurred'
-      };
+      const executionTime = Date.now() - startTime;
+      return createErrorResponse(
+        `Web scraping tool '${name}' failed`,
+        error instanceof Error ? error.message : 'Unknown error occurred',
+        'EXECUTION_ERROR'
+      );
     }
   }
 
-  private async scrapeDocumentation(args: any) {
-    const params = ScrapeDocumentationSchema.parse(args);
+  private async scrapeDocumentation(args: any): Promise<WebScrapingResponse> {
+    const startTime = Date.now();
+    
+    try {
+      const params = ScrapeDocumentationSchema.parse(args);
     
     // Optimize parameters using MCP sampling if enabled
     let optimizedParams = params;
@@ -706,10 +768,11 @@ export class WebScrapingMcpTools {
         return typeof pattern !== 'object' || pattern === null;
       });
       if (invalidPatterns.length > 0) {
-        return {
-          success: false,
-          error: `Invalid allow patterns: ${invalidPatterns.map(p => typeof p === 'string' ? p : JSON.stringify(p)).join(', ')}. ${PatternMatcher.getPatternDocumentation()}`
-        };
+        return createErrorResponse(
+          'Invalid pattern configuration',
+          `Invalid allow patterns: ${invalidPatterns.map(p => typeof p === 'string' ? p : JSON.stringify(p)).join(', ')}. ${PatternMatcher.getPatternDocumentation()}`,
+          'INVALID_PATTERNS'
+        );
       }
     }
     
@@ -722,10 +785,11 @@ export class WebScrapingMcpTools {
         return typeof pattern !== 'object' || pattern === null;
       });
       if (invalidPatterns.length > 0) {
-        return {
-          success: false,
-          error: `Invalid ignore patterns: ${invalidPatterns.map(p => typeof p === 'string' ? p : JSON.stringify(p)).join(', ')}. ${PatternMatcher.getPatternDocumentation()}`
-        };
+        return createErrorResponse(
+          'Invalid pattern configuration',
+          `Invalid ignore patterns: ${invalidPatterns.map(p => typeof p === 'string' ? p : JSON.stringify(p)).join(', ')}. ${PatternMatcher.getPatternDocumentation()}`,
+          'INVALID_PATTERNS'
+        );
       }
     }
     
@@ -759,99 +823,219 @@ export class WebScrapingMcpTools {
       );
     }
 
-    return {
-      ...result,
-      source_id: sourceId,
-      source_url: optimizedParams.url,
-      source_name: optimizedParams.name || new URL(optimizedParams.url).hostname,
-      max_pages: optimizedParams.max_pages,
-      optimization: optimizationResult ? {
-        enabled: params.enable_sampling,
-        confidence: optimizationResult.confidence,
-        reasoning: optimizationResult.reasoning,
-        optimized_parameters: {
-          max_pages: optimizationResult.maxPages,
-          selectors: optimizationResult.selectors,
-          allow_patterns_count: optimizationResult.allowPatterns.length,
-          ignore_patterns_count: optimizationResult.ignorePatterns.length,
-          include_subdomains: optimizationResult.includeSubdomains
-        }
-      } : {
-        enabled: params.enable_sampling,
-        status: params.enable_sampling ? 'fallback_used' : 'disabled'
-      },
-      message: result.success 
-        ? `Scraping job ${result.skipped ? 'already exists' : 'queued'} for ${optimizedParams.name || optimizedParams.url}${optimizationResult ? ` (optimized with ${Math.round(optimizationResult.confidence * 100)}% confidence)` : ''}`
-        : `Failed to queue scraping job: ${result.error}`
-    };
-  }
-
-  private async getScrapingStatus(args: any) {
-    const params = GetScrapingStatusSchema.parse(args);
-    
-    const status = await this.webScrapingService.getScrapingStatus(params.source_id);
-    
-    if (!params.include_job_details) {
-      return {
-        success: true,
-        summary: {
-          activeJobs: status.activeJobs.length,
-          pendingJobs: status.pendingJobs.length,
-          completedJobs: status.completedJobs.length,
-          failedJobs: status.failedJobs.length
+      const executionTime = Date.now() - startTime;
+      
+      if (!result.success) {
+        return createErrorResponse(
+          'Failed to queue scraping job',
+          result.error || 'Unknown error occurred during job queueing',
+          'QUEUE_ERROR'
+        );
+      }
+      
+      return createSuccessResponse(
+        result.skipped 
+          ? `Scraping job already exists for ${optimizedParams.name || optimizedParams.url}${optimizationResult ? ` (optimized with ${Math.round(optimizationResult.confidence * 100)}% confidence)` : ''}`
+          : `Scraping job queued for ${optimizedParams.name || optimizedParams.url}${optimizationResult ? ` (optimized with ${Math.round(optimizationResult.confidence * 100)}% confidence)` : ''}`,
+        {
+          job_id: result.jobId,
+          source_id: sourceId,
+          pages_scraped: 0,
+          pages_total: optimizedParams.max_pages,
+          status: result.skipped ? 'skipped' : 'queued',
+          websites: [{
+            id: sourceId,
+            name: optimizedParams.name || new URL(optimizedParams.url).hostname,
+            url: optimizedParams.url,
+            max_pages: optimizedParams.max_pages,
+            optimization: optimizationResult ? {
+              enabled: params.enable_sampling,
+              confidence: optimizationResult.confidence,
+              reasoning: optimizationResult.reasoning,
+              optimized_parameters: {
+                max_pages: optimizationResult.maxPages,
+                selectors: optimizationResult.selectors,
+                allow_patterns_count: optimizationResult.allowPatterns.length,
+                ignore_patterns_count: optimizationResult.ignorePatterns.length,
+                include_subdomains: optimizationResult.includeSubdomains
+              }
+            } : {
+              enabled: params.enable_sampling,
+              status: params.enable_sampling ? 'fallback_used' : 'disabled'
+            }
+          }]
         },
-        workerStatus: status.workerStatus
-      };
+        executionTime
+      );
+      
+    } catch (error) {
+      const executionTime = Date.now() - startTime;
+      return createErrorResponse(
+        'Failed to scrape documentation',
+        error instanceof Error ? error.message : 'Unknown error occurred',
+        'SCRAPING_ERROR'
+      );
     }
-
-    return {
-      success: true,
-      ...status,
-      source_id: params.source_id
-    };
   }
 
-  private async cancelScrapeJob(args: any) {
-    const params = CancelScrapeJobSchema.parse(args);
+  private async getScrapingStatus(args: any): Promise<WebScrapingResponse> {
+    const startTime = Date.now();
     
-    const result = await this.webScrapingService.cancelScrapeJob(params.job_id);
-    
-    return {
-      ...result,
-      job_id: params.job_id,
-      message: result.success 
-        ? `Scraping job ${params.job_id} cancelled successfully`
-        : `Failed to cancel job: ${result.error}`
-    };
+    try {
+      const params = GetScrapingStatusSchema.parse(args);
+      
+      const status = await this.webScrapingService.getScrapingStatus(params.source_id);
+      const executionTime = Date.now() - startTime;
+      
+      if (!params.include_job_details) {
+        return createSuccessResponse(
+          `Retrieved scraping status summary${params.source_id ? ` for source ${params.source_id}` : ''}`,
+          {
+            source_id: params.source_id,
+            status: 'summary',
+            jobs: [{
+              activeJobs: status.activeJobs.length,
+              pendingJobs: status.pendingJobs.length,
+              completedJobs: status.completedJobs.length,
+              failedJobs: status.failedJobs.length,
+              workerStatus: status.workerStatus
+            }]
+          },
+          executionTime
+        );
+      }
+
+      return createSuccessResponse(
+        `Retrieved detailed scraping status${params.source_id ? ` for source ${params.source_id}` : ''}`,
+        {
+          source_id: params.source_id,
+          status: 'detailed',
+          jobs: [...status.activeJobs, ...status.pendingJobs, ...status.completedJobs, ...status.failedJobs],
+          pages_scraped: status.activeJobs.reduce((sum: number, job: any) => sum + (job.progress?.pagesCrawled || 0), 0),
+          pages_total: status.activeJobs.reduce((sum: number, job: any) => sum + (job.maxPages || 0), 0)
+        },
+        executionTime
+      );
+      
+    } catch (error) {
+      const executionTime = Date.now() - startTime;
+      return createErrorResponse(
+        'Failed to get scraping status',
+        error instanceof Error ? error.message : 'Unknown error occurred',
+        'STATUS_ERROR'
+      );
+    }
   }
 
-  private async forceUnlockJob(args: any) {
-    const params = ForceUnlockJobSchema.parse(args);
+  private async cancelScrapeJob(args: any): Promise<WebScrapingResponse> {
+    const startTime = Date.now();
     
-    const result = await this.webScrapingService.forceUnlockJob(params.job_id, params.reason);
-    
-    return {
-      ...result,
-      job_id: params.job_id,
-      reason: params.reason,
-      message: result.success 
-        ? `Scraping job ${params.job_id} force unlocked successfully`
-        : `Failed to force unlock job: ${result.error}`
-    };
+    try {
+      const params = CancelScrapeJobSchema.parse(args);
+      
+      const result = await this.webScrapingService.cancelScrapeJob(params.job_id);
+      const executionTime = Date.now() - startTime;
+      
+      if (!result.success) {
+        return createErrorResponse(
+          `Failed to cancel scraping job ${params.job_id}`,
+          result.error || 'Unknown error occurred during job cancellation',
+          'CANCEL_ERROR'
+        );
+      }
+      
+      return createSuccessResponse(
+        `Scraping job ${params.job_id} cancelled successfully`,
+        {
+          job_id: params.job_id,
+          status: 'cancelled'
+        },
+        executionTime
+      );
+      
+    } catch (error) {
+      const executionTime = Date.now() - startTime;
+      return createErrorResponse(
+        'Failed to cancel scraping job',
+        error instanceof Error ? error.message : 'Unknown error occurred',
+        'CANCEL_ERROR'
+      );
+    }
   }
 
-  private async forceUnlockStuckJobs(args: any) {
-    const params = ForceUnlockStuckJobsSchema.parse(args);
+  private async forceUnlockJob(args: any): Promise<WebScrapingResponse> {
+    const startTime = Date.now();
     
-    const result = await this.webScrapingService.forceUnlockStuckJobs(params.stuck_threshold_minutes);
+    try {
+      const params = ForceUnlockJobSchema.parse(args);
+      
+      const result = await this.webScrapingService.forceUnlockJob(params.job_id, params.reason);
+      const executionTime = Date.now() - startTime;
+      
+      if (!result.success) {
+        return createErrorResponse(
+          `Failed to force unlock scraping job ${params.job_id}`,
+          result.error || 'Unknown error occurred during force unlock',
+          'UNLOCK_ERROR'
+        );
+      }
+      
+      return createSuccessResponse(
+        `Scraping job ${params.job_id} force unlocked successfully`,
+        {
+          job_id: params.job_id,
+          status: 'unlocked',
+          ...(params.reason && { reason: params.reason })
+        },
+        executionTime
+      );
+      
+    } catch (error) {
+      const executionTime = Date.now() - startTime;
+      return createErrorResponse(
+        'Failed to force unlock job',
+        error instanceof Error ? error.message : 'Unknown error occurred',
+        'UNLOCK_ERROR'
+      );
+    }
+  }
+
+  private async forceUnlockStuckJobs(args: any): Promise<WebScrapingResponse> {
+    const startTime = Date.now();
     
-    return {
-      ...result,
-      stuck_threshold_minutes: params.stuck_threshold_minutes,
-      message: result.success 
-        ? `Force unlocked ${result.unlockedCount} stuck jobs (stuck for more than ${params.stuck_threshold_minutes} minutes)`
-        : `Failed to force unlock stuck jobs: ${result.error}`
-    };
+    try {
+      const params = ForceUnlockStuckJobsSchema.parse(args);
+      
+      const result = await this.webScrapingService.forceUnlockStuckJobs(params.stuck_threshold_minutes);
+      const executionTime = Date.now() - startTime;
+      
+      if (!result.success) {
+        return createErrorResponse(
+          'Failed to force unlock stuck jobs',
+          result.error || 'Unknown error occurred during batch unlock',
+          'BATCH_UNLOCK_ERROR'
+        );
+      }
+      
+      return createSuccessResponse(
+        `Force unlocked ${result.unlockedCount} stuck jobs (stuck for more than ${params.stuck_threshold_minutes} minutes)`,
+        {
+          job_id: 'batch_unlock',
+          status: 'batch_unlocked',
+          jobs: result.unlockedJobs || [],
+          deleted_count: result.unlockedCount
+        },
+        executionTime
+      );
+      
+    } catch (error) {
+      const executionTime = Date.now() - startTime;
+      return createErrorResponse(
+        'Failed to force unlock stuck jobs',
+        error instanceof Error ? error.message : 'Unknown error occurred',
+        'BATCH_UNLOCK_ERROR'
+      );
+    }
   }
 
   // Manual worker control methods removed - worker now starts/stops automatically with MCP server

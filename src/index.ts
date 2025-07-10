@@ -5,7 +5,7 @@
  * capabilities for Claude Code environments.
  */
 
-import { McpServer } from './server/McpServer.js';
+import { McpToolsServer } from './server/McpServer.js';
 import { CrashHandler, wrapMainServer } from './utils/crashHandler.js';
 import path from 'path';
 import os from 'os';
@@ -14,6 +14,15 @@ import os from 'os';
 const DEFAULT_DATA_DIR = path.join(os.homedir(), '.mcptools', 'data');
 
 async function mainServer() {
+  // Parse command line arguments for transport options
+  const args = process.argv.slice(2);
+  const transportIndex = args.indexOf('--transport');
+  const portIndex = args.indexOf('--port');
+  const hostIndex = args.indexOf('--host');
+  
+  const httpPort = (portIndex !== -1 && args[portIndex + 1]) ? parseInt(args[portIndex + 1]) : 4269;
+  const httpHost = (hostIndex !== -1 && args[hostIndex + 1]) ? args[hostIndex + 1] : '127.0.0.1';
+
   // Get data directory from environment or use default
   const dataDir = process.env.MCPTOOLS_DATA_DIR || DEFAULT_DATA_DIR;
   const databasePath = path.join(dataDir, 'claude_mcp_tools.db');
@@ -22,12 +31,16 @@ async function mainServer() {
   process.stderr.write('🚀 Starting Claude MCP Tools TypeScript Server...\n');
   process.stderr.write(`📁 Data directory: ${dataDir}\n`);
   process.stderr.write(`🗃️ Database path: ${databasePath}\n`);
+  process.stderr.write(`🌐 Transport: HTTP\n`);
+  process.stderr.write(`🌐 HTTP Host: ${httpHost}:${httpPort}\n`);
 
   // Create the MCP server
-  const server = new McpServer({
+  const server = new McpToolsServer({
     name: 'claude-mcp-tools',
     version: '1.0.0',
-    databasePath
+    databasePath,
+    httpPort,
+    httpHost
   });
 
   // Set up crash handler with database manager for handling active jobs

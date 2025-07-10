@@ -554,21 +554,16 @@ export class WebScrapingService {
             httpStatus: 200,
           });
 
-          if (pageResult.isNew) {
-            // Add to vector collection for semantic search
-            await this.addToVectorCollection(
-              pageResult.page.id,
-              markdownContent,
-              {
-                url: normalizedUrl,
-                title: pageResult.page.title,
-                websiteId: website.id,
-                websiteName: website.name,
-                domain: website.domain,
-                pageId: pageResult.page.id,
-              }
-            );
+          // Smart vector indexing - handle both new and updated pages
+          await this.handleVectorIndexing(
+            pageResult.page,
+            markdownContent,
+            website,
+            normalizedUrl,
+            pageResult.isNew
+          );
 
+          if (pageResult.isNew) {
             this.logger.info(
               `Created new website page with vectorization: ${pageResult.page.id}`
             );
@@ -1182,7 +1177,138 @@ export class WebScrapingService {
   }
 
   /**
+   * Smart vector indexing handler for both new and updated pages
+   * Checks for existing vector documents and handles indexing intelligently
+   */
+  private async handleVectorIndexing(
+    page: any,
+    content: string,
+    website: any,
+    url: string,
+    isNewPage: boolean
+  ): Promise<void> {
+    try {
+      // Skip empty content
+      if (!content || content.trim().length < 50) {
+        this.logger.debug(
+          `Skipping vectorization for short content: ${page.id}`
+        );
+        return;
+      }
+
+      // Determine collection name based on website
+      const collectionName = `website_${website.id}`;
+
+      // Enhanced metadata with all necessary fields for filtering and comparison
+      const enhancedMetadata = {
+        url: url,
+        title: page.title,
+        websiteId: website.id,
+        websiteName: website.name,
+        domain: website.domain,
+        pageId: page.id,
+        contentHash: page.contentHash,
+        scrapedAt: new Date().toISOString(),
+        type: 'website_page'
+      };
+
+      // Check if vector document already exists for this page
+      const existingVectorDocs = await this.vectorSearchService.lanceDBService.findExistingDocuments(
+        collectionName,
+        website.id,
+        page.id
+      );
+
+      let shouldIndex = false;
+      let indexReason = '';
+
+      if (existingVectorDocs.length === 0) {
+        // No vector document exists - must index
+        shouldIndex = true;
+        indexReason = 'no vector document found';
+      } else {
+        // Check if content hash has changed
+        const existingDoc = existingVectorDocs[0];
+        const existingContentHash = existingDoc.metadata?.contentHash;
+        
+        if (existingContentHash !== page.contentHash) {
+          // Content changed - need to re-index
+          shouldIndex = true;
+          indexReason = `content hash changed (${existingContentHash} -> ${page.contentHash})`;
+        } else {
+          // Content unchanged - skip indexing
+          this.logger.debug(
+            `Skipping vector indexing for page ${page.id} - content unchanged`,
+            {
+              pageId: page.id,
+              url: url,
+              contentHash: page.contentHash
+            }
+          );
+        }
+      }
+
+      if (shouldIndex) {
+        this.logger.info(
+          `Indexing page ${page.id} to vector collection: ${indexReason}`,
+          {
+            pageId: page.id,
+            url: url,
+            isNewPage,
+            contentHash: page.contentHash,
+            collection: collectionName
+          }
+        );
+
+        // Use the enhanced vector document replacement method
+        const result = await this.vectorSearchService.lanceDBService.replaceDocumentForPage(
+          collectionName,
+          {
+            id: page.id,
+            content: content.trim(),
+            metadata: enhancedMetadata,
+            type: 'text'
+          },
+          false // Don't force refresh since we already checked content hash
+        );
+
+        if (result.success) {
+          this.logger.info(
+            `Successfully ${result.action} vector document for page ${page.id}`,
+            {
+              action: result.action,
+              collection: collectionName,
+              contentLength: content.length
+            }
+          );
+        } else {
+          this.logger.warn(
+            `Failed to update vector document for page ${page.id}: ${result.error}`,
+            {
+              collection: collectionName,
+              error: result.error
+            }
+          );
+        }
+      }
+
+    } catch (error) {
+      this.logger.error(
+        `Smart vector indexing failed for page ${page.id}`,
+        {
+          error: error instanceof Error ? error.message : 'Unknown error',
+          pageId: page.id,
+          url: url,
+          isNewPage
+        }
+      );
+      // Don't throw - vectorization failure shouldn't break scraping
+    }
+  }
+
+  /**
    * Add scraped content to vector collection for semantic search
+   * @deprecated Use handleVectorIndexing instead for smarter indexing
    */
   private async addToVectorCollection(
     entryId: string,

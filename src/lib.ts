@@ -19,4 +19,4 @@ export { AnalysisMcpTools } from './tools/AnalysisMcpTools.js';
 export { knowledgeGraphTools } from './tools/knowledgeGraphTools.js';
 
 // Server
-export { McpServer, type McpServerOptions } from './server/McpServer.js';
+export { McpToolsServer, type McpServerOptions } from './server/McpServer.js';

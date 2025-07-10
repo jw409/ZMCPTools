@@ -6,12 +6,7 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { TreeSummaryService, type ProjectOverview, type FileAnalysis, type UpdateOptions } from '../services/TreeSummaryService.js';
-
-export interface TreeSummaryResult {
-  success: boolean;
-  message: string;
-  data?: any;
-}
+import { TreeSummaryResponseSchema, createSuccessResponse, createErrorResponse, type TreeSummaryResponse } from '../schemas/toolResponses.js';
 
 export class TreeSummaryTools {
   private treeSummaryService: TreeSummaryService;
@@ -36,7 +31,7 @@ export class TreeSummaryTools {
   /**
    * Handle tool execution
    */
-  async handleToolCall(name: string, args: any): Promise<TreeSummaryResult> {
+  async handleToolCall(name: string, args: any): Promise<TreeSummaryResponse> {
     try {
       switch (name) {
         case 'update_file_analysis':
@@ -50,16 +45,18 @@ export class TreeSummaryTools {
         case 'cleanup_stale_analyses':
           return await this.cleanupStaleAnalyses(args);
         default:
-          return {
-            success: false,
-            message: `Unknown TreeSummary tool: ${name}`
-          };
+          return createErrorResponse(
+            `Unknown TreeSummary tool: ${name}`,
+            `Tool ${name} is not implemented`,
+            'UNKNOWN_TOOL'
+          );
       }
     } catch (error) {
-      return {
-        success: false,
-        message: `TreeSummary tool error: ${error instanceof Error ? error.message : String(error)}`
-      };
+      return createErrorResponse(
+        `TreeSummary tool error: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error.message : String(error),
+        'EXECUTION_ERROR'
+      );
     }
   }
 
@@ -108,7 +105,8 @@ export class TreeSummaryTools {
           }
         },
         required: ['filePath', 'analysisData']
-      }
+      },
+      outputSchema: TreeSummaryResponseSchema.shape,
     };
   }
 
@@ -128,7 +126,8 @@ export class TreeSummaryTools {
           }
         },
         required: ['filePath']
-      }
+      },
+      outputSchema: TreeSummaryResponseSchema
     };
   }
 
@@ -147,7 +146,8 @@ export class TreeSummaryTools {
             description: 'Path to the project root (optional, defaults to current directory)'
           }
         }
-      }
+      },
+      outputSchema: TreeSummaryResponseSchema
     };
   }
 
@@ -166,7 +166,8 @@ export class TreeSummaryTools {
             description: 'Path to the project root (optional, defaults to current directory)'
           }
         }
-      }
+      },
+      outputSchema: TreeSummaryResponseSchema
     };
   }
 
@@ -191,116 +192,164 @@ export class TreeSummaryTools {
             maximum: 365
           }
         }
-      }
+      },
+      outputSchema: TreeSummaryResponseSchema
     };
   }
 
   /**
    * Implementation: Update file analysis
    */
-  private async updateFileAnalysis(args: any): Promise<TreeSummaryResult> {
+  private async updateFileAnalysis(args: any): Promise<TreeSummaryResponse> {
+    const startTime = Date.now();
     const { filePath, analysisData } = args;
     
-    // Parse date if it's a string
-    if (typeof analysisData.lastModified === 'string') {
-      analysisData.lastModified = new Date(analysisData.lastModified);
+    try {
+      // Parse date if it's a string
+      if (typeof analysisData.lastModified === 'string') {
+        analysisData.lastModified = new Date(analysisData.lastModified);
+      }
+      
+      const success = await this.treeSummaryService.updateFileAnalysis(filePath, analysisData);
+      
+      if (success) {
+        return createSuccessResponse(
+          `Successfully updated analysis for ${filePath}`,
+          {
+            file_path: filePath,
+            analysis_updated: true
+          },
+          Date.now() - startTime
+        );
+      } else {
+        return createErrorResponse(
+          `Failed to update analysis for ${filePath}`,
+          'Update operation returned false',
+          'UPDATE_FAILED'
+        );
+      }
+    } catch (error) {
+      return createErrorResponse(
+        `Error updating analysis for ${filePath}`,
+        error instanceof Error ? error.message : String(error),
+        'UPDATE_ERROR'
+      );
     }
-    
-    const success = await this.treeSummaryService.updateFileAnalysis(filePath, analysisData);
-    
-    return {
-      success,
-      message: success 
-        ? `Successfully updated analysis for ${filePath}`
-        : `Failed to update analysis for ${filePath}`,
-      data: { filePath, updated: success }
-    };
   }
 
   /**
    * Implementation: Remove file analysis
    */
-  private async removeFileAnalysis(args: any): Promise<TreeSummaryResult> {
+  private async removeFileAnalysis(args: any): Promise<TreeSummaryResponse> {
+    const startTime = Date.now();
     const { filePath } = args;
     
-    const success = await this.treeSummaryService.removeFileAnalysis(filePath);
-    
-    return {
-      success,
-      message: success 
-        ? `Successfully removed analysis for ${filePath}`
-        : `Failed to remove analysis for ${filePath}`,
-      data: { filePath, removed: success }
-    };
+    try {
+      const success = await this.treeSummaryService.removeFileAnalysis(filePath);
+      
+      if (success) {
+        return createSuccessResponse(
+          `Successfully removed analysis for ${filePath}`,
+          {
+            file_path: filePath,
+            analysis_updated: false
+          },
+          Date.now() - startTime
+        );
+      } else {
+        return createErrorResponse(
+          `Failed to remove analysis for ${filePath}`,
+          'Remove operation returned false',
+          'REMOVE_FAILED'
+        );
+      }
+    } catch (error) {
+      return createErrorResponse(
+        `Error removing analysis for ${filePath}`,
+        error instanceof Error ? error.message : String(error),
+        'REMOVE_ERROR'
+      );
+    }
   }
 
   /**
    * Implementation: Update project metadata
    */
-  private async updateProjectMetadata(args: any): Promise<TreeSummaryResult> {
+  private async updateProjectMetadata(args: any): Promise<TreeSummaryResponse> {
+    const startTime = Date.now();
     const { projectPath } = args;
     
     try {
       await this.treeSummaryService.updateProjectMetadata(projectPath);
       
-      return {
-        success: true,
-        message: `Successfully updated project metadata${projectPath ? ` for ${projectPath}` : ''}`,
-        data: { projectPath: projectPath || process.cwd() }
-      };
+      return createSuccessResponse(
+        `Successfully updated project metadata${projectPath ? ` for ${projectPath}` : ''}`,
+        {
+          project_path: projectPath || process.cwd(),
+          metadata_updated: true
+        },
+        Date.now() - startTime
+      );
     } catch (error) {
-      return {
-        success: false,
-        message: `Failed to update project metadata: ${error instanceof Error ? error.message : String(error)}`
-      };
+      return createErrorResponse(
+        `Failed to update project metadata: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error.message : String(error),
+        'METADATA_UPDATE_ERROR'
+      );
     }
   }
 
   /**
    * Implementation: Get project overview
    */
-  private async getProjectOverview(args: any): Promise<TreeSummaryResult> {
+  private async getProjectOverview(args: any): Promise<TreeSummaryResponse> {
+    const startTime = Date.now();
     const { projectPath } = args;
     
     try {
       const overview = await this.treeSummaryService.getProjectOverview(projectPath);
       
-      return {
-        success: true,
-        message: `Successfully retrieved project overview${projectPath ? ` for ${projectPath}` : ''}`,
-        data: overview
-      };
+      return createSuccessResponse(
+        `Successfully retrieved project overview${projectPath ? ` for ${projectPath}` : ''}`,
+        {
+          project_path: projectPath || process.cwd(),
+          overview
+        },
+        Date.now() - startTime
+      );
     } catch (error) {
-      return {
-        success: false,
-        message: `Failed to get project overview: ${error instanceof Error ? error.message : String(error)}`
-      };
+      return createErrorResponse(
+        `Failed to get project overview: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error.message : String(error),
+        'OVERVIEW_ERROR'
+      );
     }
   }
 
   /**
    * Implementation: Cleanup stale analyses
    */
-  private async cleanupStaleAnalyses(args: any): Promise<TreeSummaryResult> {
+  private async cleanupStaleAnalyses(args: any): Promise<TreeSummaryResponse> {
+    const startTime = Date.now();
     const { projectPath, maxAgeDays = 30 } = args;
     
     try {
       const cleanedCount = await this.treeSummaryService.cleanupStaleAnalyses(projectPath, maxAgeDays);
       
-      return {
-        success: true,
-        message: `Successfully cleaned up ${cleanedCount} stale analysis files`,
-        data: { 
-          projectPath: projectPath || process.cwd(),
-          cleanedCount,
-          maxAgeDays
-        }
-      };
+      return createSuccessResponse(
+        `Successfully cleaned up ${cleanedCount} stale analysis files`,
+        {
+          project_path: projectPath || process.cwd(),
+          cleanup_count: cleanedCount
+        },
+        Date.now() - startTime
+      );
     } catch (error) {
-      return {
-        success: false,
-        message: `Failed to cleanup stale analyses: ${error instanceof Error ? error.message : String(error)}`
-      };
+      return createErrorResponse(
+        `Failed to cleanup stale analyses: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error.message : String(error),
+        'CLEANUP_ERROR'
+      );
     }
   }
 }

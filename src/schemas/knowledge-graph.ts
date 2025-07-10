@@ -266,7 +266,7 @@ export const updateKnowledgeInsightSchema = createUpdateSchema(knowledgeInsights
 export type KnowledgeEntity = {
   id: string;
   repositoryPath: string;
-  entityType: 'agent' | 'task' | 'file' | 'function' | 'class' | 'concept' | 'error' | 'solution' | 'pattern' | 'insight' | 'decision' | 'tool' | 'repository' | 'dependency' | 'configuration' | 'test' | 'documentation' | 'feature' | 'bug' | 'requirement';
+  entityType: 'agent' | 'task' | 'file' | 'function' | 'class' | 'concept' | 'error' | 'solution' | 'pattern' | 'insight' | 'decision' | 'tool' | 'repository' | 'dependency' | 'configuration' | 'test' | 'documentation' | 'feature' | 'bug' | 'requirement' | 'progress';
   name: string;
   description?: string;
   embedding?: number[];

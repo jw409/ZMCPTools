@@ -60,13 +60,18 @@ export class VectorSearchService {
   private logger: Logger;
   private config: VectorSearchConfig;
 
+  // Expose LanceDB service for advanced operations
+  get lanceDBService(): LanceDBService {
+    return this.lanceDB;
+  }
+
   constructor(
     private db: DatabaseManager,
     config: VectorSearchConfig = {}
   ) {
     this.logger = new Logger('vector-search');
     this.config = {
-      embeddingModel: 'sentence-transformers/all-MiniLM-L6-v2',
+      embeddingModel: 'Xenova/all-MiniLM-L6-v2',
       chunkSize: 512,
       chunkOverlap: 50,
       temperature: 0.1,

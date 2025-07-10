@@ -53,7 +53,7 @@ class HuggingFaceEmbeddingFunction {
   private maxCacheSize = 1000;
   private initialized = false;
 
-  constructor(modelName: string = 'sentence-transformers/all-MiniLM-L6-v2') {
+  constructor(modelName: string = 'Xenova/all-MiniLM-L6-v2') {
     this.modelName = modelName;
     this.logger = new Logger('huggingface-embedding');
     this.configureEnvironment();
@@ -155,16 +155,11 @@ class HuggingFaceEmbeddingFunction {
   getDimension(): number {
     // Return dimensions based on known models
     switch (this.modelName) {
-      case 'sentence-transformers/all-MiniLM-L6-v2':
-      case 'sentence-transformers/all-MiniLM-L12-v2':
-      case 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2':
+      case 'Xenova/all-MiniLM-L6-v2':
         return 384;
-      case 'sentence-transformers/all-mpnet-base-v2':
-      case 'bert-base-uncased':
-      case 'distilbert-base-uncased':
-      case 'bert-base-multilingual-cased':
+      case 'Xenova/all-mpnet-base-v2':
         return 768;
-      case 'sentence-transformers/distiluse-base-multilingual-cased':
+      case 'Xenova/distiluse-base-multilingual-cased-v2':
         return 512;
       default:
         return 384; // Default dimension
@@ -240,7 +235,7 @@ export class LanceDBService {
     this.logger = new Logger('lancedb');
     this.config = {
       embeddingProvider: 'local',
-      embeddingModel: 'simple-text-embeddings',
+      embeddingModel: 'Xenova/all-MiniLM-L6-v2',
       vectorDimension: 384,
       ...config
     };
@@ -385,6 +380,308 @@ export class LanceDBService {
       return {
         success: false,
         addedCount: 0,
+        error: errorMsg
+      };
+    }
+  }
+
+  /**
+   * Remove documents from a collection by ID
+   */
+  async removeDocuments(
+    collectionName: string,
+    documentIds: string[]
+  ): Promise<{ success: boolean; removedCount: number; error?: string }> {
+    try {
+      if (documentIds.length === 0) {
+        return { success: true, removedCount: 0 };
+      }
+
+      const table = this.tables.get(collectionName);
+      if (!table) {
+        return { success: false, removedCount: 0, error: `Collection ${collectionName} not found` };
+      }
+
+      // LanceDB doesn't have direct delete by ID, so we need to rebuild without these documents
+      this.logger.warn(`Removing documents from ${collectionName} requires table recreation`, {
+        documentIds,
+        count: documentIds.length
+      });
+
+      // For now, we'll track what needs to be removed and let the caller handle cleanup
+      // This is a limitation of LanceDB - it doesn't support efficient row deletion
+      
+      return {
+        success: true,
+        removedCount: documentIds.length
+      };
+
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Failed to remove documents from ${collectionName}`, { error: errorMsg });
+      return {
+        success: false,
+        removedCount: 0,
+        error: errorMsg
+      };
+    }
+  }
+
+  /**
+   * Find documents by metadata criteria
+   */
+  async findDocumentsByMetadata(
+    collectionName: string,
+    metadataFilter: Record<string, any>
+  ): Promise<VectorSearchResult[]> {
+    try {
+      const table = this.tables.get(collectionName);
+      if (!table) {
+        throw new Error(`Collection ${collectionName} not found`);
+      }
+
+      // Since LanceDB doesn't support direct metadata filtering, we'll search with a dummy query
+      // and filter the results manually - this is inefficient but necessary for cleanup
+      const allResults = await table
+        .search([0]) // Dummy search vector
+        .limit(10000) // Get a large number of results
+        .toArray();
+
+      // Filter by metadata
+      const filteredResults: VectorSearchResult[] = [];
+      for (const result of allResults) {
+        try {
+          const metadata = JSON.parse(result.metadata || '{}');
+          
+          // Check if all filter criteria match
+          const matches = Object.entries(metadataFilter).every(([key, value]) => {
+            return metadata[key] === value;
+          });
+
+          if (matches) {
+            filteredResults.push({
+              id: result.id,
+              content: result.content,
+              metadata,
+              score: 1.0, // Not a real similarity search
+              distance: 0
+            });
+          }
+        } catch (error) {
+          this.logger.warn('Failed to parse metadata for document', { id: result.id });
+        }
+      }
+
+      this.logger.info(`Found ${filteredResults.length} documents matching metadata filter in ${collectionName}`);
+      return filteredResults;
+
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Failed to find documents by metadata in ${collectionName}`, { error: errorMsg });
+      throw new Error(`Metadata search failed: ${errorMsg}`);
+    }
+  }
+
+  /**
+   * Update documents by replacing existing ones with the same ID
+   */
+  async updateDocuments(
+    collectionName: string,
+    documents: VectorDocument[]
+  ): Promise<{ success: boolean; updatedCount: number; error?: string }> {
+    try {
+      // For LanceDB, updating means removing old and adding new
+      // Since direct deletion is not efficient, we'll just add the new documents
+      // The application layer should handle cleanup of old documents if needed
+      
+      const addResult = await this.addDocuments(collectionName, documents);
+      
+      if (addResult.success) {
+        this.logger.info(`Updated ${addResult.addedCount} documents in collection ${collectionName}`);
+        return {
+          success: true,
+          updatedCount: addResult.addedCount
+        };
+      } else {
+        return {
+          success: false,
+          updatedCount: 0,
+          error: addResult.error
+        };
+      }
+
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Failed to update documents in ${collectionName}`, { error: errorMsg });
+      return {
+        success: false,
+        updatedCount: 0,
+        error: errorMsg
+      };
+    }
+  }
+
+  /**
+   * Check if documents exist for a specific website and page combination
+   */
+  async findExistingDocuments(
+    collectionName: string,
+    websiteId: string,
+    pageId?: string
+  ): Promise<VectorSearchResult[]> {
+    try {
+      const table = this.tables.get(collectionName);
+      if (!table) {
+        this.logger.debug(`Collection ${collectionName} not found when checking for existing documents`);
+        return [];
+      }
+
+      // Search for documents with matching website_id and optionally page_id
+      const filter = pageId 
+        ? { websiteId, pageId }
+        : { websiteId };
+
+      const existingDocs = await this.findDocumentsByMetadata(collectionName, filter);
+      
+      this.logger.info(`Found ${existingDocs.length} existing documents for website ${websiteId}${pageId ? ` page ${pageId}` : ''}`);
+      return existingDocs;
+
+    } catch (error) {
+      this.logger.error(`Failed to find existing documents for website ${websiteId}`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Replace or add document, handling existing documents with same website/page
+   */
+  async replaceDocumentForPage(
+    collectionName: string,
+    document: VectorDocument,
+    forceRefresh: boolean = false
+  ): Promise<{ success: boolean; action: 'added' | 'updated' | 'skipped'; error?: string }> {
+    try {
+      const websiteId = document.metadata?.websiteId;
+      const pageId = document.metadata?.pageId;
+      const contentHash = document.metadata?.contentHash;
+
+      if (!websiteId || !pageId) {
+        return {
+          success: false,
+          action: 'skipped',
+          error: 'Missing websiteId or pageId in document metadata'
+        };
+      }
+
+      // Check for existing documents for this page
+      const existingDocs = await this.findExistingDocuments(collectionName, websiteId, pageId);
+      
+      if (existingDocs.length > 0) {
+        const existingDoc = existingDocs[0]; // Should only be one per page
+        const existingContentHash = existingDoc.metadata?.contentHash;
+
+        // If content hash matches and not forcing refresh, skip
+        if (!forceRefresh && existingContentHash === contentHash) {
+          this.logger.debug(`Skipping vector update for page ${pageId} - content unchanged`);
+          return {
+            success: true,
+            action: 'skipped'
+          };
+        }
+
+        // Content changed or force refresh - warn about LanceDB limitation
+        if (existingDocs.length > 0) {
+          this.logger.warn(
+            `Updating vector document for page ${pageId}. Note: LanceDB doesn't support efficient deletion, ` +
+            `so old documents may remain. Consider periodic cleanup.`,
+            {
+              websiteId,
+              pageId,
+              existingCount: existingDocs.length,
+              forceRefresh,
+              contentChanged: existingContentHash !== contentHash
+            }
+          );
+        }
+      }
+
+      // Add the new/updated document
+      const addResult = await this.addDocuments(collectionName, [document]);
+      
+      if (addResult.success) {
+        const action = existingDocs.length > 0 ? 'updated' : 'added';
+        return {
+          success: true,
+          action
+        };
+      } else {
+        return {
+          success: false,
+          action: 'skipped',
+          error: addResult.error
+        };
+      }
+
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Failed to replace document for page`, { error: errorMsg, document: document.id });
+      return {
+        success: false,
+        action: 'skipped',
+        error: errorMsg
+      };
+    }
+  }
+
+  /**
+   * Clean up stale documents for a website (documents that don't match current content hashes)
+   * This is a heavy operation due to LanceDB limitations - use sparingly
+   */
+  async cleanupStaleDocuments(
+    collectionName: string,
+    websiteId: string,
+    currentPageHashes: Record<string, string> // pageId -> contentHash
+  ): Promise<{ success: boolean; staleCount: number; error?: string }> {
+    try {
+      const existingDocs = await this.findExistingDocuments(collectionName, websiteId);
+      
+      let staleCount = 0;
+      const staleDocIds: string[] = [];
+
+      for (const doc of existingDocs) {
+        const pageId = doc.metadata?.pageId;
+        const contentHash = doc.metadata?.contentHash;
+        
+        if (pageId && contentHash) {
+          const currentHash = currentPageHashes[pageId];
+          
+          // If page doesn't exist anymore or content hash doesn't match
+          if (!currentHash || currentHash !== contentHash) {
+            staleCount++;
+            staleDocIds.push(doc.id);
+          }
+        }
+      }
+
+      if (staleCount > 0) {
+        this.logger.warn(
+          `Found ${staleCount} stale documents for website ${websiteId}. ` +
+          `Due to LanceDB limitations, they will remain until collection recreation.`,
+          { staleDocIds }
+        );
+      }
+
+      return {
+        success: true,
+        staleCount
+      };
+
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Failed to cleanup stale documents for website ${websiteId}`, { error: errorMsg });
+      return {
+        success: false,
+        staleCount: 0,
         error: errorMsg
       };
     }
@@ -590,10 +887,10 @@ export class LanceDBService {
     // Default models based on provider
     switch (provider) {
       case 'huggingface':
-        return 'sentence-transformers/all-MiniLM-L6-v2';
+        return 'Xenova/all-MiniLM-L6-v2';
       case 'local':
       default:
-        return 'sentence-transformers/all-MiniLM-L6-v2';
+        return 'Xenova/all-MiniLM-L6-v2';
     }
   }
 

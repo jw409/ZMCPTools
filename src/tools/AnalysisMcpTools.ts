@@ -11,7 +11,19 @@ import { promisify } from 'util';
 import type { KnowledgeGraphService } from '../services/KnowledgeGraphService.js';
 import { FileOperationsService, type ListFilesOptions, type FindFilesOptions, type ReplaceOptions } from '../services/FileOperationsService.js';
 import { FoundationCacheService } from '../services/FoundationCacheService.js';
-import { TreeSummaryService } from '../services/TreeSummaryService.js';
+import { TreeSummaryService, type DirectoryNode } from '../services/TreeSummaryService.js';
+import { AnalysisResponseSchema, createSuccessResponse, createErrorResponse, type AnalysisResponse, ProjectStructureInfoSchema, ProjectSummarySchema, FileSymbolsSchema, type ProjectStructureInfo, type ProjectSummary, type FileSymbols } from '../schemas/toolResponses.js';
+
+// Import centralized request schemas
+import {
+  AnalyzeProjectStructureSchema,
+  GenerateProjectSummarySchema,
+  AnalyzeFileSymbolsSchema,
+  ListFilesSchema,
+  FindFilesSchema,
+  EasyReplaceSchema,
+  CleanupOrphanedProjectsSchema
+} from '../schemas/toolRequests.js';
 
 // Promisified fs operations for legacy compatibility
 const readFile = promisify(fs.readFile);
@@ -19,99 +31,6 @@ const writeFile = promisify(fs.writeFile);
 const readdir = promisify(fs.readdir);
 const stat = promisify(fs.stat);
 const access = promisify(fs.access);
-
-// Validation schemas
-const AnalyzeProjectStructureSchema = z.object({
-  project_path: z.string().default('.'),
-  include_patterns: z.array(z.string()).default(['**/*']),
-  exclude_patterns: z.array(z.string()).default(['node_modules/**', '.git/**', 'dist/**', 'build/**']),
-  max_depth: z.number().default(10),
-  generate_summary: z.boolean().default(true)
-});
-
-const GenerateProjectSummarySchema = z.object({
-  project_path: z.string().default('.'),
-  include_readme: z.boolean().default(true),
-  include_package_info: z.boolean().default(true),
-  include_git_info: z.boolean().default(true),
-  output_path: z.string().optional()
-});
-
-const AnalyzeFileSymbolsSchema = z.object({
-  file_path: z.string(),
-  symbol_types: z.array(z.enum(['functions', 'classes', 'interfaces', 'types', 'variables', 'imports'])).default(['functions', 'classes'])
-});
-
-const ListFilesSchema = z.object({
-  directory: z.string().default('.'),
-  recursive: z.boolean().default(false),
-  include_patterns: z.array(z.string()).default(['*']),
-  exclude_patterns: z.array(z.string()).default([])
-});
-
-const FindFilesSchema = z.object({
-  pattern: z.string(),
-  directory: z.string().default('.'),
-  case_sensitive: z.boolean().default(false),
-  include_content: z.boolean().default(false)
-});
-
-const EasyReplaceSchema = z.object({
-  file_path: z.string(),
-  old_text: z.string(),
-  new_text: z.string(),
-  fuzzy_match: z.boolean().default(true),
-  backup: z.boolean().default(true)
-});
-
-const CleanupOrphanedProjectsSchema = z.object({
-  base_path: z.string().default(process.env.HOME || '.'),
-  days_threshold: z.number().default(30),
-  dry_run: z.boolean().default(true)
-});
-
-export interface ProjectStructureInfo {
-  path: string;
-  name: string;
-  type: 'file' | 'directory';
-  size?: number;
-  extension?: string;
-  children?: ProjectStructureInfo[];
-  lastModified?: Date;
-}
-
-export interface ProjectSummary {
-  name: string;
-  path: string;
-  description?: string;
-  framework?: string;
-  language?: string;
-  dependencies?: Record<string, string>;
-  structure: ProjectStructureInfo;
-  gitInfo?: {
-    branch?: string;
-    lastCommit?: string;
-    remotes?: string[];
-  };
-  stats: {
-    totalFiles: number;
-    totalDirectories: number;
-    totalSize: number;
-    fileTypes: Record<string, number>;
-  };
-}
-
-export interface FileSymbols {
-  file_path: string;
-  symbols: {
-    functions: Array<{ name: string; line: number; signature?: string }>;
-    classes: Array<{ name: string; line: number; methods?: string[] }>;
-    interfaces: Array<{ name: string; line: number; properties?: string[] }>;
-    types: Array<{ name: string; line: number; definition?: string }>;
-    variables: Array<{ name: string; line: number; type?: string }>;
-    imports: Array<{ name: string; from: string; line: number }>;
-  };
-}
 
 export class AnalysisMcpTools {
   private fileOpsService: FileOperationsService;
@@ -134,214 +53,44 @@ export class AnalysisMcpTools {
       {
         name: 'analyze_project_structure',
         description: 'Analyze project structure and generate a comprehensive overview',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project_path: {
-              type: 'string',
-              default: '.',
-              description: 'Path to the project directory'
-            },
-            include_patterns: {
-              type: 'array',
-              items: { type: 'string' },
-              default: ['**/*'],
-              description: 'Glob patterns for files to include'
-            },
-            exclude_patterns: {
-              type: 'array',
-              items: { type: 'string' },
-              default: ['node_modules/**', '.git/**', 'dist/**', 'build/**'],
-              description: 'Glob patterns for files to exclude'
-            },
-            max_depth: {
-              type: 'number',
-              default: 10,
-              description: 'Maximum directory depth to analyze'
-            },
-            generate_summary: {
-              type: 'boolean',
-              default: true,
-              description: 'Generate a .treesummary file'
-            }
-          },
-          required: []
-        }
+        inputSchema: AnalyzeProjectStructureSchema.shape,
+        outputSchema: AnalysisResponseSchema.shape
       },
       {
         name: 'generate_project_summary',
         description: 'Generate AI-optimized project overview and analysis',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project_path: {
-              type: 'string',
-              default: '.',
-              description: 'Path to the project directory'
-            },
-            include_readme: {
-              type: 'boolean',
-              default: true,
-              description: 'Include README content in summary'
-            },
-            include_package_info: {
-              type: 'boolean',
-              default: true,
-              description: 'Include package.json/requirements.txt info'
-            },
-            include_git_info: {
-              type: 'boolean',
-              default: true,
-              description: 'Include Git repository information'
-            },
-            output_path: {
-              type: 'string',
-              description: 'Path to save the summary file'
-            }
-          },
-          required: []
-        }
+        inputSchema: GenerateProjectSummarySchema.shape,
+        outputSchema: AnalysisResponseSchema.shape
       },
       {
         name: 'analyze_file_symbols',
         description: 'Extract and analyze symbols (functions, classes, etc.) from code files',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            file_path: {
-              type: 'string',
-              description: 'Path to the file to analyze'
-            },
-            symbol_types: {
-              type: 'array',
-              items: {
-                type: 'string',
-                enum: ['functions', 'classes', 'interfaces', 'types', 'variables', 'imports']
-              },
-              default: ['functions', 'classes'],
-              description: 'Types of symbols to extract'
-            }
-          },
-          required: ['file_path']
-        }
+        inputSchema: AnalyzeFileSymbolsSchema.shape,
+        outputSchema: AnalysisResponseSchema.shape
       },
       {
         name: 'list_files',
         description: 'List files in a directory with smart ignore patterns',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            directory: {
-              type: 'string',
-              default: '.',
-              description: 'Directory to list files from'
-            },
-            recursive: {
-              type: 'boolean',
-              default: false,
-              description: 'List files recursively'
-            },
-            include_patterns: {
-              type: 'array',
-              items: { type: 'string' },
-              default: ['*'],
-              description: 'Patterns for files to include'
-            },
-            exclude_patterns: {
-              type: 'array',
-              items: { type: 'string' },
-              default: [],
-              description: 'Patterns for files to exclude'
-            }
-          },
-          required: []
-        }
+        inputSchema: ListFilesSchema.shape,
+        outputSchema: AnalysisResponseSchema.shape
       },
       {
         name: 'find_files',
         description: 'Search for files by pattern with optional content matching',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            pattern: {
-              type: 'string',
-              description: 'Search pattern (supports glob patterns)'
-            },
-            directory: {
-              type: 'string',
-              default: '.',
-              description: 'Directory to search in'
-            },
-            case_sensitive: {
-              type: 'boolean',
-              default: false,
-              description: 'Case sensitive pattern matching'
-            },
-            include_content: {
-              type: 'boolean',
-              default: false,
-              description: 'Include file content previews in results'
-            }
-          },
-          required: ['pattern']
-        }
+        inputSchema: FindFilesSchema.shape,
+        outputSchema: AnalysisResponseSchema.shape
       },
       {
         name: 'easy_replace',
         description: 'Fuzzy string replacement in files with smart matching',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            file_path: {
-              type: 'string',
-              description: 'Path to the file to modify'
-            },
-            old_text: {
-              type: 'string',
-              description: 'Text to replace (supports fuzzy matching)'
-            },
-            new_text: {
-              type: 'string',
-              description: 'Replacement text'
-            },
-            fuzzy_match: {
-              type: 'boolean',
-              default: true,
-              description: 'Enable fuzzy matching for old_text'
-            },
-            backup: {
-              type: 'boolean',
-              default: true,
-              description: 'Create backup before replacing'
-            }
-          },
-          required: ['file_path', 'old_text', 'new_text']
-        }
+        inputSchema: EasyReplaceSchema.shape,
+        outputSchema: AnalysisResponseSchema.shape
       },
       {
         name: 'cleanup_orphaned_projects',
         description: 'Clean up orphaned or unused project directories',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            base_path: {
-              type: 'string',
-              default: process.env.HOME || '.',
-              description: 'Base directory to search for projects'
-            },
-            days_threshold: {
-              type: 'number',
-              default: 30,
-              description: 'Consider projects older than this many days as orphaned'
-            },
-            dry_run: {
-              type: 'boolean',
-              default: true,
-              description: 'Only report what would be cleaned up, don\'t actually delete'
-            }
-          },
-          required: []
-        }
+        inputSchema: CleanupOrphanedProjectsSchema.shape,
+        outputSchema: AnalysisResponseSchema.shape
       }
     ];
   }
@@ -349,371 +98,364 @@ export class AnalysisMcpTools {
   /**
    * Handle MCP tool calls for analysis functionality
    */
-  async handleToolCall(name: string, arguments_: any): Promise<any> {
+  async handleToolCall(name: string, args: any): Promise<AnalysisResponse> {
+    const startTime = Date.now();
+    
     try {
+      let result: any;
+      
       switch (name) {
         case 'analyze_project_structure':
-          return await this.analyzeProjectStructure(arguments_);
+          result = await this.analyzeProjectStructure(args);
+          break;
         
         case 'generate_project_summary':
-          return await this.generateProjectSummary(arguments_);
+          result = await this.generateProjectSummary(args);
+          break;
         
         case 'analyze_file_symbols':
-          return await this.analyzeFileSymbols(arguments_);
+          result = await this.analyzeFileSymbols(args);
+          break;
         
         case 'list_files':
-          return await this.listFiles(arguments_);
+          result = await this.listFiles(args);
+          break;
         
         case 'find_files':
-          return await this.findFiles(arguments_);
+          result = await this.findFiles(args);
+          break;
         
         case 'easy_replace':
-          return await this.easyReplace(arguments_);
+          result = await this.easyReplace(args);
+          break;
         
         case 'cleanup_orphaned_projects':
-          return await this.cleanupOrphanedProjects(arguments_);
+          result = await this.cleanupOrphanedProjects(args);
+          break;
         
         default:
           throw new Error(`Unknown analysis tool: ${name}`);
       }
+      
+      const executionTime = Date.now() - startTime;
+      
+      return createSuccessResponse(
+        `Successfully executed ${name}`,
+        result,
+        executionTime
+      ) as AnalysisResponse;
+      
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error occurred'
-      };
+      return createErrorResponse(
+        `Failed to execute ${name}`,
+        error instanceof Error ? error.message : 'Unknown error occurred',
+        'ANALYSIS_ERROR'
+      ) as AnalysisResponse;
     }
   }
 
   private async analyzeProjectStructure(args: any): Promise<any> {
     const params = AnalyzeProjectStructureSchema.parse(args);
     
-    try {
-      const projectPath = path.resolve(params.project_path);
+    const projectPath = path.resolve(params.project_path);
+    
+    // Try to get cached analysis first if foundation cache is available
+    if (this.foundationCache) {
+      const cacheKey = `structure_${projectPath}_${params.max_depth}_${JSON.stringify(params.exclude_patterns)}`;
+      const cachedStructure = await this.foundationCache.getCachedAnalysis(
+        projectPath,
+        cacheKey,
+        'project_structure'
+      );
       
-      // Try to get cached analysis first if foundation cache is available
-      if (this.foundationCache) {
-        const cacheKey = `structure_${projectPath}_${params.max_depth}_${JSON.stringify(params.exclude_patterns)}`;
-        const cachedStructure = await this.foundationCache.getCachedAnalysis(
-          projectPath,
-          cacheKey,
-          'project_structure'
-        );
-        
-        if (cachedStructure) {
-          return {
-            success: true,
-            structure: cachedStructure.structure,
-            summary_generated: params.generate_summary,
-            summary_path: params.generate_summary ? path.join(projectPath, '.treesummary', 'structure.txt') : null,
-            cached: true
-          };
-        }
+      if (cachedStructure) {
+        return {
+          project_info: cachedStructure.structure,
+          summary_generated: params.generate_summary,
+          summary_path: params.generate_summary ? path.join(projectPath, '.treesummary', 'structure.txt') : null,
+          cached: true
+        };
       }
-      
-      const combinedExcludePatterns = await this.getCombinedExcludePatterns(projectPath, params.exclude_patterns);
-      const structure = await this.buildProjectStructure(projectPath, params.max_depth, combinedExcludePatterns);
-      
-      // Cache the result if foundation cache is available
-      if (this.foundationCache) {
-        const cacheKey = `structure_${projectPath}_${params.max_depth}_${JSON.stringify(params.exclude_patterns)}`;
-        await this.foundationCache.cacheAnalysisResult(
-          projectPath,
-          cacheKey,
-          'project_structure',
-          { structure, params }
-        );
-      }
-      
-      if (params.generate_summary) {
-        // Use TreeSummaryService for better integration
-        await this.treeSummaryService.updateProjectMetadata(projectPath);
-        
-        // Write tree summary inside the .treesummary directory structure
-        const summaryPath = path.join(projectPath, '.treesummary', 'structure.txt');
-        const summaryContent = this.generateTreeSummary(structure);
-        await writeFile(summaryPath, summaryContent, 'utf8');
-      }
-
-      return {
-        success: true,
-        structure,
-        summary_generated: params.generate_summary,
-        summary_path: params.generate_summary ? path.join(projectPath, '.treesummary', 'structure.txt') : null,
-        cached: false
-      };
-    } catch (error) {
-      throw new Error(`Failed to analyze project structure: ${error}`);
     }
+    
+    const combinedExcludePatterns = await this.getCombinedExcludePatterns(projectPath, params.exclude_patterns);
+    const structure = await this.buildProjectStructure(projectPath, params.max_depth, combinedExcludePatterns);
+    
+    // Cache the result if foundation cache is available
+    if (this.foundationCache) {
+      const cacheKey = `structure_${projectPath}_${params.max_depth}_${JSON.stringify(params.exclude_patterns)}`;
+      await this.foundationCache.cacheAnalysisResult(
+        projectPath,
+        cacheKey,
+        'project_structure',
+        { structure, params }
+      );
+    }
+    
+    if (params.generate_summary) {
+      // Use TreeSummaryService for better integration
+      await this.treeSummaryService.updateProjectMetadata(projectPath);
+      
+      // Write tree summary inside the .treesummary directory structure
+      const summaryPath = path.join(projectPath, '.treesummary', 'structure.txt');
+      const summaryContent = this.generateTreeSummary(structure);
+      await writeFile(summaryPath, summaryContent, 'utf8');
+    }
+
+    return {
+      project_info: structure,
+      summary_generated: params.generate_summary,
+      summary_path: params.generate_summary ? path.join(projectPath, '.treesummary', 'structure.txt') : null,
+      cached: false
+    };
   }
 
-  private async generateProjectSummary(args: any): Promise<ProjectSummary> {
+  private async generateProjectSummary(args: any): Promise<any> {
     const params = GenerateProjectSummarySchema.parse(args);
     
-    try {
-      const projectPath = path.resolve(params.project_path);
+    const projectPath = path.resolve(params.project_path);
+    
+    // Try to get cached summary first if foundation cache is available
+    if (this.foundationCache) {
+      const cacheKey = `summary_${projectPath}_${JSON.stringify(params)}`;
+      const cachedSummary = await this.foundationCache.getCachedAnalysis(
+        projectPath,
+        cacheKey,
+        'project_summary'
+      );
       
-      // Try to get cached summary first if foundation cache is available
-      if (this.foundationCache) {
-        const cacheKey = `summary_${projectPath}_${JSON.stringify(params)}`;
-        const cachedSummary = await this.foundationCache.getCachedAnalysis(
-          projectPath,
-          cacheKey,
-          'project_summary'
-        );
-        
-        if (cachedSummary) {
-          return {
-            success: true,
-            summary: cachedSummary,
-            cached: true
-          } as any;
-        }
+      if (cachedSummary) {
+        return {
+          summary: cachedSummary,
+          cached: true
+        };
       }
-      
-      const projectName = path.basename(projectPath);
-      
-      // Use TreeSummaryService for enhanced analysis
-      const overview = await this.treeSummaryService.getProjectOverview(projectPath);
-      
-      // Build basic structure if not available from overview
-      let structure = overview.structure;
-      if (!structure) {
-        const defaultExcludePatterns = ['node_modules/**', '.git/**'];
-        const combinedExcludePatterns = await this.getCombinedExcludePatterns(projectPath, defaultExcludePatterns);
-        structure = await this.buildProjectStructure(projectPath, 5, combinedExcludePatterns);
-      }
-      
-      // Calculate stats
-      const stats = this.calculateProjectStats(structure);
-      
-      // Get package info
-      let dependencies: Record<string, string> = {};
-      let framework = 'Unknown';
-      let language = 'Unknown';
-      
-      if (params.include_package_info) {
-        const packageInfo = await this.getPackageInfo(projectPath);
-        dependencies = packageInfo.dependencies;
-        framework = packageInfo.framework;
-        language = packageInfo.language;
-      }
-
-      // Get git info
-      let gitInfo;
-      if (params.include_git_info) {
-        gitInfo = await this.getGitInfo(projectPath);
-      }
-
-      // Get description from README
-      let description;
-      if (params.include_readme) {
-        description = await this.getReadmeDescription(projectPath);
-      }
-
-      const summary: ProjectSummary = {
-        name: projectName,
-        path: projectPath,
-        description,
-        framework,
-        language,
-        dependencies,
-        structure,
-        gitInfo,
-        stats
-      };
-      
-      // Cache the result if foundation cache is available
-      if (this.foundationCache) {
-        const cacheKey = `summary_${projectPath}_${JSON.stringify(params)}`;
-        await this.foundationCache.cacheAnalysisResult(
-          projectPath,
-          cacheKey,
-          'project_summary',
-          summary
-        );
-      }
-
-      // Save summary if output path provided
-      if (params.output_path) {
-        await writeFile(params.output_path, JSON.stringify(summary, null, 2), 'utf8');
-      }
-
-      return {
-        success: true,
-        summary,
-        cached: false
-      } as any;
-    } catch (error) {
-      throw new Error(`Failed to generate project summary: ${error}`);
     }
+    
+    const projectName = path.basename(projectPath);
+    
+    // Use TreeSummaryService for enhanced analysis
+    const overview = await this.treeSummaryService.getProjectOverview(projectPath);
+    
+    // Build basic structure if not available from overview
+    let structure: DirectoryNode | ProjectStructureInfo = overview.structure;
+    if (!structure) {
+      const defaultExcludePatterns = ['node_modules/**', '.git/**'];
+      const combinedExcludePatterns = await this.getCombinedExcludePatterns(projectPath, defaultExcludePatterns);
+      structure = await this.buildProjectStructure(projectPath, 5, combinedExcludePatterns);
+    }
+    
+    // Calculate stats
+    const stats = this.calculateProjectStats(structure);
+    
+    // Get package info
+    let dependencies: Record<string, string> = {};
+    let framework = 'Unknown';
+    let language = 'Unknown';
+    
+    if (params.include_package_info) {
+      const packageInfo = await this.getPackageInfo(projectPath);
+      dependencies = packageInfo.dependencies;
+      framework = packageInfo.framework;
+      language = packageInfo.language;
+    }
+
+    // Get git info
+    let gitInfo;
+    if (params.include_git_info) {
+      gitInfo = await this.getGitInfo(projectPath);
+    }
+
+    // Get description from README
+    let description;
+    if (params.include_readme) {
+      description = await this.getReadmeDescription(projectPath);
+    }
+
+    const summary: ProjectSummary = {
+      name: projectName,
+      path: projectPath,
+      description,
+      framework,
+      language,
+      dependencies,
+      structure,
+      gitInfo,
+      stats
+    };
+    
+    // Cache the result if foundation cache is available
+    if (this.foundationCache) {
+      const cacheKey = `summary_${projectPath}_${JSON.stringify(params)}`;
+      await this.foundationCache.cacheAnalysisResult(
+        projectPath,
+        cacheKey,
+        'project_summary',
+        summary
+      );
+    }
+
+    // Save summary if output path provided
+    if (params.output_path) {
+      await writeFile(params.output_path, JSON.stringify(summary, null, 2), 'utf8');
+    }
+
+    return {
+      summary,
+      cached: false
+    };
   }
 
-  private async analyzeFileSymbols(args: any): Promise<FileSymbols> {
+  private async analyzeFileSymbols(args: any): Promise<any> {
     const params = AnalyzeFileSymbolsSchema.parse(args);
     
-    try {
-      const filePath = path.resolve(params.file_path);
-      const content = await readFile(filePath, 'utf8');
-      const symbols = this.extractSymbols(content, params.symbol_types);
+    const filePath = path.resolve(params.file_path);
+    const content = await readFile(filePath, 'utf8');
+    const symbols = this.extractSymbols(content, params.symbol_types);
 
-      return {
-        success: true,
-        symbols: {
-          file_path: filePath,
-          symbols
-        }
-      } as any;
-    } catch (error) {
-      throw new Error(`Failed to analyze file symbols: ${error}`);
-    }
+    return {
+      symbols: {
+        file_path: filePath,
+        symbols
+      }
+    };
   }
 
   private async listFiles(args: any): Promise<any> {
     const params = ListFilesSchema.parse(args);
     
-    try {
-      const dirPath = path.resolve(params.directory);
-      const options: ListFilesOptions = {
-        recursive: params.recursive,
-        ignorePatterns: params.exclude_patterns,
-        includeHidden: false
-      };
+    const dirPath = path.resolve(params.directory);
+    const options: ListFilesOptions = {
+      recursive: params.recursive,
+      ignorePatterns: params.exclude_patterns,
+      includeHidden: false
+    };
 
-      const fileInfos = await this.fileOpsService.listFiles(dirPath, options);
-      
-      // Convert FileInfo[] to simple string paths for compatibility
-      const files = fileInfos.map(info => info.path);
+    const fileInfos = await this.fileOpsService.listFiles(dirPath, options);
+    
+    // Convert FileInfo[] to simple string paths for compatibility
+    const files = fileInfos.map(info => info.path);
 
-      return {
-        success: true,
-        files,
-        fileInfos, // Include detailed info too
+    return {
+      files,
+      analysis_data: {
+        fileInfos,
         count: files.length,
         directory: dirPath
-      };
-    } catch (error) {
-      throw new Error(`Failed to list files: ${error}`);
-    }
+      }
+    };
   }
 
   private async findFiles(args: any): Promise<any> {
     const params = FindFilesSchema.parse(args);
     
-    try {
-      const searchDir = path.resolve(params.directory);
-      const options: FindFilesOptions = {
-        directory: searchDir,
-        caseSensitive: params.case_sensitive,
-        includeContent: params.include_content
-      };
+    const searchDir = path.resolve(params.directory);
+    const options: FindFilesOptions = {
+      directory: searchDir,
+      caseSensitive: params.case_sensitive,
+      includeContent: params.include_content
+    };
 
-      const matches = await this.fileOpsService.findFiles(params.pattern, options);
+    const matches = await this.fileOpsService.findFiles(params.pattern, options);
+    
+    const results = [];
+    for (const filePath of matches) {
+      const result: any = { path: filePath };
       
-      const results = [];
-      for (const filePath of matches) {
-        const result: any = { path: filePath };
-        
-        if (params.include_content) {
-          try {
-            const content = await readFile(filePath, 'utf8');
-            result.preview = content.substring(0, 500) + (content.length > 500 ? '...' : '');
-          } catch {
-            result.preview = '[Could not read file]';
-          }
+      if (params.include_content) {
+        try {
+          const content = await readFile(filePath, 'utf8');
+          result.preview = content.substring(0, 500) + (content.length > 500 ? '...' : '');
+        } catch {
+          result.preview = '[Could not read file]';
         }
-        
-        results.push(result);
       }
+      
+      results.push(result);
+    }
 
-      return {
-        success: true,
+    return {
+      files: matches,
+      analysis_data: {
         matches: results,
         count: results.length,
         pattern: params.pattern
-      };
-    } catch (error) {
-      throw new Error(`Failed to find files: ${error}`);
-    }
+      }
+    };
   }
 
   private async easyReplace(args: any): Promise<any> {
     const params = EasyReplaceSchema.parse(args);
     
-    try {
-      // First copy the file to use in replacement options
-      const filePath = path.resolve(params.file_path);
-      
-      // Use our new FileOperationsService for replacement
-      const options: ReplaceOptions = {
-        fuzzyMatch: params.fuzzy_match,
-        preserveIndentation: true,
-        createBackup: params.backup,
-        dryRun: false
-      };
+    // First copy the file to use in replacement options
+    const filePath = path.resolve(params.file_path);
+    
+    // Use our new FileOperationsService for replacement
+    const options: ReplaceOptions = {
+      fuzzyMatch: params.fuzzy_match,
+      preserveIndentation: true,
+      createBackup: params.backup,
+      dryRun: false
+    };
 
-      // For single file replacement, we need to implement this differently
-      // since easyReplace in the service works across multiple files
-      const content = await readFile(filePath, 'utf8');
-      
-      // Create backup if requested
-      if (params.backup) {
-        const backupPath = `${filePath}.backup.${Date.now()}`;
-        await writeFile(backupPath, content, 'utf8');
-      }
-
-      let newContent: string;
-      if (params.fuzzy_match) {
-        // Use the fuzzy replace logic
-        newContent = this.fuzzyReplace(content, params.old_text, params.new_text);
-      } else {
-        // Exact replacement
-        newContent = content.replace(new RegExp(this.escapeRegExp(params.old_text), 'g'), params.new_text);
-      }
-
-      const replacementCount = (content.match(new RegExp(this.escapeRegExp(params.old_text), 'g')) || []).length;
-      
-      if (replacementCount > 0) {
-        await writeFile(filePath, newContent, 'utf8');
-      }
-
-      return {
-        success: true,
-        file_path: filePath,
-        replacements_made: replacementCount,
-        backup_created: params.backup
-      };
-    } catch (error) {
-      throw new Error(`Failed to perform easy replace: ${error}`);
+    // For single file replacement, we need to implement this differently
+    // since easyReplace in the service works across multiple files
+    const content = await readFile(filePath, 'utf8');
+    
+    // Create backup if requested
+    if (params.backup) {
+      const backupPath = `${filePath}.backup.${Date.now()}`;
+      await writeFile(backupPath, content, 'utf8');
     }
+
+    let newContent: string;
+    if (params.fuzzy_match) {
+      // Use the fuzzy replace logic
+      newContent = this.fuzzyReplace(content, params.old_text, params.new_text);
+    } else {
+      // Exact replacement
+      newContent = content.replace(new RegExp(this.escapeRegExp(params.old_text), 'g'), params.new_text);
+    }
+
+    const replacementCount = (content.match(new RegExp(this.escapeRegExp(params.old_text), 'g')) || []).length;
+    
+    if (replacementCount > 0) {
+      await writeFile(filePath, newContent, 'utf8');
+    }
+
+    return {
+      replaced_count: replacementCount,
+      analysis_data: {
+        file_path: filePath,
+        backup_created: params.backup
+      }
+    };
   }
 
   private async cleanupOrphanedProjects(args: any): Promise<any> {
     const params = CleanupOrphanedProjectsSchema.parse(args);
     
-    try {
-      const basePath = path.resolve(params.base_path);
-      const threshold = new Date(Date.now() - params.days_threshold * 24 * 60 * 60 * 1000);
-      
-      const orphanedProjects = await this.findOrphanedProjects(basePath, threshold);
-      
-      if (!params.dry_run) {
-        // Actually delete the projects (implement carefully)
-        for (const project of orphanedProjects) {
-          // This would need proper implementation with recursive deletion
-          console.warn('Actual deletion not implemented for safety');
-        }
+    const basePath = path.resolve(params.base_path);
+    const threshold = new Date(Date.now() - params.days_threshold * 24 * 60 * 60 * 1000);
+    
+    const orphanedProjects = await this.findOrphanedProjects(basePath, threshold);
+    
+    if (!params.dry_run) {
+      // Actually delete the projects (implement carefully)
+      for (const project of orphanedProjects) {
+        // This would need proper implementation with recursive deletion
+        console.warn('Actual deletion not implemented for safety');
       }
+    }
 
-      return {
-        success: true,
+    return {
+      cleanup_results: {
         orphaned_projects: orphanedProjects,
         count: orphanedProjects.length,
         dry_run: params.dry_run,
         threshold_date: threshold.toISOString()
-      };
-    } catch (error) {
-      throw new Error(`Failed to cleanup orphaned projects: ${error}`);
-    }
+      }
+    };
   }
 
   // Helper methods

@@ -80,7 +80,7 @@ export class KnowledgeGraphService {
     this.logger = new Logger('knowledge-graph-service');
     this.vectorService = vectorService;
     this.config = {
-      embeddingModel: 'sentence-transformers/all-MiniLM-L6-v2',
+      embeddingModel: 'Xenova/all-MiniLM-L6-v2',
       semanticSearchThreshold: 0.7,
       insightDetectionInterval: 300000, // 5 minutes
       autoDetectInsights: true,

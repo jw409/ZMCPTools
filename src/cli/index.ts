@@ -2,7 +2,7 @@ import { Command } from "commander";
 import path from "path";
 import os from "os";
 import { fileURLToPath } from "url";
-import { McpServer } from "../server/McpServer.js";
+import { McpToolsServer } from "../server/McpServer.js";
 import { DatabaseManager } from "../database/index.js";
 import {
   AgentService,
@@ -47,6 +47,8 @@ program
     "Data directory for SQLite database",
     DEFAULT_DATA_DIR
   )
+  .option("-p, --port <number>", "HTTP port for the MCP server", "4269")
+  .option("-h, --host <address>", "HTTP host for the MCP server", "127.0.0.1")
   .option("-v, --verbose", "Enable verbose logging")
   .action(async (options) => {
     try {
@@ -57,11 +59,13 @@ program
         console.log(`🗄️  Database path: ${databasePath}`);
       }
 
-      const server = new McpServer({
+      const server = new McpToolsServer({
         name: "claude-mcp-tools-ts",
         version: "1.0.0",
         databasePath,
         repositoryPath: process.cwd(),
+        httpPort: parseInt(options.port),
+        httpHost: options.host,
       });
 
       // Handle graceful shutdown

@@ -9,73 +9,46 @@ import { KnowledgeGraphService } from '../services/KnowledgeGraphService.js';
 import { VectorSearchService } from '../services/VectorSearchService.js';
 import { Logger } from '../utils/logger.js';
 import {
-  entityTypeSchema,
-  relationshipTypeSchema,
   type NewKnowledgeEntity,
   type NewKnowledgeRelationship,
   type EntityFilter,
   type RelationshipFilter
 } from '../schemas/knowledge-graph.js';
+import {
+  StoreKnowledgeMemorySchema,
+  CreateRelationshipSchema,
+  SearchKnowledgeGraphSchema,
+  FindRelatedEntitiesSchema,
+  type StoreKnowledgeMemoryInput,
+  type CreateRelationshipInput,
+  type SearchKnowledgeGraphInput,
+  type FindRelatedEntitiesInput
+} from '../schemas/toolRequests.js';
+import {
+  type StoreKnowledgeMemoryResponse,
+  type CreateKnowledgeRelationshipResponse,
+  type SearchKnowledgeGraphResponse,
+  type FindRelatedEntitiesResponse
+} from '../schemas/toolResponses.js';
 
 const logger = new Logger('knowledge-graph-tools');
 
-// Schema for storing knowledge graph memories
-const storeKnowledgeMemorySchema = z.object({
-  repository_path: z.string().min(1),
-  agent_id: z.string().min(1),
-  entity_type: entityTypeSchema,
-  entity_name: z.string().min(1),
-  entity_description: z.string().optional(),
-  importance_score: z.number().min(0).max(1).default(0.5),
-  confidence_score: z.number().min(0).max(1).default(0.7),
-  properties: z.record(z.string(), z.unknown()).optional()
-});
+// Re-export schemas for MCP server registration
+export { StoreKnowledgeMemorySchema, CreateRelationshipSchema, SearchKnowledgeGraphSchema, FindRelatedEntitiesSchema };
 
-// Schema for creating relationships
-const createRelationshipSchema = z.object({
-  repository_path: z.string().min(1),
-  from_entity_id: z.string().min(1),
-  to_entity_id: z.string().min(1),
-  relationship_type: relationshipTypeSchema,
-  strength: z.number().min(0).max(1).default(0.7),
-  confidence: z.number().min(0).max(1).default(0.7),
-  context: z.string().optional(),
-  discovered_by: z.string().optional(),
-  properties: z.record(z.string(), z.unknown()).optional()
-});
-
-// Schema for searching knowledge graph
-const searchKnowledgeGraphSchema = z.object({
-  repository_path: z.string().min(1),
-  query: z.string().min(1),
-  entity_types: z.array(entityTypeSchema).optional(),
-  relationship_types: z.array(relationshipTypeSchema).optional(),
-  use_semantic_search: z.boolean().default(true),
-  include_relationships: z.boolean().default(true),
-  limit: z.number().int().min(1).max(100).default(20),
-  threshold: z.number().min(0).max(1).default(0.7)
-});
-
-// Schema for finding related entities
-const findRelatedEntitiesSchema = z.object({
-  repository_path: z.string().min(1),
-  entity_id: z.string().min(1),
-  relationship_types: z.array(relationshipTypeSchema).optional(),
-  max_distance: z.number().int().min(1).max(5).default(2),
-  min_strength: z.number().min(0).max(1).default(0.5)
-});
+// Re-export types for backward compatibility
+export type StoreKnowledgeMemoryArgs = StoreKnowledgeMemoryInput;
+export type CreateRelationshipArgs = CreateRelationshipInput;
+export type SearchKnowledgeGraphArgs = SearchKnowledgeGraphInput;
+export type FindRelatedEntitiesArgs = FindRelatedEntitiesInput;
 
 /**
  * Store a knowledge graph memory with entity creation
  */
 export async function storeKnowledgeMemory(
   db: DatabaseManager,
-  args: z.infer<typeof storeKnowledgeMemorySchema>
-): Promise<{
-  success: boolean;
-  entity_id: string;
-  message: string;
-}> {
+  args: StoreKnowledgeMemoryInput
+): Promise<StoreKnowledgeMemoryResponse> {
   try {
     logger.info('Storing knowledge graph memory', args);
     
@@ -117,12 +90,8 @@ export async function storeKnowledgeMemory(
  */
 export async function createKnowledgeRelationship(
   db: DatabaseManager,
-  args: z.infer<typeof createRelationshipSchema>
-): Promise<{
-  success: boolean;
-  relationship_id: string;
-  message: string;
-}> {
+  args: CreateRelationshipInput
+): Promise<CreateKnowledgeRelationshipResponse> {
   try {
     logger.info('Creating knowledge relationship', args);
     
@@ -162,16 +131,8 @@ export async function createKnowledgeRelationship(
  */
 export async function searchKnowledgeGraph(
   db: DatabaseManager,
-  args: z.infer<typeof searchKnowledgeGraphSchema>
-): Promise<{
-  entities: any[];
-  relationships: any[];
-  total_results: number;
-  search_metadata: {
-    search_type: string;
-    processing_time: number;
-  };
-}> {
+  args: SearchKnowledgeGraphInput
+): Promise<SearchKnowledgeGraphResponse> {
   try {
     logger.info('Searching knowledge graph', args);
     
@@ -259,12 +220,8 @@ export async function searchKnowledgeGraph(
  */
 export async function findRelatedEntities(
   db: DatabaseManager,
-  args: z.infer<typeof findRelatedEntitiesSchema>
-): Promise<{
-  entities: any[];
-  relationships: any[];
-  total_found: number;
-}> {
+  args: FindRelatedEntitiesInput
+): Promise<FindRelatedEntitiesResponse> {
   try {
     logger.info('Finding related entities', args);
     
@@ -314,25 +271,25 @@ export const knowledgeGraphTools = {
   store_knowledge_memory: {
     name: 'store_knowledge_memory',
     description: 'Store a knowledge graph memory with entity creation',
-    inputSchema: storeKnowledgeMemorySchema,
+    inputSchema: StoreKnowledgeMemorySchema,
     handler: storeKnowledgeMemory
   },
   create_knowledge_relationship: {
     name: 'create_knowledge_relationship',
     description: 'Create a relationship between two entities in the knowledge graph',
-    inputSchema: createRelationshipSchema,
+    inputSchema: CreateRelationshipSchema,
     handler: createKnowledgeRelationship
   },
   search_knowledge_graph: {
     name: 'search_knowledge_graph',
     description: 'Search the knowledge graph',
-    inputSchema: searchKnowledgeGraphSchema,
+    inputSchema: SearchKnowledgeGraphSchema,
     handler: searchKnowledgeGraph
   },
   find_related_entities: {
     name: 'find_related_entities',
     description: 'Find related entities through relationship traversal',
-    inputSchema: findRelatedEntitiesSchema,
+    inputSchema: FindRelatedEntitiesSchema,
     handler: findRelatedEntities
   }
 };
