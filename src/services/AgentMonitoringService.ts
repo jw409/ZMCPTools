@@ -11,6 +11,7 @@ import { CommunicationService } from './CommunicationService.js';
 import { TaskService } from './TaskService.js';
 import { KnowledgeGraphService } from './KnowledgeGraphService.js';
 import { VectorSearchService } from './VectorSearchService.js';
+import { ProgressTracker } from './ProgressTracker.js';
 import { Logger } from '../utils/logger.js';
 import { PathUtils } from '../utils/pathUtils.js';
 import { 
@@ -69,6 +70,7 @@ export interface OrchestrationStatus {
 }
 
 export interface RoomActivitySnapshot {
+  roomId: string;
   roomName: string;
   memberCount: number;
   activeMembers: string[];
@@ -121,6 +123,7 @@ export class AgentMonitoringService {
   private communicationService: CommunicationService;
   private taskService: TaskService;
   private knowledgeGraphService: KnowledgeGraphService;
+  private progressTracker: ProgressTracker;
 
   constructor(
     private db: DatabaseManager,
@@ -132,6 +135,7 @@ export class AgentMonitoringService {
     this.taskService = new TaskService(db);
     const vectorService = new VectorSearchService(db);
     this.knowledgeGraphService = new KnowledgeGraphService(db, vectorService);
+    this.progressTracker = new ProgressTracker(db);
   }
 
   /**
@@ -236,9 +240,54 @@ export class AgentMonitoringService {
       const completedTasks = allTasks.filter(task => task.status === 'completed');
       const failedTasks = allTasks.filter(task => task.status === 'failed');
       
-      // Calculate progress
-      const progress = allTasks.length > 0 ? 
-        (completedTasks.length / allTasks.length) * 100 : 0;
+      // Calculate progress using ProgressTracker for proper aggregation
+      let progress = 0;
+      try {
+        const progressContext = {
+          contextId: orchestrationId,
+          contextType: 'orchestration' as const,
+          repositoryPath: this.repositoryPath,
+          metadata: {
+            totalTasks: allTasks.length,
+            completedTasks: completedTasks.length,
+            activeAgents: activeAgents.length
+          }
+        };
+        
+        // If we have active agents, aggregate their progress
+        if (activeAgents.length > 0) {
+          // Get current aggregated progress from all agents
+          const aggregatedProgress = await this.progressTracker.getContextProgress(progressContext);
+          
+          // If we have agent progress data, use it
+          if (aggregatedProgress.agentCount > 0) {
+            progress = aggregatedProgress.totalProgress;
+          } else {
+            // Fall back to task-based progress calculation
+            progress = allTasks.length > 0 ? 
+              (completedTasks.length / allTasks.length) * 100 : 0;
+          }
+        } else {
+          // No active agents, use task-based progress
+          progress = allTasks.length > 0 ? 
+            (completedTasks.length / allTasks.length) * 100 : 0;
+        }
+        
+        // Ensure progress is valid and monotonic
+        const progressReport = await this.progressTracker.reportContextProgress(
+          progressContext,
+          progress,
+          `Orchestration progress: ${completedTasks.length}/${allTasks.length} tasks completed`
+        );
+        
+        progress = progressReport.reportedProgress;
+        
+      } catch (error) {
+        logger.warn('Failed to calculate orchestration progress with ProgressTracker:', error);
+        // Fall back to simple task-based calculation
+        progress = allTasks.length > 0 ? 
+          Math.min((completedTasks.length / allTasks.length) * 100, 100) : 0;
+      }
 
       // Get orchestration insights and errors
       const insights = await this.getOrchestrationInsights(orchestrationId);
@@ -359,6 +408,7 @@ export class AgentMonitoringService {
       const coordinationStatus = await this.assessCoordinationStatus(roomName, messages);
 
       return {
+        roomId: room.id,
         roomName,
         memberCount: 0, // TODO: Calculate actual member count
         activeMembers,
@@ -472,16 +522,29 @@ export class AgentMonitoringService {
   }
 
   private async findMasterTask(orchestrationId: string): Promise<Task | undefined> {
-    const tasks = await this.taskService.getTasksByRepository(this.repositoryPath, {
+    const resolvedPath = PathUtils.resolveRepositoryPath(this.repositoryPath, 'findMasterTask');
+    const tasks = await this.taskService.getTasksByRepository(resolvedPath, {
       limit: 1000,
       offset: 0
     });
     
-    // Find task that has orchestration metadata
-    return tasks.find(task => 
+    // First try to find by orchestration ID in requirements
+    let masterTask = tasks.find(task => 
       (task.requirements as any)?.orchestrationId === orchestrationId ||
       task.id === orchestrationId
     );
+    
+    // If not found, try to find by looking for the agent's assigned task
+    if (!masterTask) {
+      const agents = await this.agentService.listAgents(resolvedPath);
+      const orchestrationAgent = agents.find(agent => agent.id === orchestrationId);
+      
+      if (orchestrationAgent && orchestrationAgent.agentMetadata?.assignedTaskId) {
+        masterTask = tasks.find(task => task.id === orchestrationAgent.agentMetadata.assignedTaskId);
+      }
+    }
+    
+    return masterTask;
   }
 
   private async getOrchestrationAgents(orchestrationId: string): Promise<AgentStatusSnapshot[]> {

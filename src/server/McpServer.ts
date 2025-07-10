@@ -29,6 +29,7 @@ import { BrowserMcpTools } from '../tools/BrowserMcpTools.js';
 import { WebScrapingMcpTools } from '../tools/WebScrapingMcpTools.js';
 import { AnalysisMcpTools } from '../tools/AnalysisMcpTools.js';
 import { TreeSummaryTools } from '../tools/TreeSummaryTools.js';
+import { ReportProgressTool } from '../tools/ReportProgressTool.js';
 // CacheMcpTools removed - foundation caching now automatic
 import { BrowserTools } from '../tools/BrowserTools.js';
 import { WebScrapingService } from '../services/WebScrapingService.js';
@@ -55,6 +56,7 @@ export class McpServer {
   private webScrapingService: WebScrapingService;
   private analysisMcpTools: AnalysisMcpTools;
   private treeSummaryTools: TreeSummaryTools;
+  private reportProgressTool: ReportProgressTool;
   // cacheMcpTools removed - foundation caching now automatic
   private fileOperationsService: FileOperationsService;
   private treeSummaryService: TreeSummaryService;
@@ -117,6 +119,7 @@ export class McpServer {
     this.webScrapingMcpTools = new WebScrapingMcpTools(this.webScrapingService, knowledgeGraphService, this.repositoryPath, this.db);
     this.analysisMcpTools = new AnalysisMcpTools(knowledgeGraphService, this.repositoryPath);
     this.treeSummaryTools = new TreeSummaryTools();
+    this.reportProgressTool = new ReportProgressTool(this.db);
     // Foundation caching is now automatic - no manual tools needed
 
     // Initialize managers
@@ -156,11 +159,15 @@ export class McpServer {
     });
 
     // Handle tool calls
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    this.server.setRequestHandler(CallToolRequestSchema, async (request, { sendNotification }) => {
       const { name, arguments: args } = request.params;
+      const progressToken = request.params?._meta?.progressToken;
 
       try {
-        const result = await this.handleToolCall(name, args || {});
+        const result = await this.handleToolCall(name, args || {}, progressToken ? {
+          progressToken,
+          sendNotification
+        } : undefined);
         return {
           content: [
             {
@@ -258,6 +265,8 @@ export class McpServer {
     return [
       // Agent orchestration tools
       ...this.getOrchestrationTools(),
+      // Progress reporting tool
+      ...this.getProgressReportingTools(),
       // Browser automation tools
       ...this.browserMcpTools.getTools(),
       // Web scraping tools
@@ -731,7 +740,68 @@ export class McpServer {
     ];
   }
 
-  private async handleToolCall(name: string, args: any): Promise<OrchestrationResult> {
+  private getProgressReportingTools(): Tool[] {
+    return [
+      {
+        name: "report_progress",
+        description: "Report progress and status updates from agents for real-time monitoring",
+        inputSchema: {
+          type: "object",
+          properties: {
+            agent_id: {
+              type: "string",
+              description: "ID of the agent reporting progress"
+            },
+            repository_path: {
+              type: "string",
+              description: "Path to the repository"
+            },
+            progress_type: {
+              type: "string",
+              enum: ["status", "task", "milestone", "error", "completion"],
+              description: "Type of progress being reported"
+            },
+            message: {
+              type: "string",
+              description: "Progress message or description"
+            },
+            task_id: {
+              type: "string",
+              description: "Optional task ID if progress is task-related"
+            },
+            progress_percentage: {
+              type: "number",
+              description: "Optional progress percentage (0-100)",
+              minimum: 0,
+              maximum: 100
+            },
+            results: {
+              type: "object",
+              description: "Optional results or metadata"
+            },
+            error: {
+              type: "string",
+              description: "Error message if progress_type is 'error'"
+            },
+            room_id: {
+              type: "string",
+              description: "Optional room ID for coordination context"
+            },
+            broadcast_to_room: {
+              type: "boolean",
+              description: "Whether to broadcast progress to assigned room (default: true)"
+            }
+          },
+          required: ["agent_id", "repository_path", "progress_type", "message"]
+        }
+      }
+    ];
+  }
+
+  private async handleToolCall(name: string, args: any, progressContext?: {
+    progressToken: string | number;
+    sendNotification: (notification: any) => Promise<void>;
+  }): Promise<OrchestrationResult> {
     // Check browser tools first
     const browserToolNames = this.browserMcpTools.getTools().map(t => t.name);
     if (browserToolNames.includes(name)) {
@@ -890,8 +960,23 @@ export class McpServer {
           args.monitoring_mode || 'status',
           args.update_interval || 2000,
           args.max_duration || 50000,
-          args.detail_level || 'summary'
+          args.detail_level || 'summary',
+          progressContext
         );
+
+      case "report_progress":
+        return await this.reportProgressTool.reportProgress({
+          agentId: args.agent_id,
+          repositoryPath: args.repository_path,
+          progressType: args.progress_type,
+          message: args.message,
+          taskId: args.task_id,
+          progressPercentage: args.progress_percentage,
+          results: args.results,
+          error: args.error,
+          roomId: args.room_id,
+          broadcastToRoom: args.broadcast_to_room ?? true
+        });
 
       default:
         throw new Error(`Unknown tool: ${name}`);

@@ -298,13 +298,14 @@ export class BrowserManager {
         // Check if selector looks like JavaScript code (contains function calls, etc.)
         if (selectorOrCode.includes('(') && selectorOrCode.includes(')')) {
           try {
-            // Execute as JavaScript and expect it to return an element
-            const result = eval(selectorOrCode);
+            // Use Function constructor as a safer alternative to eval
+            const dynamicFunction = new Function('document', 'window', `return (${selectorOrCode})`);
+            const result = dynamicFunction(document, window);
             if (result instanceof Element) {
               element = result;
             }
           } catch (e) {
-            // If eval fails, treat as CSS selector
+            // If function execution fails, treat as CSS selector
             element = await waitForElement(selectorOrCode, timeoutMs);
           }
         } else {

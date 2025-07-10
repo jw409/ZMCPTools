@@ -4,6 +4,7 @@ import { AgentRepository } from '../repositories/AgentRepository.js';
 import { MemoryRepository } from '../repositories/MemoryRepository.js';
 import { PathUtils } from '../utils/pathUtils.js';
 import { Logger } from '../utils/logger.js';
+import { eventBus } from './EventBus.js';
 import type { Task, NewTask, TaskUpdate, TaskStatus, TaskType, AgentStatus } from '../schemas/index.js';
 import { randomUUID } from 'crypto';
 
@@ -100,6 +101,13 @@ export class TaskService {
         }
       });
 
+      // Emit task created event
+      await eventBus.emit('task_created', {
+        task,
+        timestamp: new Date(),
+        repositoryPath: task.repositoryPath
+      });
+
       this.logger.info('Task created successfully', { taskId: task.id, taskType: task.taskType });
       return task;
     } catch (error) {
@@ -119,6 +127,21 @@ export class TaskService {
       }
 
       const updatedTask = await this.taskRepo.update(taskId, update);
+      
+      // Emit task update event
+      await eventBus.emit('task_update', {
+        taskId: task.id,
+        previousStatus: task.status,
+        newStatus: updatedTask.status,
+        assignedAgentId: task.assignedAgentId || undefined,
+        progressPercentage: update.progressPercentage,
+        timestamp: new Date(),
+        repositoryPath: task.repositoryPath,
+        metadata: {
+          update,
+          source: 'task_service'
+        }
+      });
       
       // Create memory entry for update
       await this.memoryRepo.create({
@@ -259,6 +282,15 @@ export class TaskService {
       const updatedTask = await this.taskRepo.update(taskId, {
         status: 'completed',
         results: results || {}
+      });
+
+      // Emit task completed event
+      await eventBus.emit('task_completed', {
+        taskId: task.id,
+        completedBy: task.assignedAgentId || undefined,
+        results: results || {},
+        timestamp: new Date(),
+        repositoryPath: task.repositoryPath
       });
 
       // Create completion memory

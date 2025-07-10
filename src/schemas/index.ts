@@ -1,11 +1,11 @@
 // Export all Zod v4 + Drizzle schemas
-export * from './agents.js';
-export * from './communication.js';
-export * from './logs.js';
-export * from './memories.js';
-export * from './scraping.js';
-export * from './tasks.js';
-export * from './knowledge-graph.js';
+export * from './agents';
+export * from './communication';
+export * from './logs';
+export * from './memories';
+export * from './scraping';
+export * from './tasks';
+export * from './knowledge-graph';
 
 // Re-export commonly used types for convenience
 export type {
@@ -16,7 +16,7 @@ export type {
   MemoryType,
   MemoryCategory,
   MemorySearch,
-} from './memories.js';
+} from './memories';
 
 export type {
   // Agent types  
@@ -26,7 +26,7 @@ export type {
   AgentStatus,
   AgentFilter,
   AgentHeartbeat,
-} from './agents.js';
+} from './agents';
 
 export type {
   // Task types
@@ -40,7 +40,7 @@ export type {
   DependencyType,
   TaskFilter,
   TaskCreateRequest,
-} from './tasks.js';
+} from './tasks';
 
 export type {
   // Communication types
@@ -54,7 +54,7 @@ export type {
   RoomJoinRequest,
   SendMessageRequest,
   WaitForMessagesRequest,
-} from './communication.js';
+} from './communication';
 
 export type {
   // Scraping types
@@ -77,7 +77,7 @@ export type {
   ScrapeDocumentationRequest,
   SearchDocumentationRequest,
   ScrapeJobFilter,
-} from './scraping.js';
+} from './scraping';
 
 export type {
   // Log types
@@ -95,7 +95,7 @@ export type {
   ToolCallLogFilter,
   LogErrorRequest,
   LogToolCallRequest,
-} from './logs.js';
+} from './logs';
 
 export type {
   // Knowledge graph types
@@ -113,7 +113,7 @@ export type {
   KnowledgeSearch,
   EntityFilter,
   RelationshipFilter,
-} from './knowledge-graph.js';
+} from './knowledge-graph';
 
 
 // Re-export schemas for validation
@@ -128,7 +128,7 @@ export {
   selectMemorySchema,
   updateMemorySchema,
   memorySearchSchema,
-} from './memories.js';
+} from './memories';
 
 export {
   // Agent schemas
@@ -140,7 +140,7 @@ export {
   updateAgentSessionSchema,
   agentFilterSchema,
   agentHeartbeatSchema,
-} from './agents.js';
+} from './agents';
 
 export {
   // Task schemas
@@ -156,7 +156,7 @@ export {
   selectTaskDependencySchema,
   taskFilterSchema,
   taskCreateRequestSchema,
-} from './tasks.js';
+} from './tasks';
 
 export {
   // Communication schemas
@@ -172,7 +172,7 @@ export {
   roomJoinRequestSchema,
   sendMessageRequestSchema,
   waitForMessagesRequestSchema,
-} from './communication.js';
+} from './communication';
 
 export {
   // Scraping schemas
@@ -201,7 +201,7 @@ export {
   scrapeDocumentationRequestSchema,
   searchDocumentationRequestSchema,
   scrapeJobFilterSchema,
-} from './scraping.js';
+} from './scraping';
 
 export {
   // Log schemas
@@ -223,7 +223,7 @@ export {
   toolCallLogFilterSchema,
   logErrorRequestSchema,
   logToolCallRequestSchema,
-} from './logs.js';
+} from './logs';
 
 export {
   // Knowledge graph schemas
@@ -244,17 +244,17 @@ export {
   knowledgeSearchSchema,
   entityFilterSchema,
   relationshipFilterSchema,
-} from './knowledge-graph.js';
+} from './knowledge-graph';
 
 
 // Re-export Drizzle table definitions
-export { memories } from './memories.js';
-export { agentSessions } from './agents.js';
-export { tasks, taskDependencies } from './tasks.js';
-export { chatRooms, chatMessages } from './communication.js';
-export { documentationSources, scrapeJobs, websites, websitePages } from './scraping.js';
-export { errorLogs, toolCallLogs } from './logs.js';
-export { knowledgeEntities, knowledgeRelationships, knowledgeInsights } from './knowledge-graph.js';
+export { memories } from './memories';
+export { agentSessions } from './agents';
+export { tasks, taskDependencies } from './tasks';
+export { chatRooms, chatMessages } from './communication';
+export { documentationSources, scrapeJobs, websites, websitePages } from './scraping';
+export { errorLogs, toolCallLogs } from './logs';
+export { knowledgeEntities, knowledgeRelationships, knowledgeInsights } from './knowledge-graph';
 
 // Import tables and schemas for collections
 import { 
@@ -262,13 +262,13 @@ import {
   insertMemorySchema, 
   selectMemorySchema, 
   updateMemorySchema 
-} from './memories.js';
+} from './memories';
 import { 
   agentSessions, 
   insertAgentSessionSchema, 
   selectAgentSessionSchema, 
   updateAgentSessionSchema 
-} from './agents.js';
+} from './agents';
 import { 
   tasks, 
   taskDependencies, 
@@ -277,7 +277,7 @@ import {
   updateTaskSchema,
   insertTaskDependencySchema,
   selectTaskDependencySchema
-} from './tasks.js';
+} from './tasks';
 import { 
   chatRooms, 
   chatMessages, 
@@ -286,7 +286,7 @@ import {
   updateChatRoomSchema,
   insertChatMessageSchema,
   selectChatMessageSchema
-} from './communication.js';
+} from './communication';
 import { 
   documentationSources, 
   scrapeJobs, 
@@ -304,7 +304,7 @@ import {
   insertWebsitePageSchema,
   selectWebsitePageSchema,
   updateWebsitePageSchema
-} from './scraping.js';
+} from './scraping';
 import { 
   errorLogs, 
   toolCallLogs,
@@ -313,7 +313,7 @@ import {
   updateErrorLogSchema,
   insertToolCallLogSchema,
   selectToolCallLogSchema
-} from './logs.js';
+} from './logs';
 import {
   knowledgeEntities,
   knowledgeRelationships,
@@ -327,7 +327,7 @@ import {
   insertKnowledgeInsightSchema,
   selectKnowledgeInsightSchema,
   updateKnowledgeInsightSchema
-} from './knowledge-graph.js';
+} from './knowledge-graph';
 
 // Database schema collections for easier management
 export const allTables = {

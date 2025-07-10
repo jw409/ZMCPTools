@@ -69,7 +69,26 @@
 - **Package Manager**: npm (included), yarn, pnpm, or bun
 - **Claude CLI**: Anthropic's Claude Code CLI
 
-### Installation
+### Installation for Users (npm package)
+
+```bash
+# Single command installation via npx (recommended)
+npx claude-mcp-tools@latest install
+
+# Or with other package managers
+pnpx claude-mcp-tools@latest install
+yarn dlx claude-mcp-tools@latest install
+bunx claude-mcp-tools@latest install
+```
+
+**That's it!** This single command will:
+- ✅ Install the MCP server to `~/.mcptools/server/`
+- ✅ Configure Claude Code settings in `./.claude/settings.local.json`
+- ✅ Set up project permissions and CLAUDE.md documentation
+- ✅ Initialize SQLite database for agent coordination
+- ✅ Initialize LanceDB vector database for semantic search
+
+### Development Installation (from source)
 
 ```bash
 # Clone the repository
@@ -86,25 +105,30 @@ pnpm link --global    # Make claude-mcp-tools command available
 claude-mcp-tools install  # Configure MCP server and project
 ```
 
-**After installation, you'll have:**
+**After development installation, you'll have:**
 - ✅ `claude-mcp-tools` command available globally
-- ✅ MCP server configured in Claude Code
-- ✅ Project permissions and CLAUDE.md setup
-- ✅ SQLite database initialized for agent coordination
-- ✅ LanceDB vector database ready for semantic search
+- ✅ MCP server running from your development directory
+- ✅ Hot-reload development with `pnpm dev`
+- ✅ Full access to modify and test the codebase
 
 ### MCP Server Configuration
 
-```bash
-# Add the MCP server to Claude Code
-claude mcp add claude-mcp-tools /path/to/ClaudeMcpTools/dist/index.js
+The installer automatically configures the MCP server in your Claude Code settings. The server runs directly with Node.js:
 
-# Verify the server is configured
-claude mcp list
+```json
+// Automatically added to .claude/settings.local.json
+{
+  "mcpServers": {
+    "claude-mcp-tools": {
+      "command": "node",
+      "args": ["/home/user/.mcptools/server/index.js"]
+    }
+  }
+}
 ```
 
 **This provides:**
-- ✅ Core MCP server with 42 tools (including LanceDB)
+- ✅ Core MCP server with 43 tools (including LanceDB)
 - ✅ Multi-agent orchestration capabilities
 - ✅ TypeScript type safety and performance
 - ✅ SQLite-based data persistence
@@ -238,12 +262,15 @@ pnpm typecheck    # TypeScript type checking
 pnpm start        # Start compiled MCP server
 pnpm start:cli    # Start compiled CLI
 
-# Management (available globally after setup)
-claude-mcp-tools install    # Install/reinstall
-claude-mcp-tools uninstall  # Remove installation
-pnpm run uninstall:global   # Remove and unlink in one command
+# Management
+claude-mcp-tools install    # Install/reinstall MCP server
+claude-mcp-tools uninstall  # Remove MCP server and settings
 claude-mcp-tools status     # Check system status
 claude-mcp-tools help       # Show all commands
+
+# For users who installed via npx
+npx claude-mcp-tools@latest status     # Check status
+npx claude-mcp-tools@latest uninstall  # Remove installation
 ```
 
 **🌟 TypeScript Features:**
@@ -315,20 +342,23 @@ npm test          # Run test suite
 - **Binary Generation**: Dual binaries for CLI and server
 - **Library Mode**: Exportable as TypeScript library
 
-### MCP Server Configuration
+### Manual MCP Server Configuration (if needed)
+
+The installer automatically configures the MCP server, but if you need to manually configure it:
 
 ```bash
-# Add the TypeScript MCP server
-claude mcp add claude-mcp-tools /path/to/ClaudeMcpTools/dist/index.js
+# For production install (via npx)
+# Server is installed at ~/.mcptools/server/index.js
+# Configuration is automatic in .claude/settings.local.json
 
-# Alternative: use local binary after npm link
-claude mcp add claude-mcp-tools claude-mcp-server
+# For development install
+claude mcp add claude-mcp-tools $(pwd)/dist/server/index.js
 
 # Verify installation
 claude mcp list
 
 # Test server directly
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | node dist/index.js
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | node ~/.mcptools/server/index.js
 ```
 
 ## 📖 Usage Examples

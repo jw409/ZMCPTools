@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 /**
  * Claude MCP Tools - TypeScript Implementation
  * 

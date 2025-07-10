@@ -2,6 +2,7 @@ import { DatabaseManager } from '../database/index.js';
 import { AgentService, TaskService, CommunicationService, KnowledgeGraphService } from '../services/index.js';
 import { WebScrapingService } from '../services/WebScrapingService.js';
 import { AgentMonitoringService } from '../services/AgentMonitoringService.js';
+import { ProgressTracker } from '../services/ProgressTracker.js';
 import { ClaudeSpawner } from '../process/ClaudeSpawner.js';
 import type { TaskType, AgentStatus, MessageType } from '../schemas/index.js';
 
@@ -27,6 +28,7 @@ export class AgentOrchestrationTools {
   private knowledgeGraphService: KnowledgeGraphService;
   private webScrapingService: WebScrapingService;
   private monitoringService: AgentMonitoringService;
+  private progressTracker: ProgressTracker;
 
   constructor(private db: DatabaseManager, repositoryPath: string) {
     this.agentService = new AgentService(db);
@@ -39,6 +41,7 @@ export class AgentOrchestrationTools {
       repositoryPath
     );
     this.monitoringService = new AgentMonitoringService(db, repositoryPath);
+    this.progressTracker = new ProgressTracker(db);
   }
 
   private async initializeKnowledgeGraphService(db: DatabaseManager): Promise<void> {
@@ -68,7 +71,7 @@ export class AgentOrchestrationTools {
     try {
       // 1. Create coordination room (orchestration always needs room)
       const roomName = `objective_${Date.now()}`;
-      await this.communicationService.createRoom({
+      const room = await this.communicationService.createRoom({
         name: roomName,
         description: `Coordination room for: ${objective}`,
         repositoryPath,
@@ -87,6 +90,7 @@ export class AgentOrchestrationTools {
         description: `${title}: ${objective}`,
         requirements: {
           objective,
+          roomId: room.id,
           roomName,
           foundationSessionId,
           isOrchestrationTask: true,
@@ -123,7 +127,7 @@ export class AgentOrchestrationTools {
         repositoryPath,
         taskDescription: `Orchestrate objective: ${objective}`,
         capabilities: ['ALL_TOOLS', 'orchestration', 'planning', 'coordination'],
-        roomId: roomName, // Explicitly assign room for orchestration
+        roomId: room.id, // Explicitly assign room for orchestration
         metadata: {
           role: 'architect',
           objective,
@@ -375,7 +379,7 @@ export class AgentOrchestrationTools {
   async joinRoom(roomName: string, agentName: string): Promise<OrchestrationResult> {
     try {
       // Check if room exists
-      const room = this.communicationService.getRoom(roomName);
+      const room = await this.communicationService.getRoom(roomName);
       if (!room) {
         return {
           success: false,
@@ -395,6 +399,7 @@ export class AgentOrchestrationTools {
         success: true,
         message: `Successfully joined room ${roomName}`,
         data: {
+          roomId: room.id,
           roomName,
           agentName,
           participantCount: participants.length,
@@ -1008,6 +1013,7 @@ SPECIALIST AGENT:
         // Find agents in this room and terminate them
         const agents = await this.agentService.listAgents(room.repositoryPath);
         const roomAgents = agents.filter(agent => 
+          agent.agentMetadata?.roomId === room.id || 
           agent.agentMetadata?.roomName === roomName || 
           agent.status === 'active' // Terminate active agents as safety measure
         );
@@ -1073,6 +1079,7 @@ SPECIALIST AGENT:
       // Terminate any remaining agents
       const agents = await this.agentService.listAgents(room.repositoryPath);
       const roomAgents = agents.filter(agent => 
+        agent.agentMetadata?.roomId === room.id || 
         agent.agentMetadata?.roomName === roomName
       );
       
@@ -1132,9 +1139,11 @@ SPECIALIST AGENT:
         message: `Found ${total} rooms${status ? ` with status '${status}'` : ''}`,
         data: {
           rooms: paginatedRooms.map(room => ({
+            id: room.id,
             name: room.name,
             description: room.description,
             repositoryPath: room.repositoryPath,
+            isGeneral: room.isGeneral,
             status: room.roomMetadata?.status || 'active',
             createdAt: room.createdAt,
             closedAt: room.roomMetadata?.closedAt,
@@ -1187,6 +1196,7 @@ SPECIALIST AGENT:
         success: true,
         message: `Retrieved ${paginatedMessages.length} messages from room '${roomName}'`,
         data: {
+          roomId: room.id,
           roomName,
           messages: paginatedMessages.map(msg => ({
             id: msg.id,
@@ -1728,7 +1738,7 @@ SPECIALIST AGENT:
   }
 
   /**
-   * Monitor agents with real-time updates and timeout handling
+   * Monitor agents with real-time updates using EventBus system
    */
   async monitorAgents(
     agentId?: string,
@@ -1738,201 +1748,292 @@ SPECIALIST AGENT:
     monitoringMode: 'status' | 'activity' | 'communication' | 'full' = 'status',
     updateInterval: number = 2000,
     maxDuration: number = 50000,
-    detailLevel: 'summary' | 'detailed' | 'verbose' = 'summary'
+    detailLevel: 'summary' | 'detailed' | 'verbose' = 'summary',
+    progressContext?: {
+      progressToken: string | number;
+      sendNotification: (notification: any) => Promise<void>;
+    }
   ): Promise<OrchestrationResult> {
     try {
       const resolvedPath = repositoryPath || process.cwd();
       const startTime = Date.now();
-      const updates: string[] = [];
       const errors: string[] = [];
+      const eventSubscriptions: string[] = [];
+      
+      // Import EventBus
+      const { eventBus } = await import('../services/EventBus.js');
+      
+      // Setup MCP-compliant progress tracking
+      const progressContextConfig = {
+        contextId: agentId || orchestrationId || roomName || 'monitoring',
+        contextType: agentId ? 'agent' as const : orchestrationId ? 'orchestration' as const : roomName ? 'monitoring' as const : 'monitoring' as const,
+        repositoryPath: resolvedPath,
+        metadata: {
+          monitoringMode,
+          detailLevel,
+          startTime: startTime,
+          maxDuration
+        }
+      };
+      
+      // Create MCP progress updater using ProgressTracker
+      const sendProgressUpdate = progressContext ? 
+        this.progressTracker.createMcpProgressUpdater(
+          progressContextConfig,
+          progressContext.progressToken,
+          progressContext.sendNotification
+        ) : 
+        async (progress: number, message?: string) => {
+          // No-op if no progress context
+        };
+      
+      // Helper function to calculate current progress
+      const calculateProgress = () => Math.min(20 + (Date.now() - startTime) / maxDuration * 70, 90);
       
       // Add opening message
-      updates.push(`🔍 Starting agent monitoring (${monitoringMode} mode, ${detailLevel} detail)`);
-      updates.push(`⏱️ Monitoring for up to ${maxDuration/1000} seconds with ${updateInterval/1000}s intervals`);
-      updates.push('');
+      await sendProgressUpdate(0, `🔍 Starting real-time agent monitoring (${monitoringMode} mode, ${detailLevel} detail)`);
+      await sendProgressUpdate(1, `⏱️ Monitoring for up to ${maxDuration/1000} seconds using EventBus`);
 
       // Initial status snapshot
-      updates.push('📊 INITIAL STATUS:');
+      await sendProgressUpdate(5, '📊 INITIAL STATUS:');
       let initialStatus;
       try {
         if (agentId) {
           initialStatus = await this.monitoringService.getAgentStatus(agentId);
-          updates.push(`Agent ${agentId}: ${initialStatus.status}`);
+          await sendProgressUpdate(10, `Agent ${agentId}: ${initialStatus.status}`);
           if (initialStatus.currentTask) {
-            updates.push(`  Current task: ${initialStatus.currentTask.description}`);
+            await sendProgressUpdate(12, `  Current task: ${initialStatus.currentTask.description}`);
           }
-          updates.push(`  Uptime: ${Math.floor(initialStatus.uptime/60)}m ${Math.floor(initialStatus.uptime%60)}s`);
+          await sendProgressUpdate(15, `  Uptime: ${Math.floor(initialStatus.uptime/60)}m ${Math.floor(initialStatus.uptime%60)}s`);
         } else if (orchestrationId) {
           initialStatus = await this.monitoringService.getOrchestrationStatus(orchestrationId);
-          updates.push(`Orchestration ${orchestrationId}: ${initialStatus.status}`);
-          updates.push(`  Progress: ${initialStatus.progress.toFixed(1)}%`);
-          updates.push(`  Active agents: ${initialStatus.activeAgents.length}`);
-          updates.push(`  Completed tasks: ${initialStatus.completedTasks.length}/${initialStatus.totalTasks}`);
+          await sendProgressUpdate(10, `Orchestration ${orchestrationId}: ${initialStatus.status}`);
+          await sendProgressUpdate(12, `  Progress: ${initialStatus.progress.toFixed(1)}%`);
+          await sendProgressUpdate(13, `  Active agents: ${initialStatus.activeAgents.length}`);
+          await sendProgressUpdate(15, `  Completed tasks: ${initialStatus.completedTasks.length}/${initialStatus.totalTasks}`);
         } else if (roomName) {
           initialStatus = await this.monitoringService.getRoomActivity(roomName);
-          updates.push(`Room ${roomName}: ${initialStatus.coordinationStatus}`);
-          updates.push(`  Active members: ${initialStatus.activeMembers.length}`);
-          updates.push(`  Messages: ${initialStatus.messageCount}`);
+          await sendProgressUpdate(10, `Room ${roomName}: ${initialStatus.coordinationStatus}`);
+          await sendProgressUpdate(12, `  Active members: ${initialStatus.activeMembers.length}`);
+          await sendProgressUpdate(15, `  Messages: ${initialStatus.messageCount}`);
         } else {
           initialStatus = await this.monitoringService.getActiveAgents(resolvedPath);
-          updates.push(`Repository ${resolvedPath}: ${initialStatus.length} active agents`);
-          initialStatus.forEach((agent: any) => {
-            updates.push(`  Agent ${agent.agentId}: ${agent.status}`);
-          });
+          await sendProgressUpdate(10, `Repository ${resolvedPath}: ${initialStatus.length} active agents`);
+          for (const agent of initialStatus) {
+            await sendProgressUpdate(15, `  Agent ${agent.agentId}: ${agent.status}`);
+          }
         }
       } catch (error) {
         errors.push(`Failed to get initial status: ${error}`);
       }
 
-      updates.push('');
-      updates.push('🔄 MONITORING UPDATES:');
+      await sendProgressUpdate(20, '🔄 SUBSCRIBING TO REAL-TIME EVENTS:');
 
-      // Monitoring loop with timeout awareness
-      let iteration = 0;
-      const maxIterations = Math.floor(maxDuration / updateInterval);
+      // Set up event listeners based on monitoring scope
+      const setupEventListeners = async () => {
+        if (monitoringMode === 'status' || monitoringMode === 'activity' || monitoringMode === 'full') {
+          // Subscribe to agent status changes
+          const agentStatusSub = eventBus.subscribe('agent_status_change', async (data) => {
+            if (agentId && data.agentId !== agentId) return;
+            if (data.repositoryPath !== resolvedPath) return;
+            
+            const timestamp = new Date().toLocaleTimeString();
+            const currentProgress = calculateProgress();
+            await sendProgressUpdate(currentProgress, `[${timestamp}] 🔄 Agent ${data.agentId} status: ${data.previousStatus} → ${data.newStatus}`);
+            
+            if (detailLevel === 'detailed' || detailLevel === 'verbose') {
+              if (data.metadata) {
+                await sendProgressUpdate(currentProgress, `  Metadata: ${JSON.stringify(data.metadata)}`);
+              }
+            }
+          }, { repositoryPath: resolvedPath });
+          eventSubscriptions.push(agentStatusSub);
+
+          // Subscribe to agent spawn events
+          const agentSpawnSub = eventBus.subscribe('agent_spawned', async (data) => {
+            if (data.repositoryPath !== resolvedPath) return;
+            
+            const timestamp = new Date().toLocaleTimeString();
+            const currentProgress = calculateProgress();
+            await sendProgressUpdate(currentProgress, `[${timestamp}] 🆕 Agent spawned: ${data.agent.id} (${data.agent.agentName})`);
+          }, { repositoryPath: resolvedPath });
+          eventSubscriptions.push(agentSpawnSub);
+
+          // Subscribe to agent termination events
+          const agentTermSub = eventBus.subscribe('agent_terminated', async (data) => {
+            if (agentId && data.agentId !== agentId) return;
+            if (data.repositoryPath !== resolvedPath) return;
+            
+            const timestamp = new Date().toLocaleTimeString();
+            const currentProgress = calculateProgress();
+            await sendProgressUpdate(currentProgress, `[${timestamp}] 🔚 Agent ${data.agentId} terminated (${data.finalStatus})`);
+            
+            if (data.reason && (detailLevel === 'detailed' || detailLevel === 'verbose')) {
+              await sendProgressUpdate(currentProgress, `  Reason: ${data.reason}`);
+            }
+          }, { repositoryPath: resolvedPath });
+          eventSubscriptions.push(agentTermSub);
+        }
+
+        if (monitoringMode === 'activity' || monitoringMode === 'full') {
+          // Subscribe to task updates
+          const taskUpdateSub = eventBus.subscribe('task_update', async (data) => {
+            if (data.repositoryPath !== resolvedPath) return;
+            
+            const timestamp = new Date().toLocaleTimeString();
+            const currentProgress = calculateProgress();
+            await sendProgressUpdate(currentProgress, `[${timestamp}] 📋 Task ${data.taskId} update: ${data.previousStatus || 'new'} → ${data.newStatus}`);
+            
+            if (data.assignedAgentId && (detailLevel === 'detailed' || detailLevel === 'verbose')) {
+              await sendProgressUpdate(currentProgress, `  Assigned to: ${data.assignedAgentId}`);
+            }
+            
+            if (data.progressPercentage !== undefined && (detailLevel === 'detailed' || detailLevel === 'verbose')) {
+              await sendProgressUpdate(currentProgress, `  Progress: ${data.progressPercentage}%`);
+            }
+          }, { repositoryPath: resolvedPath });
+          eventSubscriptions.push(taskUpdateSub);
+
+          // Subscribe to task completion events
+          const taskCompleteSub = eventBus.subscribe('task_completed', async (data) => {
+            if (data.repositoryPath !== resolvedPath) return;
+            
+            const timestamp = new Date().toLocaleTimeString();
+            const currentProgress = calculateProgress();
+            await sendProgressUpdate(currentProgress, `[${timestamp}] ✅ Task ${data.taskId} completed${data.completedBy ? ` by ${data.completedBy}` : ''}`);
+          }, { repositoryPath: resolvedPath });
+          eventSubscriptions.push(taskCompleteSub);
+        }
+
+        if (monitoringMode === 'communication' || monitoringMode === 'full') {
+          // Subscribe to room messages
+          const roomMessageSub = eventBus.subscribe('room_message', async (data) => {
+            if (roomName && data.roomName !== roomName) return;
+            if (data.repositoryPath !== resolvedPath) return;
+            
+            const timestamp = new Date().toLocaleTimeString();
+            const currentProgress = calculateProgress();
+            await sendProgressUpdate(currentProgress, `[${timestamp}] 💬 ${data.roomName}: ${data.message.agentName} sent message`);
+            
+            if (detailLevel === 'detailed' || detailLevel === 'verbose') {
+              const preview = data.message.message.substring(0, 50) + (data.message.message.length > 50 ? '...' : '');
+              await sendProgressUpdate(currentProgress, `  Message: "${preview}"`);
+            }
+          }, { repositoryPath: resolvedPath });
+          eventSubscriptions.push(roomMessageSub);
+
+          // Subscribe to room creation events
+          const roomCreateSub = eventBus.subscribe('room_created', async (data) => {
+            if (data.repositoryPath !== resolvedPath) return;
+            
+            const timestamp = new Date().toLocaleTimeString();
+            const currentProgress = calculateProgress();
+            await sendProgressUpdate(currentProgress, `[${timestamp}] 🏠 Room created: ${data.room.name}`);
+          }, { repositoryPath: resolvedPath });
+          eventSubscriptions.push(roomCreateSub);
+
+          // Subscribe to room closure events
+          const roomCloseSub = eventBus.subscribe('room_closed', async (data) => {
+            if (roomName && data.roomName !== roomName) return;
+            if (data.repositoryPath !== resolvedPath) return;
+            
+            const timestamp = new Date().toLocaleTimeString();
+            const currentProgress = calculateProgress();
+            await sendProgressUpdate(currentProgress, `[${timestamp}] 🏠 Room closed: ${data.roomName}`);
+          }, { repositoryPath: resolvedPath });
+          eventSubscriptions.push(roomCloseSub);
+        }
+
+        if (orchestrationId) {
+          // Subscribe to orchestration updates
+          const orchestrationSub = eventBus.subscribe('orchestration_update', async (data) => {
+            if (data.orchestrationId !== orchestrationId) return;
+            if (data.repositoryPath !== resolvedPath) return;
+            
+            const timestamp = new Date().toLocaleTimeString();
+            const currentProgress = calculateProgress();
+            await sendProgressUpdate(currentProgress, `[${timestamp}] 🏗️ Orchestration ${data.orchestrationId}: ${data.phase} (${data.status})`);
+            
+            if (detailLevel === 'detailed' || detailLevel === 'verbose') {
+              await sendProgressUpdate(currentProgress, `  Agents: ${data.agentCount}, Tasks: ${data.completedTasks}/${data.totalTasks}`);
+            }
+          }, { repositoryPath: resolvedPath });
+          eventSubscriptions.push(orchestrationSub);
+        }
+
+        // Subscribe to system errors
+        const errorSub = eventBus.subscribe('system_error', async (data) => {
+          if (data.repositoryPath && data.repositoryPath !== resolvedPath) return;
+          
+          const timestamp = new Date().toLocaleTimeString();
+          const currentProgress = calculateProgress();
+          await sendProgressUpdate(currentProgress, `[${timestamp}] ❌ System error in ${data.context}: ${data.error.message}`);
+          
+          errors.push(`${data.context}: ${data.error.message}`);
+        }, { repositoryPath: resolvedPath });
+        eventSubscriptions.push(errorSub);
+
+        await sendProgressUpdate(25, `📡 Subscribed to ${eventSubscriptions.length} event types`);
+      };
+
+      await setupEventListeners();
+
+      // Real-time monitoring with EventBus
+      await sendProgressUpdate(30, '🔄 REAL-TIME MONITORING ACTIVE:');
       
-      while (Date.now() - startTime < maxDuration) {
-        await new Promise(resolve => setTimeout(resolve, updateInterval));
-        iteration++;
-
+      // Keep alive monitoring loop (much lighter than before)
+      const keepAliveInterval = setInterval(async () => {
         const elapsed = Date.now() - startTime;
         const remaining = maxDuration - elapsed;
-
-        try {
-          let hasUpdates = false;
-          const timestamp = new Date().toLocaleTimeString();
-
-          if (agentId) {
-            const currentStatus = await this.monitoringService.getAgentStatus(agentId);
-            
-            // Check for status changes
-            if (JSON.stringify(currentStatus) !== JSON.stringify(initialStatus)) {
-              updates.push(`[${timestamp}] Agent ${agentId} status changed:`);
-              
-              if (monitoringMode === 'full' || monitoringMode === 'activity') {
-                if (currentStatus.currentTask !== (initialStatus as any)?.currentTask) {
-                  updates.push(`  Task: ${currentStatus.currentTask?.description || 'None'}`);
-                }
-                if (currentStatus.status !== (initialStatus as any)?.status) {
-                  updates.push(`  Status: ${(initialStatus as any)?.status} → ${currentStatus.status}`);
-                }
-              }
-              
-              if (monitoringMode === 'communication' || monitoringMode === 'full') {
-                if (currentStatus.recentMessages.length > 0) {
-                  updates.push(`  Recent messages: ${currentStatus.recentMessages.length}`);
-                  if (detailLevel === 'detailed' || detailLevel === 'verbose') {
-                    const latestMessage = currentStatus.recentMessages[0];
-                    updates.push(`    Latest: "${latestMessage.message.substring(0, 50)}..."`);
-                  }
-                }
-              }
-              
-              hasUpdates = true;
-              initialStatus = currentStatus;
-            }
-          } else if (orchestrationId) {
-            const currentStatus = await this.monitoringService.getOrchestrationStatus(orchestrationId);
-            
-            if (JSON.stringify(currentStatus) !== JSON.stringify(initialStatus)) {
-              updates.push(`[${timestamp}] Orchestration ${orchestrationId} update:`);
-              updates.push(`  Progress: ${currentStatus.progress.toFixed(1)}%`);
-              updates.push(`  Active agents: ${currentStatus.activeAgents.length}`);
-              
-              if (detailLevel === 'detailed' || detailLevel === 'verbose') {
-                if (currentStatus.completedTasks.length > (initialStatus as any)?.completedTasks?.length) {
-                  updates.push(`  ✅ Tasks completed: ${currentStatus.completedTasks.length}/${currentStatus.totalTasks}`);
-                }
-                if (currentStatus.failedTasks.length > (initialStatus as any)?.failedTasks?.length) {
-                  updates.push(`  ❌ Tasks failed: ${currentStatus.failedTasks.length}`);
-                }
-              }
-              
-              hasUpdates = true;
-              initialStatus = currentStatus;
-            }
-          } else if (roomName) {
-            const currentStatus = await this.monitoringService.getRoomActivity(roomName);
-            
-            if (JSON.stringify(currentStatus) !== JSON.stringify(initialStatus)) {
-              updates.push(`[${timestamp}] Room ${roomName} update:`);
-              updates.push(`  Status: ${currentStatus.coordinationStatus}`);
-              
-              if (currentStatus.messageCount > (initialStatus as any)?.messageCount) {
-                updates.push(`  📨 New messages: ${currentStatus.messageCount - (initialStatus as any)?.messageCount}`);
-                if (detailLevel === 'detailed' || detailLevel === 'verbose') {
-                  const latestMessage = currentStatus.recentMessages[currentStatus.recentMessages.length - 1];
-                  if (latestMessage) {
-                    updates.push(`    From ${latestMessage.agentName}: "${latestMessage.message.substring(0, 50)}..."`);
-                  }
-                }
-              }
-              
-              hasUpdates = true;
-              initialStatus = currentStatus;
-            }
-          } else {
-            const currentStatus = await this.monitoringService.getActiveAgents(resolvedPath);
-            
-            if (JSON.stringify(currentStatus) !== JSON.stringify(initialStatus)) {
-              updates.push(`[${timestamp}] Repository agents update:`);
-              updates.push(`  Active agents: ${currentStatus.length}`);
-              
-              if (detailLevel === 'detailed' || detailLevel === 'verbose') {
-                const previousCount = Array.isArray(initialStatus) ? initialStatus.length : 0;
-                if (currentStatus.length > previousCount) {
-                  updates.push(`  📈 New agents: ${currentStatus.length - previousCount}`);
-                } else if (currentStatus.length < previousCount) {
-                  updates.push(`  📉 Agents terminated: ${previousCount - currentStatus.length}`);
-                }
-              }
-              
-              hasUpdates = true;
-              initialStatus = currentStatus;
-            }
-          }
-
-          // Progress indicator
-          if (iteration % 5 === 0 || hasUpdates) {
-            const progressPercent = Math.min((elapsed / maxDuration) * 100, 100);
-            updates.push(`[${timestamp}] ⏱️ Monitoring... ${progressPercent.toFixed(0)}% (${Math.floor(remaining/1000)}s remaining)`);
-          }
-
-          // Break if we're approaching timeout
-          if (remaining < updateInterval * 1.5) {
-            updates.push(`[${timestamp}] ⏰ Approaching timeout, wrapping up...`);
-            break;
-          }
-
-        } catch (error) {
-          errors.push(`[${new Date().toLocaleTimeString()}] Monitoring error: ${error}`);
+        
+        if (remaining <= 0) {
+          clearInterval(keepAliveInterval);
+          return;
         }
+        
+        const timestamp = new Date().toLocaleTimeString();
+        const progressPercent = Math.min(30 + (elapsed / maxDuration) * 60, 90);
+        
+        // Just send heartbeat every 10 seconds
+        if (elapsed % 10000 < 1000) {
+          await sendProgressUpdate(progressPercent, `[${timestamp}] ⏱️ Monitoring active... ${progressPercent.toFixed(0)}% (${Math.floor(remaining/1000)}s remaining)`);
+        }
+      }, 1000);
+
+      // Wait for monitoring duration
+      await new Promise(resolve => setTimeout(resolve, maxDuration));
+      clearInterval(keepAliveInterval);
+
+      // Clean up event subscriptions
+      await sendProgressUpdate(95, '🧹 CLEANING UP EVENT SUBSCRIPTIONS:');
+      for (const subscriptionId of eventSubscriptions) {
+        eventBus.unsubscribe(subscriptionId);
       }
+      await sendProgressUpdate(96, `Unsubscribed from ${eventSubscriptions.length} event listeners`);
 
       // Final status
-      updates.push('');
-      updates.push('📋 FINAL STATUS:');
+      await sendProgressUpdate(98, '📋 FINAL STATUS:');
       try {
         let finalStatus;
         if (agentId) {
           finalStatus = await this.monitoringService.getAgentStatus(agentId);
-          updates.push(`Agent ${agentId}: ${finalStatus.status}`);
+          await sendProgressUpdate(99, `Agent ${agentId}: ${finalStatus.status}`);
           if (finalStatus.currentTask) {
-            updates.push(`  Current task: ${finalStatus.currentTask.description}`);
+            await sendProgressUpdate(99, `  Current task: ${finalStatus.currentTask.description}`);
           }
-          updates.push(`  Performance: ${finalStatus.performance.tasksCompleted} tasks completed`);
+          await sendProgressUpdate(99, `  Performance: ${finalStatus.performance.tasksCompleted} tasks completed`);
         } else if (orchestrationId) {
           finalStatus = await this.monitoringService.getOrchestrationStatus(orchestrationId);
-          updates.push(`Orchestration ${orchestrationId}: ${finalStatus.status}`);
-          updates.push(`  Final progress: ${finalStatus.progress.toFixed(1)}%`);
-          updates.push(`  Total agents: ${finalStatus.spawnedAgents.length}`);
+          await sendProgressUpdate(99, `Orchestration ${orchestrationId}: ${finalStatus.status}`);
+          await sendProgressUpdate(99, `  Final progress: ${finalStatus.progress.toFixed(1)}%`);
+          await sendProgressUpdate(99, `  Total agents: ${finalStatus.spawnedAgents.length}`);
         } else if (roomName) {
           finalStatus = await this.monitoringService.getRoomActivity(roomName);
-          updates.push(`Room ${roomName}: ${finalStatus.coordinationStatus}`);
-          updates.push(`  Final message count: ${finalStatus.messageCount}`);
+          await sendProgressUpdate(99, `Room ${roomName}: ${finalStatus.coordinationStatus}`);
+          await sendProgressUpdate(99, `  Final message count: ${finalStatus.messageCount}`);
         } else {
           finalStatus = await this.monitoringService.getActiveAgents(resolvedPath);
-          updates.push(`Repository ${resolvedPath}: ${finalStatus.length} active agents`);
+          await sendProgressUpdate(99, `Repository ${resolvedPath}: ${finalStatus.length} active agents`);
         }
       } catch (error) {
         errors.push(`Failed to get final status: ${error}`);
@@ -1940,23 +2041,22 @@ SPECIALIST AGENT:
 
       // Summary
       const totalDuration = Date.now() - startTime;
-      updates.push('');
-      updates.push('📊 MONITORING SUMMARY:');
-      updates.push(`  Duration: ${Math.floor(totalDuration/1000)}s`);
-      updates.push(`  Updates: ${iteration} iterations`);
-      updates.push(`  Errors: ${errors.length}`);
-      updates.push(`  Mode: ${monitoringMode} (${detailLevel})`);
+      await sendProgressUpdate(100, '📊 MONITORING SUMMARY:');
+      await sendProgressUpdate(100, `  Duration: ${Math.floor(totalDuration/1000)}s`);
+      await sendProgressUpdate(100, `  Event subscriptions: ${eventSubscriptions.length}`);
+      await sendProgressUpdate(100, `  Errors: ${errors.length}`);
+      await sendProgressUpdate(100, `  Mode: ${monitoringMode} (${detailLevel})`);
 
       return {
         success: true,
-        message: `Agent monitoring completed successfully`,
+        message: `Real-time agent monitoring completed successfully`,
         data: {
           monitoringMode,
           detailLevel,
           duration: totalDuration,
-          iterations: iteration,
-          updates: updates.join('\n'),
+          eventSubscriptions: eventSubscriptions.length,
           errors: errors.length > 0 ? errors.join('\n') : null,
+          monitoringType: 'real-time-eventbus',
           finalStatus: agentId ? 'Agent monitored' : 
                        orchestrationId ? 'Orchestration monitored' : 
                        roomName ? 'Room monitored' : 'Repository monitored'

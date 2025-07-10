@@ -1,10 +1,12 @@
 import { drizzle, BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import Database from 'better-sqlite3';
-import { join, dirname } from 'path';
+import { join, dirname, resolve } from 'path';
 import { homedir } from 'os';
-import { mkdirSync, existsSync } from 'fs';
+import { mkdirSync, existsSync, readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
 import { sql } from 'drizzle-orm';
 import { Logger } from '../utils/logger.js';
+import { pathResolver } from '../utils/pathResolver.js';
 import {
   allTables,
   agentSessions,
@@ -187,10 +189,10 @@ export class DatabaseManager {
       ...config
     };
     
-    this.dbPath = config.path || join(homedir(), '.mcptools', 'data', 'claude_mcp_tools.db');
+    this.dbPath = config.path || pathResolver.getDatabasePath();
     this.isMainProcess = process.env.MCP_MAIN_PROCESS === 'true' || !process.env.MCP_AGENT_ID;
     
-    // Ensure database directory exists
+    // Ensure database directory exists (XDG-compliant)
     const dbDir = dirname(this.dbPath);
     if (!existsSync(dbDir)) {
       mkdirSync(dbDir, { recursive: true });
@@ -287,13 +289,8 @@ export class DatabaseManager {
     if (this.initialized) return;
     
     try {
-      // Only main process should sync schema to avoid conflicts
-      if (this.isMainProcess) {
-        await this.syncSchema();
-      } else {
-        // Agent processes just verify connectivity
-        await this.verifyConnection();
-      }
+      // Verify database connectivity
+      await this.verifyConnection();
       
       // Start periodic WAL checkpointing for main process
       if (this.isMainProcess && this.config.wal && this.config.checkpointIntervalMs) {
@@ -311,43 +308,61 @@ export class DatabaseManager {
     }
   }
 
-  private async syncSchema(): Promise<void> {
-    try {
-      this.logger.info('Synchronizing database schema using drizzle-kit push...');
-      
-      // Try different package managers in order of preference
-      const { execSync } = await import('child_process');
-      const commands = [
-        'npx drizzle-kit push',
-        'pnpx drizzle-kit push', 
-        'bunx drizzle-kit push',
-        'yarn dlx drizzle-kit push'
-      ];
+  private findDrizzleConfig(): string | null {
+    // Use the path resolver to get the correct config path
+    const configPath = pathResolver.getDrizzleConfigPath();
+    
+    if (existsSync(configPath)) {
+      this.logger.debug(`Found drizzle config at: ${configPath}`);
+      return configPath;
+    }
+    
+    this.logger.debug('No drizzle config found, using default');
+    return null;
+  }
 
-      let lastError: Error | undefined;
-      
-      for (const command of commands) {
-        try {
-          this.logger.debug(`Trying command: ${command}`);
-          execSync(command, { 
-            stdio: 'inherit',
-            cwd: process.cwd()
-          });
-          this.logger.info(`Schema synchronization completed successfully using: ${command}`);
-          return;
-        } catch (error) {
-          lastError = error as Error;
-          this.logger.debug(`Command failed: ${command}`, error);
-          continue;
+  private detectPackageManager(): string {
+    // Check for package manager lock files first
+    const toolRoot = pathResolver.getToolRoot();
+    
+    if (existsSync(join(toolRoot, 'pnpm-lock.yaml'))) {
+      return 'pnpm';
+    }
+    if (existsSync(join(toolRoot, 'bun.lockb'))) {
+      return 'bun';
+    }
+    if (existsSync(join(toolRoot, 'yarn.lock'))) {
+      return 'yarn';
+    }
+    if (existsSync(join(toolRoot, 'package-lock.json'))) {
+      return 'npm';
+    }
+    
+    // Check package.json packageManager field
+    try {
+      const packagePath = join(toolRoot, 'package.json');
+      if (existsSync(packagePath)) {
+        const pkg = JSON.parse(readFileSync(packagePath, 'utf8'));
+        if (pkg.packageManager) {
+          if (pkg.packageManager.startsWith('pnpm')) return 'pnpm';
+          if (pkg.packageManager.startsWith('bun')) return 'bun';
+          if (pkg.packageManager.startsWith('yarn')) return 'yarn';
         }
       }
-      
-      throw lastError || new Error('All drizzle-kit push commands failed');
-    } catch (error) {
-      this.logger.error('Schema synchronization failed', error);
-      throw error;
+    } catch {}
+    
+    // Check environment variables
+    if (process.env.npm_config_user_agent) {
+      const userAgent = process.env.npm_config_user_agent;
+      if (userAgent.includes('pnpm')) return 'pnpm';
+      if (userAgent.includes('bun')) return 'bun';
+      if (userAgent.includes('yarn')) return 'yarn';
     }
+    
+    // Default to npm
+    return 'npm';
   }
+
 
 
 

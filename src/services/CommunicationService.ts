@@ -1,11 +1,13 @@
 import { DatabaseManager } from '../database/index.js';
 import { CommunicationRepository } from '../repositories/CommunicationRepository.js';
 import { PathUtils } from '../utils/pathUtils.js';
+import { eventBus } from './EventBus.js';
 import type { ChatRoom, ChatMessage, NewChatRoom, NewChatMessage, MessageType, MessageFilter, SendMessageRequest } from '../schemas/index.js';
 
 export interface CreateRoomRequest {
   name: string;
   description: string;
+  isGeneral?: boolean; // Optional, defaults to false
   repositoryPath: string;
   metadata?: Record<string, any>;
 }
@@ -40,17 +42,37 @@ export class CommunicationService {
     }
 
     const roomData: NewChatRoom = {
+      id: `room-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       name: request.name,
       description: request.description,
       repositoryPath: resolvedRepositoryPath,
+      isGeneral: request.isGeneral || false,
       roomMetadata: request.metadata || {}
     };
 
-    return await this.commRepo.createRoom(roomData);
+    const room = await this.commRepo.createRoom(roomData);
+    
+    // Emit room created event
+    await eventBus.emit('room_created', {
+      room,
+      timestamp: new Date(),
+      repositoryPath: resolvedRepositoryPath
+    });
+    
+    return room;
   }
 
   async getRoom(roomName: string): Promise<ChatRoom | null> {
     return await this.commRepo.getRoomByName(roomName);
+  }
+
+  async getRoomById(roomId: string): Promise<ChatRoom | null> {
+    return await this.commRepo.getRoomById(roomId);
+  }
+
+  async getOrCreateGeneralRoom(repositoryPath: string): Promise<ChatRoom> {
+    const resolvedRepositoryPath = PathUtils.resolveRepositoryPath(repositoryPath, 'get or create general room');
+    return await this.commRepo.findOrCreateGeneralRoom(resolvedRepositoryPath);
   }
 
   async listRooms(repositoryPath: string): Promise<ChatRoom[]> {
@@ -75,6 +97,14 @@ export class CommunicationService {
     }
 
     await this.commRepo.deleteRoom(roomName);
+    
+    // Emit room closed event
+    await eventBus.emit('room_closed', {
+      roomId: room.name, // Using name as ID since it's the primary key
+      roomName: room.name,
+      timestamp: new Date(),
+      repositoryPath: room.repositoryPath
+    });
   }
 
   // Message management
@@ -88,7 +118,7 @@ export class CommunicationService {
     const messageId = this.generateMessageId();
     const messageData: NewChatMessage = {
       id: messageId,
-      roomName: request.roomName,
+      roomId: room.id,
       agentName: request.agentName,
       message: request.message,
       mentions: request.mentions || [],
@@ -96,6 +126,15 @@ export class CommunicationService {
     };
 
     const message = await this.commRepo.sendMessage(messageData);
+
+    // Emit room message event
+    await eventBus.emit('room_message', {
+      roomId: room.name, // Using name as ID since it's the primary key
+      roomName: room.name,
+      message,
+      timestamp: new Date(),
+      repositoryPath: room.repositoryPath
+    });
 
     // Process mentions and notifications
     if (request.mentions && request.mentions.length > 0) {
@@ -448,7 +487,7 @@ export class CommunicationService {
     cutoffDate.setDate(cutoffDate.getDate() - olderThanDays);
 
     for (const room of rooms) {
-      const deleted = await this.commRepo.deleteOldMessages(room.name, cutoffDate);
+      const deleted = await this.commRepo.deleteOldMessages(room.id, cutoffDate);
       totalDeleted += deleted;
     }
 
@@ -468,9 +507,9 @@ export class CommunicationService {
       throw new Error(`Room ${roomName} not found`);
     }
 
-    const recentMessages = await this.commRepo.getRecentMessages(roomName, limit);
-    const participants = await this.commRepo.getRoomParticipants(roomName);
-    const messageCount = await this.commRepo.getMessageCount(roomName);
+    const recentMessages = await this.commRepo.getRecentMessages(room.id, limit);
+    const participants = await this.commRepo.getRoomParticipants(room.id);
+    const messageCount = await this.commRepo.getMessageCount(room.id);
     
     // Count mentions per agent
     const mentionCounts: Record<string, number> = {};

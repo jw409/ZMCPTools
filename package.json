@@ -2,25 +2,39 @@
   "name": "claude-mcp-tools",
   "version": "0.1.0",
   "description": "TypeScript implementation of ClaudeMcpTools with enhanced MCP tools and multi-agent orchestration",
-  "main": "dist/lib.js",
-  "types": "dist/lib.d.ts",
+  "main": "dist/server/index.js",
+  "types": "dist/server/index.d.ts",
   "type": "module",
   "bin": {
     "claude-mcp-tools": "dist/cli/index.js",
-    "claude-mcp-server": "dist/index.js",
-    "claude-mcp-tools-installer": "dist/installer/index.js"
+    "claude-mcp-server": "dist/server/index.js",
+    "claude-mcp-cli": "dist/cli/index.js"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/server/index.js",
+      "types": "./dist/server/index.d.ts"
+    },
+    "./server": {
+      "import": "./dist/server/index.js",
+      "types": "./dist/server/index.d.ts"
+    },
+    "./cli": {
+      "import": "./dist/cli/index.js",
+      "types": "./dist/cli/index.d.ts"
+    }
   },
   "files": [
     "dist/**/*",
-    "README.md",
-    "CLAUDE.md",
-    "install.sh"
+    "README.md"
   ],
+  "preferGlobal": true,
   "scripts": {
-    "build": "tsc",
+    "build": "tsup",
+    "postbuild": "chmod +x dist/server/index.js dist/cli/index.js || true",
     "dev": "tsx src/index.ts",
     "dev:cli": "tsx src/cli/index.ts",
-    "start": "node dist/index.js",
+    "start": "node dist/server/index.js",
     "start:cli": "node dist/cli/index.js",
     "test": "vitest",
     "test:ui": "vitest --ui",
@@ -28,15 +42,16 @@
     "test:drizzle": "tsx test-drizzle.ts",
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
-    "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio",
-    "db:drop": "drizzle-kit drop",
-    "install:global": "pnpm build && pnpm link --global",
+    "db:generate": "drizzle-kit generate --config=./drizzle.config.ts",
+    "db:migrate": "drizzle-kit migrate --config=./drizzle.config.ts",
+    "db:push": "drizzle-kit push --config=./drizzle.config.ts",
+    "db:studio": "drizzle-kit studio --config=./drizzle.config.ts",
+    "db:drop": "drizzle-kit drop --config=./drizzle.config.ts",
+    "install:deps": "pnpm install --frozen-lockfile",
+    "install:global": "pnpm build && pnpm link --global && echo '\\n✅ Global link created. Run: claude-mcp-tools install'",
     "uninstall:global": "claude-mcp-tools uninstall && pnpm unlink --global",
-    "prepare": "pnpm build",
-    "postinstall": "echo '\n🚀 ClaudeMcpTools built! Next steps:'\necho '   1. pnpm run install:global (to setup everything)'\necho '   2. Or manually: pnpm link --global && claude-mcp-tools install'\n"
+    "setup": "pnpm install:deps && pnpm install:global",
+    "link:dev": "pnpm install && pnpm build && pnpm link --global && claude-mcp-tools install"
   },
   "keywords": [
     "mcp",
@@ -63,21 +78,22 @@
     "patchright": "^1.52.5",
     "ts-pattern": "^5.7.1",
     "turndown": "^7.2.0",
-    "user-agents": "^1.1.593",
+    "user-agents": "^1.1.595",
     "xml2js": "^0.6.2",
-    "zod": "^3.25.75"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
-    "@types/node": "^24.0.10",
+    "@types/node": "^24.0.12",
     "@types/turndown": "^5.0.5",
     "@types/user-agents": "^1.0.4",
     "@types/xml2js": "^0.4.14",
-    "@typescript-eslint/eslint-plugin": "^8.35.1",
-    "@typescript-eslint/parser": "^8.35.1",
+    "@typescript-eslint/eslint-plugin": "^8.36.0",
+    "@typescript-eslint/parser": "^8.36.0",
     "@vitest/ui": "^3.2.4",
     "drizzle-kit": "^0.31.4",
     "eslint": "^9.30.1",
+    "tsup": "^8.5.0",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"

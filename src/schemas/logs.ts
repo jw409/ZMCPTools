@@ -2,8 +2,8 @@ import { z } from 'zod';
 import { sqliteTable, text, real } from 'drizzle-orm/sqlite-core';
 import { relations } from 'drizzle-orm';
 import { createInsertSchema, createSelectSchema, createUpdateSchema } from 'drizzle-zod';
-import { agentSessions } from './agents.js';
-import { tasks } from './tasks.js';
+import { agentSessions } from './agents';
+import { tasks } from './tasks';
 
 // Zod v4 schemas for validation
 export const errorTypeSchema = z.enum([

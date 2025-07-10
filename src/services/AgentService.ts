@@ -8,6 +8,7 @@ import { Logger } from '../utils/logger.js';
 import { AgentPermissionManager } from '../utils/agentPermissions.js';
 import { PathUtils } from '../utils/pathUtils.js';
 import { FoundationCacheService } from './FoundationCacheService.js';
+import { eventBus } from './EventBus.js';
 import { eq, and } from 'drizzle-orm';
 import { agentSessions } from '../schemas/index.js';
 import { resolve } from 'path';
@@ -101,6 +102,21 @@ export class AgentService {
 
       // Update agent status in database
       await this.agentRepo.updateStatus(agent.id, newStatus);
+
+      // Emit status change event
+      await eventBus.emit('agent_status_change', {
+        agentId: agent.id,
+        previousStatus: agent.status,
+        newStatus,
+        timestamp: new Date(),
+        metadata: {
+          pid,
+          exitCode: code,
+          signal,
+          source: 'process_exit'
+        },
+        repositoryPath: agent.repositoryPath
+      });
 
       this.logger.info(`Agent status updated automatically`, {
         agentId: agent.id,
@@ -297,6 +313,13 @@ export class AgentService {
         throw new Error(`Failed to spawn Claude process: ${error}`);
       }
     }
+
+    // Emit agent spawned event
+    await eventBus.emit('agent_spawned', {
+      agent,
+      timestamp: new Date(),
+      repositoryPath: agent.repositoryPath
+    });
 
     return agent;
   }
@@ -649,11 +672,29 @@ Start immediately with sequential_thinking() to analyze the objective complexity
   }
 
   async updateAgentStatus(agentId: string, update: AgentStatusUpdate): Promise<void> {
+    // Get current agent status for event emission
+    const agent = await this.agentRepo.findById(agentId);
+    if (!agent) {
+      throw new Error(`Agent ${agentId} not found`);
+    }
+    
+    const previousStatus = agent.status;
+    
     await this.agentRepo.updateStatus(agentId, update.status);
     
     if (update.metadata) {
       await this.agentRepo.updateMetadata(agentId, update.metadata);
     }
+    
+    // Emit status change event
+    await eventBus.emit('agent_status_change', {
+      agentId,
+      previousStatus,
+      newStatus: update.status,
+      timestamp: new Date(),
+      metadata: update.metadata,
+      repositoryPath: agent.repositoryPath
+    });
   }
 
   async updateHeartbeat(agentId: string): Promise<void> {
@@ -697,7 +738,7 @@ Start immediately with sequential_thinking() to analyze the objective complexity
           this.logger.info(`Agent ${agentId} leaving room ${agent.roomId} with ${activeMembers.length} remaining members`);
           await this.communicationRepo.sendMessage({
             id: `msg-${Date.now()}-${Math.random().toString(36).substring(2)}`,
-            roomName: agent.roomId,
+            roomId: agent.roomId,
             agentName: agent.agentName,
             message: `Agent ${agent.agentName} (${agent.agentType}) is terminating. Task status: ${agent.status}`,
             messageType: 'system'
@@ -735,6 +776,16 @@ Start immediately with sequential_thinking() to analyze the objective complexity
 
     // Update agent status
     await this.agentRepo.updateStatus(agentId, 'terminated' as AgentStatus);
+    
+    // Emit agent terminated event
+    await eventBus.emit('agent_terminated', {
+      agentId: agent.id,
+      finalStatus: 'terminated',
+      timestamp: new Date(),
+      reason: 'explicit_termination',
+      repositoryPath: agent.repositoryPath
+    });
+    
     this.logger.info(`Agent ${agentId} status updated to TERMINATED`);
   }
 

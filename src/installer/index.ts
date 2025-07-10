@@ -1,9 +1,8 @@
-#!/usr/bin/env node
-
 import { execSync, spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { getTsxCommand, getNodeVersion, supportsImportFlag } from '../utils/nodeCompatibility.js';
 
 // Colors for console output
 const colors = {
@@ -37,17 +36,8 @@ interface PackageManager {
   buildCommand: string;
 }
 
-// Package manager configurations
+// Package manager configurations (prioritized: pnpm > npm > yarn > bun)
 const PACKAGE_MANAGERS: PackageManager[] = [
-  {
-    name: 'bun',
-    command: 'bun',
-    globalFlag: '--global',
-    linkCommand: 'bun link --global',
-    unlinkCommand: 'bun unlink --global',
-    installCommand: 'bun install',
-    buildCommand: 'bun run build'
-  },
   {
     name: 'pnpm',
     command: 'pnpm',
@@ -56,6 +46,15 @@ const PACKAGE_MANAGERS: PackageManager[] = [
     unlinkCommand: 'pnpm unlink --global',
     installCommand: 'pnpm install',
     buildCommand: 'pnpm build'
+  },
+  {
+    name: 'npm',
+    command: 'npm',
+    globalFlag: '--global',
+    linkCommand: 'npm link',
+    unlinkCommand: 'npm unlink',
+    installCommand: 'npm install',
+    buildCommand: 'npm run build'
   },
   {
     name: 'yarn',
@@ -67,13 +66,13 @@ const PACKAGE_MANAGERS: PackageManager[] = [
     buildCommand: 'yarn build'
   },
   {
-    name: 'npm',
-    command: 'npm',
+    name: 'bun',
+    command: 'bun',
     globalFlag: '--global',
-    linkCommand: 'npm link',
-    unlinkCommand: 'npm unlink',
-    installCommand: 'npm install',
-    buildCommand: 'npm run build'
+    linkCommand: 'bun link --global',
+    unlinkCommand: 'bun unlink --global',
+    installCommand: 'bun install',
+    buildCommand: 'bun run build'
   }
 ];
 
@@ -108,15 +107,15 @@ function commandExists(command: string): boolean {
 }
 
 function detectPackageManager(): PackageManager | null {
-  // Check for lockfiles first (more reliable than just command existence)
-  if (fs.existsSync('bun.lockb')) {
-    const bunPm = PACKAGE_MANAGERS.find(pm => pm.name === 'bun');
-    if (bunPm && commandExists('bun')) return bunPm;
-  }
-  
+  // Check for lockfiles first in priority order (pnpm first)
   if (fs.existsSync('pnpm-lock.yaml')) {
     const pnpmPm = PACKAGE_MANAGERS.find(pm => pm.name === 'pnpm');
     if (pnpmPm && commandExists('pnpm')) return pnpmPm;
+  }
+  
+  if (fs.existsSync('package-lock.json')) {
+    const npmPm = PACKAGE_MANAGERS.find(pm => pm.name === 'npm');
+    if (npmPm && commandExists('npm')) return npmPm;
   }
   
   if (fs.existsSync('yarn.lock')) {
@@ -124,7 +123,12 @@ function detectPackageManager(): PackageManager | null {
     if (yarnPm && commandExists('yarn')) return yarnPm;
   }
   
-  // If no lockfile, check for available package managers in preference order
+  if (fs.existsSync('bun.lockb')) {
+    const bunPm = PACKAGE_MANAGERS.find(pm => pm.name === 'bun');
+    if (bunPm && commandExists('bun')) return bunPm;
+  }
+  
+  // If no lockfile, check for available package managers in preference order (pnpm first)
   for (const pm of PACKAGE_MANAGERS) {
     if (commandExists(pm.command)) {
       return pm;
@@ -140,10 +144,13 @@ function checkPrerequisites(): { success: boolean; packageManager: PackageManage
   const missing: string[] = [];
   
   // Check Node.js version
-  const nodeVersion = process.version;
-  const majorVersion = parseInt(nodeVersion.slice(1).split('.')[0]);
-  if (majorVersion < 18) {
-    missing.push(`Node.js 18+ (current: ${nodeVersion})`);
+  const nodeInfo = getNodeVersion();
+  if (nodeInfo.major < 18) {
+    missing.push(`Node.js 18+ (current: ${nodeInfo.full})`);
+  } else {
+    // Show Node.js version info
+    const tsxSupport = supportsImportFlag() ? '--import' : '--loader';
+    logSuccess(`Node.js ${nodeInfo.full} (TSX support: ${tsxSupport})`);
   }
   
   // Detect package manager
@@ -206,26 +213,8 @@ function buildAndLink(packageManager: PackageManager): boolean {
   }
 }
 
-function configureMcpServer(): boolean {
-  logStep('🔧', 'Configuring local MCP server...');
-  
-  try {
-    const projectRoot = process.cwd();
-    const serverPath = path.join(projectRoot, 'dist', 'index.js');
-    
-    if (!fs.existsSync(serverPath)) {
-      logError('Built server not found. Build process may have failed.');
-      return false;
-    }
-    
-    logSuccess('MCP server path configured for local project');
-    return true;
-    
-  } catch (error) {
-    logError(`MCP configuration failed: ${error}`);
-    return false;
-  }
-}
+
+
 
 function createProjectConfig(): void {
   logStep('🔒', 'Setting up project configuration...');
@@ -270,8 +259,8 @@ function createProjectConfig(): void {
     "Task",
     "exit_plan_mode",
 
-    // ALL 43 MCP tools for full autonomous operation
-    // Agent Orchestration Tools (14 tools)
+    // ALL 44 MCP tools for full autonomous operation
+    // Agent Orchestration Tools (17 tools)
     "mcp__claude-mcp-tools__orchestrate_objective",
     "mcp__claude-mcp-tools__spawn_agent",
     "mcp__claude-mcp-tools__create_task",
@@ -286,7 +275,9 @@ function createProjectConfig(): void {
     "mcp__claude-mcp-tools__delete_room",
     "mcp__claude-mcp-tools__list_rooms",
     "mcp__claude-mcp-tools__list_room_messages",
-
+    "mcp__claude-mcp-tools__create_delayed_room",
+    "mcp__claude-mcp-tools__analyze_coordination_patterns",
+    "mcp__claude-mcp-tools__monitor_agents",
 
     // Browser Automation Tools (6 tools)
     "mcp__claude-mcp-tools__create_browser_session",
@@ -296,13 +287,16 @@ function createProjectConfig(): void {
     "mcp__claude-mcp-tools__navigate_to_url",
     "mcp__claude-mcp-tools__scrape_content",
 
-    // Web Scraping & Documentation Tools (6 tools)
+    // Web Scraping & Documentation Tools (9 tools)
     "mcp__claude-mcp-tools__scrape_documentation",
     "mcp__claude-mcp-tools__get_scraping_status",
     "mcp__claude-mcp-tools__cancel_scrape_job",
-    "mcp__claude-mcp-tools__start_scraping_worker",
-    "mcp__claude-mcp-tools__stop_scraping_worker",
+    "mcp__claude-mcp-tools__force_unlock_job",
+    "mcp__claude-mcp-tools__force_unlock_stuck_jobs",
     "mcp__claude-mcp-tools__list_documentation_sources",
+    "mcp__claude-mcp-tools__delete_pages_by_pattern",
+    "mcp__claude-mcp-tools__delete_pages_by_ids",
+    "mcp__claude-mcp-tools__delete_all_website_pages",
 
     // Project Analysis & File Operations Tools (7 tools)
     "mcp__claude-mcp-tools__analyze_project_structure",
@@ -327,7 +321,7 @@ function createProjectConfig(): void {
   const existingPermissions = existingSettings.permissions?.allow || [];
   const mergedPermissions = Array.from(new Set([...existingPermissions, ...requiredPermissions]));
   
-  // Create merged settings
+  // Create merged settings (without mcpServers - we'll add that via CLI)
   const settings = {
     ...existingSettings,
     env: {
@@ -340,19 +334,31 @@ function createProjectConfig(): void {
       ...existingSettings.permissions,
       allow: mergedPermissions,
     },
-    mcpServers: {
-      ...existingSettings.mcpServers,
-      "claude-mcp-tools": {
-        command: "claude-mcp-tools",
-        allowed: true,
-        alwaysAllow: ["*"],
-      },
-    },
   };
   
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
   
   logSuccess('Project configuration created/updated');
+}
+
+function addMcpServer(packageManager?: { name: string; installCommand: string; linkCommand: string; unlinkCommand: string }): boolean {
+  logStep('🔌', 'Adding MCP server to Claude Code...');
+  
+  try {
+    // Use direct command registration (avoiding npx/pnpx issues)
+    // The globally linked binary is available as 'claude-mcp-server'
+    execSync(`claude mcp add claude-mcp-tools -s local claude-mcp-server`, { 
+      stdio: 'pipe' 
+    });
+    
+    logSuccess('MCP server added to Claude Code');
+    return true;
+    
+  } catch (error) {
+    logError(`Failed to add MCP server: ${error}`);
+    logWarning(`You can manually add it with: claude mcp add claude-mcp-tools -s local claude-mcp-server`);
+    return false;
+  }
 }
 
 function createClaudeMd(): void {
@@ -503,26 +509,54 @@ Data stored locally with intelligent caching and cross-agent memory sharing.
   }
 }
 
+async function installPatchrightBrowsers(): Promise<void> {
+  logStep('🌐', 'Installing Patchright browsers...');
+  
+  try {
+    // Run patchright install to download browsers (chromium, firefox, webkit)
+    execSync('npx patchright install', { stdio: 'pipe' });
+    logSuccess('Patchright browsers installed');
+    
+  } catch (error) {
+    logWarning(`Patchright browser installation failed: ${error}`);
+    logWarning('Browsers can be installed later with: npx patchright install');
+    
+    // Don't fail the installation - browsers can be installed later
+    // This allows the installation to continue even if browser setup fails
+  }
+}
+
 async function initializeDatabase(): Promise<void> {
   logStep('🗄️', 'Initializing database with migrations...');
   
   try {
-    // Create data directory
+    // Ensure data directory exists
     fs.mkdirSync(INSTALL_PATHS.DATA_DIR, { recursive: true });
     
     // Import and initialize DatabaseManager to run migrations
-    const { DatabaseManager } = await import('../database/index.js');
+    const { DatabaseManager } = await import('../database/drizzle.js');
     const db = new DatabaseManager();
     
     // Initialize will automatically run migrations
     await db.initialize();
     
+    // Verify tables exist
+    const result = db.db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
+    if (result.length === 0) {
+      throw new Error('No tables created after migration');
+    }
+    
     // Close the database
     db.close();
     
     logSuccess('Database initialized with migrations');
+    
   } catch (error) {
-    logWarning(`Database initialization will occur on first use: ${error}`);
+    logWarning(`Database initialization failed: ${error}`);
+    logWarning('Database will be initialized on first use');
+    
+    // Don't fail the installation - database can be initialized later
+    // This allows the installation to continue even if database setup fails
   }
 }
 
@@ -543,42 +577,68 @@ export async function install(options: { globalOnly?: boolean; projectOnly?: boo
   // Create directories
   createDirectories();
   
-  // Build and link globally
-  if (!options.projectOnly) {
+  // Determine if we're running from development or global install
+  const isGlobalInstall = !fs.existsSync(path.join(process.cwd(), 'package.json')) || 
+                         !fs.existsSync(path.join(process.cwd(), 'src', 'installer', 'index.ts'));
+  
+  // Build and link globally (only if running from development directory)
+  if (!options.projectOnly && !isGlobalInstall) {
     if (!buildAndLink(packageManager)) {
       process.exit(1);
     }
-    
-    // Configure MCP server
-    if (!configureMcpServer()) {
-      logWarning('Manual MCP configuration may be needed');
-    }
   }
   
-  // Set up project configuration
+  // Note: Server files no longer copied - using direct global command approach
+  
+  // Set up project configuration (main purpose when running from global install)
   if (!options.globalOnly) {
     createProjectConfig();
     createClaudeMd();
+    
+    // Add MCP server using Claude CLI
+    if (!addMcpServer(packageManager)) {
+      logWarning('MCP server installation failed - you may need to add it manually');
+    }
   }
   
   // Initialize database
-  await initializeDatabase();
+  try {
+    await initializeDatabase();
+  } catch (error) {
+    logWarning(`Database initialization failed: ${error}`);
+    logWarning('Database will be initialized on first use');
+  }
+  
+  // Install Patchright browsers
+  if (!options.globalOnly) {
+    try {
+      await installPatchrightBrowsers();
+    } catch (error) {
+      logWarning(`Patchright browser installation failed: ${error}`);
+      logWarning('Browsers can be installed later with: npx patchright install');
+    }
+  }
   
   // Success message
   console.log('\n' + colors.green + colors.bold);
   console.log('╭─────────────────── 🎉 Success ───────────────────╮');
   console.log('│ ✅ Installation Complete!                        │');
   console.log('│                                                   │');
-  console.log('│ 📋 What was installed:                            │');
-  console.log(`│ • TypeScript package: Globally linked            │`);
+  console.log('│ 📋 What was configured:                           │');
+  if (!isGlobalInstall && !options.projectOnly) {
+    console.log(`│ • TypeScript package: Globally linked            │`);
+    console.log(`│ • MCP server: claude-mcp-tools (direct command)   │`);
+  } else {
+    console.log(`│ • MCP server: claude-mcp-tools (direct command)   │`);
+  }
   console.log(`│ • Data storage: ~/.mcptools/data/                 │`);
-  console.log(`│ • MCP server: claude-mcp-tools configured         │`);
   if (!options.globalOnly) {
     console.log(`│ • Project config: ./.claude/settings.local.json  │`);
     console.log(`│ • Project integration: ./CLAUDE.md               │`);
-    console.log(`│ • ALL 43 MCP tools: Fully enabled               │`);
+    console.log(`│ • ALL 44 MCP tools: Fully enabled               │`);
     console.log(`│ • Bash permissions: Full autonomous access       │`);
     console.log(`│ • 80+ commands: Pre-authorized for operation     │`);
+    console.log(`│ • Patchright browsers: Chromium, Firefox, WebKit │`);
   }
   console.log('│                                                   │');
   console.log('│ 🤖 Autonomous Operation Ready:                    │');
@@ -590,7 +650,7 @@ export async function install(options: { globalOnly?: boolean; projectOnly?: boo
   console.log('│                                                   │');
   console.log('│ 🚀 Next steps:                                    │');
   console.log('│ 1. Restart Claude Code                            │');
-  console.log('│ 2. Use /mcp to see all 43 available tools        │');
+  console.log('│ 2. Use /mcp to see all 44 available tools        │');
   console.log('│ 3. Try: orchestrate_objective() for workflows    │');
   console.log('│ 4. Check: ./CLAUDE.md for TypeScript examples    │');
   console.log('╰───────────────────────────────────────────────────╯');
@@ -636,20 +696,5 @@ export function uninstall(): void {
   }
 }
 
-// CLI interface
-if (import.meta.url === `file://${process.argv[1]}`) {
-  const command = process.argv[2];
-  
-  if (command === 'uninstall') {
-    uninstall();
-  } else if (command === 'install' || !command) {
-    const options = {
-      globalOnly: process.argv.includes('--global-only'),
-      projectOnly: process.argv.includes('--project-only')
-    };
-    install(options);
-  } else {
-    log('Usage: claude-mcp-tools-installer [install|uninstall] [--global-only|--project-only]', 'yellow');
-    process.exit(1);
-  }
-}
+// Note: CLI interface removed to prevent duplicate execution
+// The installer should only be called through the main CLI (claude-mcp-tools install)
