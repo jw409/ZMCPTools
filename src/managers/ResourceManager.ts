@@ -218,6 +218,19 @@ export class ResourceManager {
         }
       },
       {
+        uri: "docs://search",
+        name: "Documentation Search",
+        description: "Search documentation content (use ?query=text&source_id=id&limit=10)",
+        mimeType: "application/json",
+        _meta: {
+          "params": {
+            "query": "text to search for in documentation",
+            "source_id": "optional source ID to filter by",
+            "limit": 10
+          }
+        }
+      },
+      {
         uri: "logs://list",
         name: "Logs Directory",
         description: "List directories and files in ~/.mcptools/logs/",
@@ -285,6 +298,9 @@ export class ResourceManager {
 
       case "docs://websites":
         return await this.getWebsites(searchParams);
+
+      case "docs://search":
+        return await this.getDocumentationSearch(searchParams);
 
       // Handle docs://{websiteId}/pages pattern
       case "docs://websites/pages":
@@ -1102,6 +1118,68 @@ export class ResourceManager {
         text: `Error reading log file: ${
           error instanceof Error ? error.message : "Unknown error"
         }`,
+      };
+    }
+  }
+
+  private async getDocumentationSearch(
+    searchParams: URLSearchParams
+  ): Promise<TextResourceContents> {
+    const query = searchParams.get("query");
+    const sourceId = searchParams.get("source_id");
+    const limit = parseInt(searchParams.get("limit") || "10");
+
+    if (!query) {
+      return {
+        uri: "docs://search",
+        mimeType: "application/json",
+        text: JSON.stringify({
+          error: "Query parameter is required for documentation search",
+          results: [],
+          total: 0,
+          timestamp: new Date().toISOString(),
+        }),
+      };
+    }
+
+    try {
+      // Use the documentation service to search
+      const results = await this.documentationService.searchDocumentation(
+        query,
+        sourceId ? { sourceId, limit } : { limit }
+      );
+
+      return {
+        uri: `docs://search?query=${encodeURIComponent(query)}${sourceId ? `&source_id=${sourceId}` : ""}&limit=${limit}`,
+        mimeType: "application/json",
+        text: JSON.stringify({
+          query,
+          sourceId,
+          results: results.map((result) => ({
+            id: result.id,
+            title: result.title,
+            content: result.content.substring(0, 500) + (result.content.length > 500 ? "..." : ""),
+            url: result.url,
+            sourceId: result.sourceId,
+            sourceName: result.sourceName,
+            relevanceScore: result.relevanceScore,
+          })),
+          total: results.length,
+          timestamp: new Date().toISOString(),
+        }, null, 2),
+      };
+    } catch (error) {
+      return {
+        uri: `docs://search?query=${encodeURIComponent(query)}${sourceId ? `&source_id=${sourceId}` : ""}&limit=${limit}`,
+        mimeType: "application/json",
+        text: JSON.stringify({
+          error: error instanceof Error ? error.message : "Documentation search failed",
+          query,
+          sourceId,
+          results: [],
+          total: 0,
+          timestamp: new Date().toISOString(),
+        }, null, 2),
       };
     }
   }
