@@ -202,6 +202,10 @@ function buildAndLink(packageManager: PackageManager): boolean {
     execSync(packageManager.buildCommand, { stdio: 'pipe' });
     logSuccess('Build complete');
     
+    logStep('🗃️', 'Running database migrations...');
+    execSync(`${packageManager.command} run db:push`, { stdio: 'pipe' });
+    logSuccess('Database schema updated');
+    
     logStep('🌐', 'Linking globally...');
     execSync(packageManager.linkCommand, { stdio: 'pipe' });
     logSuccess('Global link created');
@@ -345,18 +349,51 @@ function addMcpServer(packageManager?: { name: string; installCommand: string; l
   logStep('🔌', 'Adding MCP server to Claude Code...');
   
   try {
-    // Use direct command registration (avoiding npx/pnpx issues)
-    // The globally linked binary is available as 'claude-mcp-server'
-    execSync(`claude mcp add claude-mcp-tools -s local claude-mcp-server`, { 
-      stdio: 'pipe' 
+    // Use HTTP transport with proper MCP protocol endpoint
+    const mcpConfig = JSON.stringify({
+      type: "http",
+      command: "claude-mcp-server",
+      args: ["--transport", "http", "--port", "4269"],
+      url: "http://127.0.0.1:4269",
+      env: {},
+      allowInsecure: false
     });
     
-    logSuccess('MCP server added to Claude Code');
+    try {
+      // Try to add the server
+      execSync(`claude mcp add-json claude-mcp-tools -s local '${mcpConfig}'`, { 
+        stdio: 'pipe' 
+      });
+      logSuccess('MCP server added to Claude Code with HTTP transport for streamable progress callbacks');
+    } catch (addError) {
+      // If it fails (likely because server already exists), remove and re-add
+      logStep('🔄', 'MCP server already exists, updating configuration...');
+      
+      try {
+        execSync(`claude mcp remove claude-mcp-tools`, { stdio: 'pipe' });
+      } catch (removeError) {
+        // Ignore remove errors (server might not exist)
+      }
+      
+      // Re-add with new configuration
+      execSync(`claude mcp add-json claude-mcp-tools -s local '${mcpConfig}'`, { 
+        stdio: 'pipe' 
+      });
+      logSuccess('MCP server configuration updated with HTTP transport for streamable progress callbacks');
+    }
+    
     return true;
     
   } catch (error) {
     logError(`Failed to add MCP server: ${error}`);
-    logWarning(`You can manually add it with: claude mcp add claude-mcp-tools -s local claude-mcp-server`);
+    logWarning(`You can manually add it with: claude mcp add-json claude-mcp-tools -s local '${JSON.stringify({
+      type: "http",
+      command: "claude-mcp-server", 
+      args: ["--transport", "http", "--port", "4269"],
+      url: "http://127.0.0.1:4269",
+      env: {},
+      allowInsecure: false
+    })}'`);
     return false;
   }
 }
@@ -399,7 +436,7 @@ This project uses the TypeScript implementation of ClaudeMcpTools for enhanced M
 - \`take_screenshot(output_path, region)\` - Cross-platform screenshots
 
 ### Documentation Intelligence
-- \`scrape_documentation(url, crawl_depth, selectors)\` - Web scraping
+- \`scrape_documentation(url, max_pages, selectors)\` - Web scraping
 - \`search_documentation(query, limit, similarity_threshold)\` - Semantic search
 - \`analyze_project_structure(project_path, output_format)\` - Code analysis
 

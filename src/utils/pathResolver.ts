@@ -48,10 +48,10 @@ export class PathResolver {
   }
   
   /**
-   * Get the path to store migrations (bundled with the tool)
+   * Get the path to store migrations (in user data directory)
    */
   getMigrationsPath(): string {
-    return join(this.toolRoot, 'migrations');
+    return join(this.getUserDataPath(), 'migrations');
   }
   
   /**

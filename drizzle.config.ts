@@ -16,7 +16,7 @@ const config = defineConfig({
     join(projectRoot, 'src', 'schemas', 'scraping.ts'),
     join(projectRoot, 'src', 'schemas', 'tasks.ts'),
   ],
-  out: join(projectRoot, 'migrations'),  // Store migrations in tool directory
+  out: join(homedir(), '.mcptools', 'data', 'migrations'),  // Store migrations with data
   dialect: 'sqlite',
   dbCredentials: {
     // Use consistent ~/.mcptools/data directory

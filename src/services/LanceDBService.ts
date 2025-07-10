@@ -10,6 +10,7 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { Logger } from '../utils/logger.js';
 import type { DatabaseManager } from '../database/index.js';
+import { pipeline, env } from '@xenova/transformers';
 
 export interface LanceDBConfig {
   dataPath?: string;
@@ -41,53 +42,160 @@ export interface Collection {
 }
 
 /**
- * Simple embedding function for development/fallback
- * In production, replace with OpenAI, HuggingFace, or Transformers.js
+ * HuggingFace Transformers-based embedding function for semantic embeddings
+ * Uses @xenova/transformers for real semantic understanding
  */
-class SimpleEmbeddingFunction {
-  private dimension: number;
+class HuggingFaceEmbeddingFunction {
+  private model: any = null;
+  private modelName: string;
   private logger: Logger;
+  private cache = new Map<string, number[]>();
+  private maxCacheSize = 1000;
+  private initialized = false;
 
-  constructor(dimension: number = 384) {
-    this.dimension = dimension;
-    this.logger = new Logger('simple-embedding');
+  constructor(modelName: string = 'sentence-transformers/all-MiniLM-L6-v2') {
+    this.modelName = modelName;
+    this.logger = new Logger('huggingface-embedding');
+    this.configureEnvironment();
+  }
+
+  private configureEnvironment() {
+    // Configure HuggingFace Transformers environment
+    env.allowLocalModels = true;
+    env.allowRemoteModels = true;
+    
+    // Set cache directory to ~/.mcptools/data/model_cache
+    env.cacheDir = join(homedir(), '.mcptools', 'data', 'model_cache');
+    
+    // Ensure cache directory exists
+    if (!existsSync(env.cacheDir)) {
+      mkdirSync(env.cacheDir, { recursive: true });
+      this.logger.info('Created HuggingFace model cache directory', { path: env.cacheDir });
+    }
+
+    // Configure for Node.js environment
+    if (typeof window === 'undefined') {
+      try {
+        const os = require('os');
+        env.backends.onnx.wasm.numThreads = Math.min(4, os.cpus().length);
+      } catch (error) {
+        this.logger.warn('Could not configure thread count', error);
+      }
+    }
+  }
+
+  async initialize(): Promise<void> {
+    if (this.initialized && this.model) {
+      return;
+    }
+
+    try {
+      this.logger.info('Initializing HuggingFace embedding model', { model: this.modelName });
+      
+      // Load the model pipeline
+      this.model = await pipeline('feature-extraction', this.modelName);
+      this.initialized = true;
+      
+      this.logger.info('HuggingFace embedding model initialized successfully');
+    } catch (error) {
+      this.logger.error('Failed to initialize HuggingFace model', error);
+      throw new Error(`Failed to load embedding model ${this.modelName}: ${error}`);
+    }
   }
 
   /**
-   * Generate simple embeddings based on text features
-   * This is a basic implementation - use proper embeddings in production
+   * Generate semantic embeddings using HuggingFace Transformers
    */
   async embed(texts: string[]): Promise<number[][]> {
-    return texts.map(text => this.textToVector(text));
+    await this.initialize();
+
+    const embeddings: number[][] = [];
+
+    for (const text of texts) {
+      // Check cache first
+      if (this.cache.has(text)) {
+        embeddings.push(this.cache.get(text)!);
+        continue;
+      }
+
+      try {
+        // Generate embedding using the transformer model
+        const output = await this.model(text, {
+          pooling: 'mean',
+          normalize: true
+        });
+
+        // Convert to array and cache
+        const embedding = Array.from(output.data) as number[];
+        
+        // Manage cache size
+        if (this.cache.size >= this.maxCacheSize) {
+          const oldestKey = this.cache.keys().next().value;
+          this.cache.delete(oldestKey);
+        }
+        
+        this.cache.set(text, embedding);
+        embeddings.push(embedding);
+        
+      } catch (error) {
+        this.logger.error('Failed to generate embedding for text', { text: text.substring(0, 100), error });
+        
+        // Fallback: create a deterministic but simple embedding
+        const fallbackEmbedding = this.createFallbackEmbedding(text);
+        embeddings.push(fallbackEmbedding);
+      }
+    }
+
+    return embeddings;
   }
 
-  private textToVector(text: string): number[] {
-    // Simple deterministic embedding based on text characteristics
-    const vector = new Array(this.dimension).fill(0);
+  /**
+   * Get the embedding dimension for this model
+   */
+  getDimension(): number {
+    // Return dimensions based on known models
+    switch (this.modelName) {
+      case 'sentence-transformers/all-MiniLM-L6-v2':
+      case 'sentence-transformers/all-MiniLM-L12-v2':
+      case 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2':
+        return 384;
+      case 'sentence-transformers/all-mpnet-base-v2':
+      case 'bert-base-uncased':
+      case 'distilbert-base-uncased':
+      case 'bert-base-multilingual-cased':
+        return 768;
+      case 'sentence-transformers/distiluse-base-multilingual-cased':
+        return 512;
+      default:
+        return 384; // Default dimension
+    }
+  }
+
+  /**
+   * Fallback embedding for error cases
+   */
+  private createFallbackEmbedding(text: string): number[] {
+    const dimension = this.getDimension();
+    const vector = new Array(dimension).fill(0);
     
-    // Use text characteristics to create consistent embeddings
+    // Create a deterministic embedding based on text characteristics
     const words = text.toLowerCase().split(/\s+/);
     const chars = text.toLowerCase().split('');
     
-    for (let i = 0; i < this.dimension; i++) {
+    for (let i = 0; i < dimension; i++) {
       let value = 0;
       
-      // Word-based features
       if (i < words.length) {
         const word = words[i];
         value += word.length * 0.1;
         value += word.charCodeAt(0) * 0.01;
       }
       
-      // Character-based features
       if (i < chars.length) {
         value += chars[i].charCodeAt(0) * 0.001;
       }
       
-      // Text length normalization
       value += text.length * 0.0001;
-      
-      // Add some deterministic variation based on position
       value += Math.sin(i * 0.1) * 0.05;
       
       vector[i] = value;
@@ -97,12 +205,30 @@ class SimpleEmbeddingFunction {
     const magnitude = Math.sqrt(vector.reduce((sum, val) => sum + val * val, 0));
     return vector.map(val => magnitude > 0 ? val / magnitude : 0);
   }
+
+  /**
+   * Clear the embedding cache
+   */
+  clearCache(): void {
+    this.cache.clear();
+    this.logger.info('Embedding cache cleared');
+  }
+
+  /**
+   * Get cache statistics
+   */
+  getCacheStats(): { size: number; maxSize: number; hitRatio?: number } {
+    return {
+      size: this.cache.size,
+      maxSize: this.maxCacheSize
+    };
+  }
 }
 
 export class LanceDBService {
   private connection: lancedb.Connection | null = null;
   private tables: Map<string, lancedb.Table> = new Map();
-  private embeddingFunction: SimpleEmbeddingFunction;
+  private embeddingFunction: HuggingFaceEmbeddingFunction;
   private logger: Logger;
   private config: LanceDBConfig;
   private dataPath: string;
@@ -123,8 +249,12 @@ export class LanceDBService {
     this.dataPath = config.dataPath || join(homedir(), '.mcptools', 'lancedb');
     this.ensureDataDirectory();
 
-    // Initialize embedding function
-    this.embeddingFunction = new SimpleEmbeddingFunction(this.config.vectorDimension);
+    // Initialize HuggingFace embedding function
+    const modelName = this.getModelName();
+    this.embeddingFunction = new HuggingFaceEmbeddingFunction(modelName);
+    
+    // Update vector dimension based on the selected model
+    this.config.vectorDimension = this.embeddingFunction.getDimension();
 
     this.logger.info('LanceDBService initialized', {
       dataPath: this.dataPath,
@@ -446,6 +576,28 @@ export class LanceDBService {
   }
 
   /**
+   * Get the appropriate model name based on configuration
+   */
+  private getModelName(): string {
+    const provider = this.config.embeddingProvider;
+    const customModel = this.config.embeddingModel;
+
+    // If a specific model is provided, use it
+    if (customModel && customModel !== 'simple-text-embeddings') {
+      return customModel;
+    }
+
+    // Default models based on provider
+    switch (provider) {
+      case 'huggingface':
+        return 'sentence-transformers/all-MiniLM-L6-v2';
+      case 'local':
+      default:
+        return 'sentence-transformers/all-MiniLM-L6-v2';
+    }
+  }
+
+  /**
    * Get service statistics
    */
   async getStats(): Promise<{
@@ -454,6 +606,7 @@ export class LanceDBService {
     embeddingModel: string;
     dataPath: string;
     isInitialized: boolean;
+    cacheStats?: { size: number; maxSize: number };
   }> {
     try {
       const isInitialized = this.connection !== null;
@@ -467,9 +620,10 @@ export class LanceDBService {
       return {
         totalCollections,
         embeddingProvider: this.config.embeddingProvider!,
-        embeddingModel: this.config.embeddingModel!,
+        embeddingModel: this.getModelName(),
         dataPath: this.dataPath,
-        isInitialized
+        isInitialized,
+        cacheStats: this.embeddingFunction.getCacheStats()
       };
 
     } catch (error) {
@@ -477,7 +631,7 @@ export class LanceDBService {
       return {
         totalCollections: 0,
         embeddingProvider: this.config.embeddingProvider!,
-        embeddingModel: this.config.embeddingModel!,
+        embeddingModel: this.getModelName(),
         dataPath: this.dataPath,
         isInitialized: false
       };

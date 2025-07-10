@@ -197,7 +197,7 @@ This project uses the TypeScript implementation of ClaudeMcpTools for enhanced M
 - `take_screenshot(output_path, region)` - Cross-platform screenshots
 
 ### Documentation Intelligence
-- `scrape_documentation(url, crawl_depth, selectors)` - Web scraping
+- `scrape_documentation(url, max_pages, selectors)` - Web scraping
 - `search_documentation(query, limit, similarity_threshold)` - Semantic search
 - `analyze_project_structure(project_path, output_format)` - Code analysis
 

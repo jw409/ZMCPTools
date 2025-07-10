@@ -125,7 +125,7 @@ export const toolCallLogsRelations = relations(toolCallLogs, ({ one }) => ({
 // drizzle-zod generated schemas for database operations
 export const insertErrorLogSchema = createInsertSchema(errorLogs, {
   repositoryPath: (schema) => schema.min(1),
-  errorMessage: (schema) => schema.min(1).max(2000),
+  errorMessage: (schema) => schema.min(1).max(8192),
 });
 
 export const selectErrorLogSchema = createSelectSchema(errorLogs);
@@ -232,11 +232,11 @@ export const logErrorRequestSchema = z.object({
   taskId: z.string().min(1).optional(),
   errorType: errorTypeSchema,
   errorCategory: errorCategorySchema,
-  errorMessage: z.string().min(1).max(2000),
+  errorMessage: z.string().min(1).max(8192),
   errorDetails: z.string().max(10000).optional(),
   context: errorContextSchema,
   environment: errorEnvironmentSchema,
-  attemptedSolution: z.string().max(2000).optional(),
+  attemptedSolution: z.string().max(8192).optional(),
   severity: severitySchema.default('medium'),
 });
 
@@ -249,7 +249,7 @@ export const logToolCallRequestSchema = z.object({
   result: toolResultSchema,
   status: toolCallStatusSchema,
   executionTime: z.number().min(0).optional(),
-  errorMessage: z.string().max(2000).optional(),
+  errorMessage: z.string().max(8192).optional(),
 });
 
 export type ErrorLogFilter = z.infer<typeof errorLogFilterSchema>;

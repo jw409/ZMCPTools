@@ -29,7 +29,7 @@ const ScrapeDocumentationSchema = z.object({
   url: z.string().url(),
   name: z.string().optional(),
   source_type: z.enum(['api', 'guide', 'reference', 'tutorial']).default('guide'),
-  crawl_depth: z.number().int().min(1).max(10).default(3),
+  max_pages: z.number().int().min(1).max(1000).default(200),
   selectors: z.string().optional(),
   
   // Legacy pattern support
@@ -247,12 +247,12 @@ export class WebScrapingMcpTools {
               default: 'guide',
               description: 'Type of documentation being scraped'
             },
-            crawl_depth: {
+            max_pages: {
               type: 'number',
               minimum: 1,
-              maximum: 10,
-              default: 3,
-              description: 'Maximum depth to crawl from the base URL'
+              maximum: 1000,
+              default: 200,
+              description: 'Maximum number of pages to scrape (default: 200 for comprehensive documentation coverage)'
             },
             selectors: {
               type: 'string',
@@ -622,7 +622,7 @@ export class WebScrapingMcpTools {
             name: params.name,
             sourceType: params.source_type,
             userProvidedParams: hasUserProvidedParams ? {
-              crawlDepth: params.crawl_depth,
+              maxPages: params.max_pages,
               selectors: params.selectors,
               includeSubdomains: params.include_subdomains
             } : undefined
@@ -634,7 +634,7 @@ export class WebScrapingMcpTools {
         // User-provided parameters take precedence
         optimizedParams = {
           ...params,
-          crawl_depth: hasUserProvidedParams ? params.crawl_depth : optimizationResult.crawlDepth,
+          max_pages: hasUserProvidedParams ? params.max_pages : optimizationResult.maxPages,
           selectors: params.selectors || optimizationResult.selectors,
           include_subdomains: hasUserProvidedParams ? params.include_subdomains : optimizationResult.includeSubdomains,
           // Add optimized patterns if no user patterns provided
@@ -653,7 +653,7 @@ export class WebScrapingMcpTools {
             `Optimized parameters for ${params.url}:\n` +
             `- Confidence: ${optimizationResult.confidence}\n` +
             `- Reasoning: ${optimizationResult.reasoning}\n` +
-            `- Crawl depth: ${optimizationResult.crawlDepth}\n` +
+            `- Max pages: ${optimizationResult.maxPages}\n` +
             `- Allow patterns: ${optimizationResult.allowPatterns.length}\n` +
             `- Ignore patterns: ${optimizationResult.ignorePatterns.length}`,
             ['scraping', 'optimization', 'parameters']
@@ -738,7 +738,7 @@ export class WebScrapingMcpTools {
       {
         sourceUrl: optimizedParams.url,
         sourceName: optimizedParams.name || new URL(optimizedParams.url).hostname,
-        crawlDepth: optimizedParams.crawl_depth,
+        maxPages: optimizedParams.max_pages,
         selectors: optimizedParams.selectors,
         allowPatterns: allowPatterns.length > 0 ? allowPatterns : undefined,
         ignorePatterns: ignorePatterns.length > 0 ? ignorePatterns : undefined,
@@ -764,13 +764,13 @@ export class WebScrapingMcpTools {
       source_id: sourceId,
       source_url: optimizedParams.url,
       source_name: optimizedParams.name || new URL(optimizedParams.url).hostname,
-      crawl_depth: optimizedParams.crawl_depth,
+      max_pages: optimizedParams.max_pages,
       optimization: optimizationResult ? {
         enabled: params.enable_sampling,
         confidence: optimizationResult.confidence,
         reasoning: optimizationResult.reasoning,
         optimized_parameters: {
-          crawl_depth: optimizationResult.crawlDepth,
+          max_pages: optimizationResult.maxPages,
           selectors: optimizationResult.selectors,
           allow_patterns_count: optimizationResult.allowPatterns.length,
           ignore_patterns_count: optimizationResult.ignorePatterns.length,
@@ -904,7 +904,7 @@ export class WebScrapingMcpTools {
       url: params.url,
       name: params.name,
       sourceType: params.source_type,
-      crawlDepth: params.crawl_depth,
+      maxPages: params.max_pages,
       selectors: params.selectors,
       allowPatterns: allowPatterns.length > 0 ? allowPatterns : undefined,
       ignorePatterns: ignorePatterns.length > 0 ? ignorePatterns : undefined,

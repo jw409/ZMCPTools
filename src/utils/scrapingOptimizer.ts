@@ -10,7 +10,7 @@ export interface ScrapingOptimizationRequest {
   name?: string;
   sourceType?: 'api' | 'guide' | 'reference' | 'tutorial';
   userProvidedParams?: {
-    crawlDepth?: number;
+    maxPages?: number;
     selectors?: string;
     allowPatterns?: (string | ScrapingPattern)[];
     ignorePatterns?: (string | ScrapingPattern)[];
@@ -19,7 +19,7 @@ export interface ScrapingOptimizationRequest {
 }
 
 export interface OptimizedScrapingParameters {
-  crawlDepth: number;
+  maxPages: number;
   selectors?: string;
   allowPatterns: (string | ScrapingPattern)[];
   ignorePatterns: (string | ScrapingPattern)[];
@@ -90,7 +90,7 @@ ${this.getDomainSpecificGuidance(domain)}
 **Response format:** Return ONLY a JSON object with the following structure:
 \`\`\`json
 {
-  "crawlDepth": 3,
+  "maxPages": 200,
   "selectors": {
     "title": "h1, .title",
     "content": "article, .content, main"
@@ -256,7 +256,7 @@ ${this.getDomainSpecificGuidance(domain)}
     const optimization = this.applyIntelligentRules(domain, path);
     
     return {
-      crawlDepth: optimization.crawlDepth || 3,
+      maxPages: optimization.maxPages || 200,
       selectors: optimization.selectors || 'article, .content, .main-content, main',
       allowPatterns: optimization.allowPatterns || [],
       ignorePatterns: optimization.ignorePatterns || [],
@@ -272,7 +272,7 @@ ${this.getDomainSpecificGuidance(domain)}
   private applyIntelligentRules(domain: string, path: string): Partial<OptimizedScrapingParameters> {
     const allowPatterns: (string | ScrapingPattern)[] = [];
     const ignorePatterns: (string | ScrapingPattern)[] = [];
-    let crawlDepth = 3;
+    let maxPages = 200;
     let selectors: string | undefined = undefined;
     let includeSubdomains = false;
     let reasoning = 'Generic documentation site patterns applied.';
@@ -314,7 +314,7 @@ ${this.getDomainSpecificGuidance(domain)}
     if (domain.includes('gitbook')) {
       selectors = '.page-content, .book-body';
       ignorePatterns.push({ contains: '/s/' });
-      crawlDepth = 2;
+      maxPages = 150;
       reasoning = 'GitBook platform detected. Used platform-specific selectors.';
     }
 
@@ -324,7 +324,7 @@ ${this.getDomainSpecificGuidance(domain)}
         { contains: '/share/' },
         { contains: '/embed/' }
       );
-      crawlDepth = 2;
+      maxPages = 150;
       reasoning = 'Notion platform detected. Excluded share/embed URLs.';
     }
 
@@ -373,12 +373,12 @@ ${this.getDomainSpecificGuidance(domain)}
         { contains: '/docs/Web/API/' },
         { contains: '/en-US/docs/Web/API/' }
       );
-      crawlDepth = 4;
+      maxPages = 300;
       reasoning = 'MDN detected. Excluded API docs, increased depth.';
     }
 
     return {
-      crawlDepth,
+      maxPages,
       selectors,
       allowPatterns,
       ignorePatterns,
@@ -444,7 +444,7 @@ ${this.getDomainSpecificGuidance(domain)}
   private validateOptimizationResult(result: any): result is OptimizedScrapingParameters {
     return (
       typeof result === 'object' &&
-      typeof result.crawlDepth === 'number' &&
+      typeof result.maxPages === 'number' &&
       Array.isArray(result.allowPatterns) &&
       Array.isArray(result.ignorePatterns) &&
       typeof result.includeSubdomains === 'boolean' &&
@@ -491,7 +491,7 @@ ${this.getDomainSpecificGuidance(domain)}
     }
 
     return {
-      crawlDepth: 3,
+      maxPages: 200,
       selectors: 'article, .content, .main-content, main, .documentation-content',
       allowPatterns: basicAllowPatterns,
       ignorePatterns: basicIgnorePatterns,

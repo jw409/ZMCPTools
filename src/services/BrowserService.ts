@@ -97,7 +97,6 @@ export interface InteractionAction {
 
 export interface ScrapingOptions {
   baseUrl: string;
-  crawlDepth?: number;
   maxPages?: number;
   allowPatterns?: string[];
   ignorePatterns?: string[];

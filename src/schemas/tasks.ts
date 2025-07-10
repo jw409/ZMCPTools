@@ -91,7 +91,7 @@ export const taskDependenciesRelations = relations(taskDependencies, ({ one }) =
 // Auto-generated schemas using drizzle-zod
 export const insertTaskSchema = createInsertSchema(tasks, {
   repositoryPath: (schema) => schema.min(1),
-  description: (schema) => schema.min(1).max(2000),
+  description: (schema) => schema.min(1).max(16384),
   priority: (schema) => schema.int().min(-100).max(100),
 });
 
@@ -155,7 +155,7 @@ export const taskCreateRequestSchema = z.object({
   repositoryPath: z.string().min(1),
   taskType: taskTypeSchema,
   title: z.string().min(1).max(200),
-  description: z.string().min(1).max(2000),
+  description: z.string().min(1).max(16384),
   priority: z.number().int().min(-100).max(100).default(0),
   requirements: taskRequirementsSchema,
   parentTaskId: z.string().min(1).optional(),

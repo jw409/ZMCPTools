@@ -21,13 +21,12 @@ import { ScrapeJobRepository } from "../repositories/ScrapeJobRepository.js";
 import { DocumentationRepository } from "../repositories/DocumentationRepository.js";
 import { WebsiteRepository } from "../repositories/WebsiteRepository.js";
 import { WebsitePagesRepository } from "../repositories/WebsitePagesRepository.js";
-import type { DocumentationSource } from "../lib.js";
-import type { ScrapeJobUpdate } from "../schemas/index.js";
+import type { DocumentationSource, ScrapeJobUpdate } from "../schemas/index.js";
 
 export interface ScrapeJobParams {
   forceRefresh?: boolean;
   selectors?: string; // Plain string selector - CSS selector or JavaScript code
-  crawlDepth?: number;
+  maxPages?: number;
   allowPatterns?: (string | ScrapingPattern)[];
   ignorePatterns?: (string | ScrapingPattern)[];
   includeSubdomains?: boolean;
@@ -358,14 +357,13 @@ export class WebScrapingService {
         },
       ];
       const processedUrls = new Set<string>();
-      const maxDepth = jobParams.crawlDepth || 1;
+      const maxPages = jobParams.maxPages || 200;
 
       this.logger.info(
-        `Starting crawl for ${jobParams.sourceName} with max depth ${maxDepth}`
+        `Starting crawl for ${jobParams.sourceName} with max pages ${maxPages}`
       );
 
-      while (crawlQueue.length > 0 && pagesScraped < 100) {
-        // Safety limit
+      while (crawlQueue.length > 0 && pagesScraped < maxPages) {
         const { url, depth } = crawlQueue.shift()!;
 
         // Skip if already processed
@@ -374,7 +372,8 @@ export class WebScrapingService {
           continue;
         }
 
-        // Skip if depth exceeded
+        // Skip if depth exceeded (keep depth check for navigation structure)
+        const maxDepth = Math.min(10, Math.ceil(Math.log10(maxPages)) + 2); // Dynamic depth based on page limit
         if (depth > maxDepth) {
           this.logger.debug(
             `Skipping URL due to depth limit (${depth} > ${maxDepth}): ${url}`
@@ -651,7 +650,7 @@ export class WebScrapingService {
       this.logger.info(`Crawl completed for ${jobParams.sourceName}:`, {
         pagesScraped,
         entriesCreated,
-        maxDepth,
+        maxPages,
         processedUrls: Array.from(processedUrls),
         remainingInQueue: crawlQueue.length,
         totalProcessed: processedUrls.size,
@@ -669,13 +668,13 @@ export class WebScrapingService {
           processing_method: "direct",
           pages_scraped: pagesScraped,
           entries_created: entriesCreated,
-          max_depth: maxDepth,
+          max_pages: maxPages,
           processed_urls: Array.from(processedUrls),
           remaining_in_queue: crawlQueue.length,
           total_discovered: processedUrls.size + crawlQueue.length,
           completed_at: new Date().toISOString(),
         },
-      } as ScrapeJobUpdate);
+      });
     } finally {
       // Clean up progress throttler
       this.progressUpdateThrottlers.delete(job.id);
@@ -1139,7 +1138,7 @@ export class WebScrapingService {
     url: string;
     name?: string;
     sourceType?: string;
-    crawlDepth?: number;
+    maxPages?: number;
     selectors?: string; // Plain string selector - CSS selector or JavaScript code
     allowPatterns?: (string | ScrapingPattern)[];
     ignorePatterns?: (string | ScrapingPattern)[];
@@ -1166,7 +1165,7 @@ export class WebScrapingService {
       name: params.name || new URL(params.url).hostname,
       url: params.url,
       sourceType: (params.sourceType || "guide") as any,
-      crawlDepth: params.crawlDepth || 3,
+      maxPages: params.maxPages || 200,
       selectors: params.selectors,
       allowPatterns: params.allowPatterns || [],
       ignorePatterns: params.ignorePatterns || [],
@@ -1461,7 +1460,7 @@ export class WebScrapingService {
         await this.scrapeJobRepository.update(jobId, {
           pagesScraped: pagesScraped,
           updatedAt: new Date().toISOString(),
-        } as any);
+        });
 
         // Reset throttler
         throttler.lastUpdateTime = now;
@@ -1491,7 +1490,7 @@ export class WebScrapingService {
         try {
           await this.scrapeJobRepository.update(jobId, {
             updatedAt: new Date().toISOString(),
-          } as any);
+          });
 
           throttler.lastUpdateTime = now;
           this.logger.debug(

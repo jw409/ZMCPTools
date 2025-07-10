@@ -1,5 +1,7 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import Fastify from 'fastify';
+import cors from '@fastify/cors';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -45,6 +47,9 @@ export interface McpServerOptions {
   version: string;
   databasePath?: string;
   repositoryPath?: string;
+  transport?: 'stdio' | 'http';
+  httpPort?: number;
+  httpHost?: string;
 }
 
 export class McpServer {
@@ -64,6 +69,8 @@ export class McpServer {
   private promptManager: PromptManager;
   private lanceDBManager: LanceDBService;
   private repositoryPath: string;
+  private fastify?: ReturnType<typeof Fastify>;
+  private activeSessions = new Map<string, { lastActivity: number; sseResponse?: any }>();
 
   constructor(private options: McpServerOptions) {
     this.repositoryPath = PathUtils.resolveRepositoryPath(
@@ -84,7 +91,10 @@ export class McpServer {
           tools: {},
           resources: {},
           prompts: {},
-          sampling: {}
+          sampling: {},
+          notifications: {
+            progress: true
+          }
         },
       }
     );
@@ -261,7 +271,7 @@ export class McpServer {
     });
   }
 
-  private getAvailableTools(): Tool[] {
+  public getAvailableTools(): Tool[] {
     return [
       // Agent orchestration tools
       ...this.getOrchestrationTools(),
@@ -279,7 +289,7 @@ export class McpServer {
     ];
   }
 
-  private getOrchestrationTools(): Tool[] {
+  public getOrchestrationTools(): Tool[] {
     return [
       {
         name: "orchestrate_objective",
@@ -740,7 +750,7 @@ export class McpServer {
     ];
   }
 
-  private getProgressReportingTools(): Tool[] {
+  public getProgressReportingTools(): Tool[] {
     return [
       {
         name: "report_progress",
@@ -1001,9 +1011,13 @@ export class McpServer {
       process.stderr.write('📝 Vector search features will be unavailable\n');
     }
 
-    // Start the MCP server
-    const transport = new StdioServerTransport();
-    await this.server.connect(transport);
+    // Start the MCP server with appropriate transport
+    const transportType = this.options.transport || 'stdio';
+    if (transportType === 'http') {
+      await this.startHttpTransport();
+    } else {
+      await this.startStdioTransport();
+    }
     
     // Start background scraping worker
     process.stderr.write('🤖 Starting background scraping worker...\n');
@@ -1015,7 +1029,507 @@ export class McpServer {
     }
     
     process.stderr.write('✅ MCP Server started successfully\n');
-    process.stderr.write('📡 Listening for MCP requests on stdio...\n');
+    const transportMsg = transportType === 'http' 
+      ? `📡 Listening for MCP requests on HTTP port ${this.options.httpPort || 4269}...\n`
+      : '📡 Listening for MCP requests on stdio...\n';
+    process.stderr.write(transportMsg);
+  }
+
+  /**
+   * Start MCP server with stdio transport
+   */
+  private async startStdioTransport(): Promise<void> {
+    const transport = new StdioServerTransport();
+    await this.server.connect(transport);
+  }
+
+  /**
+   * Check if MCP server is already running on the specified port
+   */
+  private async isServerRunning(host: string, port: number): Promise<boolean> {
+    try {
+      const response = await fetch(`http://${host}:${port}/health`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(2000) // 2 second timeout
+      });
+      
+      if (response.ok) {
+        const health = await response.json();
+        return health.status === 'ok' && (health.protocol === 'mcp' || health.transport === 'http');
+      }
+      return false;
+    } catch (error) {
+      return false; // Server not running or not reachable
+    }
+  }
+
+  /**
+   * Start MCP server with HTTP transport (MCP Protocol Compliant)
+   */
+  private async startHttpTransport(): Promise<void> {
+    const port = this.options.httpPort || 4269;
+    const host = this.options.httpHost || '127.0.0.1'; // Localhost only for security
+    
+    // Check if server is already running
+    const isRunning = await this.isServerRunning(host, port);
+    if (isRunning) {
+      process.stderr.write(`🔄 MCP Server already running on ${host}:${port}, reusing existing instance\n`);
+      return; // Server already running, no need to start another
+    }
+    
+    this.fastify = Fastify({ 
+      logger: false,
+      bodyLimit: 10485760 // 10MB
+    });
+    
+    // Register CORS plugin
+    await this.fastify.register(cors, {
+      origin: ['http://localhost:*', 'http://127.0.0.1:*'], // Only allow localhost
+      credentials: true
+    });
+
+    // Standard MCP JSON-RPC endpoint (POST /)
+    this.fastify.post('/', async (request, reply) => {
+      return this.handleMcpJsonRpcRequest(request, reply);
+    });
+
+    // Legacy endpoint support (POST /mcp) 
+    this.fastify.post('/mcp', async (request, reply) => {
+      return this.handleMcpJsonRpcRequest(request, reply);
+    });
+
+    // Health check endpoint
+    this.fastify.get('/health', async (request, reply) => {
+      return { status: 'ok', transport: 'http', protocol: 'mcp' };
+    });
+
+    try {
+      // Start the HTTP server
+      await this.fastify.listen({ host, port });
+      process.stderr.write(`🌐 HTTP MCP Server started on ${host}:${port}\n`);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('EADDRINUSE')) {
+        // Port is in use, check if it's our server
+        const isOurServer = await this.isServerRunning(host, port);
+        if (isOurServer) {
+          process.stderr.write(`🔄 Port ${port} in use by compatible MCP server, proceeding\n`);
+          return;
+        } else {
+          throw new Error(`Port ${port} is in use by another application. Please choose a different port or stop the other application.`);
+        }
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Handle MCP JSON-RPC requests (Standard MCP HTTP Transport)
+   */
+  private async handleMcpJsonRpcRequest(request: any, reply: any): Promise<void> {
+    try {
+      // Validate request body exists
+      if (!request.body) {
+        reply.code(400).send({
+          jsonrpc: '2.0',
+          error: {
+            code: -32700,
+            message: 'Parse error: Missing request body'
+          }
+        });
+        return;
+      }
+
+      const jsonRpcRequest = request.body;
+      
+      // Validate basic JSON-RPC structure
+      if (!jsonRpcRequest.jsonrpc || jsonRpcRequest.jsonrpc !== '2.0') {
+        reply.code(400).send({
+          jsonrpc: '2.0',
+          id: jsonRpcRequest.id || null,
+          error: {
+            code: -32600,
+            message: 'Invalid Request: Missing or invalid jsonrpc version'
+          }
+        });
+        return;
+      }
+
+      if (!jsonRpcRequest.method) {
+        reply.code(400).send({
+          jsonrpc: '2.0',
+          id: jsonRpcRequest.id || null,
+          error: {
+            code: -32600,
+            message: 'Invalid Request: Missing method'
+          }
+        });
+        return;
+      }
+
+      // Process the request through standard MCP handling
+      const response = await this.processStandardMcpRequest(jsonRpcRequest);
+      
+      // Set proper content type and send response
+      reply.header('Content-Type', 'application/json');
+      reply.send(response);
+      
+    } catch (error) {
+      process.stderr.write(`MCP HTTP request error: ${error}\n`);
+      reply.code(500).send({
+        jsonrpc: '2.0',
+        id: null,
+        error: {
+          code: -32603,
+          message: 'Internal error',
+          data: error instanceof Error ? error.message : 'Unknown error'
+        }
+      });
+    }
+  }
+
+  /**
+   * Handle SSE connections for server-initiated streams
+   */
+  private async handleSseConnection(request: any, reply: any): Promise<void> {
+    const sessionId = request.headers['mcp-session-id'];
+    
+    if (!sessionId || !this.activeSessions.has(sessionId)) {
+      reply.code(400).send({ error: 'Invalid or missing session ID' });
+      return;
+    }
+
+    reply.header('Content-Type', 'text/event-stream');
+    reply.header('Cache-Control', 'no-cache');
+    reply.header('Connection', 'keep-alive');
+    
+    // Keep connection alive and update session
+    const session = this.activeSessions.get(sessionId);
+    if (session) {
+      session.sseResponse = reply;
+      session.lastActivity = Date.now();
+    }
+
+    // Send initial connection event
+    reply.raw.write(`data: ${JSON.stringify({ type: 'connected', sessionId })}\n\n`);
+  }
+
+  /**
+   * Check if request needs streaming response
+   */
+  private shouldUseStreaming(request: any): boolean {
+    if (!request?.method) return false;
+    
+    // These methods benefit from streaming for progress updates
+    const streamingMethods = [
+      'mcp__claude-mcp-tools__orchestrate_objective',
+      'mcp__claude-mcp-tools__spawn_agent',
+      'mcp__claude-mcp-tools__scrape_documentation',
+      'mcp__claude-mcp-tools__monitor_agents'
+    ];
+    
+    return streamingMethods.includes(request.method);
+  }
+
+  /**
+   * Process standard MCP JSON-RPC request
+   */
+  private async processStandardMcpRequest(request: any): Promise<any> {
+    try {
+      // Handle MCP initialization request with proper capabilities
+      if (request.method === 'initialize') {
+        const tools = this.getAvailableTools();
+        const resources = this.getAvailableResources();
+        const prompts = this.getAvailablePrompts();
+        
+        return {
+          jsonrpc: '2.0',
+          id: request.id,
+          result: {
+            protocolVersion: '2024-11-05',
+            capabilities: {
+              tools: {
+                listChanged: false
+              },
+              resources: {
+                listChanged: false,
+                subscribe: false
+              },
+              prompts: {
+                listChanged: false
+              },
+              sampling: {},
+              notifications: {
+                progress: true
+              },
+              logging: {}
+            },
+            serverInfo: {
+              name: this.options.name,
+              version: this.options.version
+            }
+          }
+        };
+      }
+      
+      // Handle initialized notification (required after initialize)
+      if (request.method === 'notifications/initialized') {
+        // This is a notification, no response needed
+        return null;
+      }
+      
+      // Handle other MCP requests by method
+      switch (request.method) {
+        case 'tools/list':
+          return await this.handleToolsList(request);
+        case 'tools/call':
+          return await this.handleToolsCall(request);
+        case 'resources/list':
+          return await this.handleResourcesList(request);
+        case 'resources/read':
+          return await this.handleResourcesRead(request);
+        case 'prompts/list':
+          return await this.handlePromptsList(request);
+        case 'prompts/get':
+          return await this.handlePromptsGet(request);
+        case 'ping':
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {}
+          };
+        default:
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            error: {
+              code: -32601,
+              message: `Method not found: ${request.method}`
+            }
+          };
+      }
+      
+    } catch (error) {
+      return {
+        jsonrpc: '2.0',
+        id: request.id || null,
+        error: {
+          code: -32603,
+          message: `Internal error: ${error instanceof Error ? error.message : String(error)}`
+        }
+      };
+    }
+  }
+
+  /**
+   * Handle tools/list request
+   */
+  private async handleToolsList(request: any): Promise<any> {
+    try {
+      const tools = this.getAvailableTools();
+      return {
+        jsonrpc: '2.0',
+        id: request.id,
+        result: { tools }
+      };
+    } catch (error) {
+      return {
+        jsonrpc: '2.0',
+        id: request.id,
+        error: {
+          code: -32603,
+          message: `Failed to list tools: ${error instanceof Error ? error.message : String(error)}`
+        }
+      };
+    }
+  }
+
+  /**
+   * Handle tools/call request
+   */
+  private async handleToolsCall(request: any): Promise<any> {
+    try {
+      const { name, arguments: args } = request.params;
+      const result = await this.handleToolCall(name, args);
+      return {
+        jsonrpc: '2.0',
+        id: request.id,
+        result
+      };
+    } catch (error) {
+      return {
+        jsonrpc: '2.0',
+        id: request.id,
+        error: {
+          code: -32603,
+          message: `Tool call failed: ${error instanceof Error ? error.message : String(error)}`
+        }
+      };
+    }
+  }
+
+  /**
+   * Handle resources/list request
+   */
+  private async handleResourcesList(request: any): Promise<any> {
+    try {
+      const resources = await this.resourceManager.listResources();
+      return {
+        jsonrpc: '2.0',
+        id: request.id,
+        result: { resources }
+      };
+    } catch (error) {
+      return {
+        jsonrpc: '2.0',
+        id: request.id,
+        error: {
+          code: -32603,
+          message: `Failed to list resources: ${error instanceof Error ? error.message : String(error)}`
+        }
+      };
+    }
+  }
+
+  /**
+   * Handle resources/read request
+   */
+  private async handleResourcesRead(request: any): Promise<any> {
+    try {
+      const { uri } = request.params;
+      const contents = await this.resourceManager.readResource(uri);
+      return {
+        jsonrpc: '2.0',
+        id: request.id,
+        result: { contents }
+      };
+    } catch (error) {
+      return {
+        jsonrpc: '2.0',
+        id: request.id,
+        error: {
+          code: -32603,
+          message: `Failed to read resource: ${error instanceof Error ? error.message : String(error)}`
+        }
+      };
+    }
+  }
+
+  /**
+   * Handle prompts/list request
+   */
+  private async handlePromptsList(request: any): Promise<any> {
+    try {
+      const prompts = await this.promptManager.listPrompts();
+      return {
+        jsonrpc: '2.0',
+        id: request.id,
+        result: { prompts }
+      };
+    } catch (error) {
+      return {
+        jsonrpc: '2.0',
+        id: request.id,
+        error: {
+          code: -32603,
+          message: `Failed to list prompts: ${error instanceof Error ? error.message : String(error)}`
+        }
+      };
+    }
+  }
+
+  /**
+   * Handle prompts/get request
+   */
+  private async handlePromptsGet(request: any): Promise<any> {
+    try {
+      const { name, arguments: args } = request.params;
+      const result = await this.promptManager.getPrompt(name, args);
+      return {
+        jsonrpc: '2.0',
+        id: request.id,
+        result
+      };
+    } catch (error) {
+      return {
+        jsonrpc: '2.0',
+        id: request.id,
+        error: {
+          code: -32603,
+          message: `Failed to get prompt: ${error instanceof Error ? error.message : String(error)}`
+        }
+      };
+    }
+  }
+
+  /**
+   * Process streaming request with SSE responses
+   */
+  private async processStreamingRequest(request: any, reply: any, sessionId: string): Promise<void> {
+    try {
+      // Send initial response
+      const initialData = {
+        jsonrpc: '2.0',
+        id: request.id,
+        result: { status: 'started', sessionId }
+      };
+      reply.raw.write(`data: ${JSON.stringify(initialData)}\n\n`);
+
+      // Simulate progress updates for demo
+      for (let i = 1; i <= 5; i++) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        const progressData = {
+          jsonrpc: '2.0',
+          method: 'progress',
+          params: {
+            progress: i * 20,
+            message: `Step ${i} of 5 completed`
+          }
+        };
+        reply.raw.write(`data: ${JSON.stringify(progressData)}\n\n`);
+      }
+
+      // Send completion
+      const completionData = {
+        jsonrpc: '2.0',
+        id: request.id,
+        result: { status: 'completed', sessionId }
+      };
+      reply.raw.write(`data: ${JSON.stringify(completionData)}\n\n`);
+      
+    } catch (error) {
+      const errorData = {
+        jsonrpc: '2.0',
+        id: request.id,
+        error: {
+          code: -32603,
+          message: 'Streaming error',
+          data: error instanceof Error ? error.message : 'Unknown error'
+        }
+      };
+      reply.raw.write(`data: ${JSON.stringify(errorData)}\n\n`);
+    }
+  }
+
+  /**
+   * Generate secure session ID
+   */
+  private generateSessionId(): string {
+    return `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  /**
+   * Check if origin is allowed (security)
+   */
+  private isOriginAllowed(origin: string): boolean {
+    const allowed = [
+      'http://localhost',
+      'http://127.0.0.1',
+      'https://localhost',
+      'https://127.0.0.1'
+    ];
+    
+    return allowed.some(allowedOrigin => origin.startsWith(allowedOrigin));
   }
 
   /**
@@ -1035,6 +1549,13 @@ export class McpServer {
       process.stderr.write('✅ Background scraping worker stopped\n');
     } catch (error) {
       process.stderr.write(`⚠️ Error stopping scraping worker: ${error}\n`);
+    }
+    
+    // Close Fastify server if running
+    if (this.fastify) {
+      process.stderr.write('🌐 Closing HTTP server...\n');
+      await this.fastify.close();
+      process.stderr.write('✅ HTTP server closed\n');
     }
     
     // Close LanceDB connection
