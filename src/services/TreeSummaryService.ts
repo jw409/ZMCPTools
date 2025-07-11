@@ -90,6 +90,47 @@ export class TreeSummaryService {
   }
 
   /**
+   * Recursively collect all analysis files from the new directory structure
+   */
+  private async collectAnalysisFiles(treeSummaryPath: string): Promise<{ files: string[], totalFiles: number, symbolCount: number }> {
+    const analysisFiles: string[] = [];
+    let totalFiles = 0;
+    let symbolCount = 0;
+
+    const collectFromDir = async (dirPath: string): Promise<void> => {
+      try {
+        const entries = await fs.readdir(dirPath, { withFileTypes: true });
+        
+        for (const entry of entries) {
+          const fullPath = path.join(dirPath, entry.name);
+          
+          if (entry.isDirectory()) {
+            await collectFromDir(fullPath);
+          } else if (entry.isFile() && entry.name.endsWith('.json')) {
+            analysisFiles.push(fullPath);
+            totalFiles++;
+            
+            try {
+              const analysisContent = await fs.readFile(fullPath, 'utf-8');
+              const analysis: FileAnalysis = JSON.parse(analysisContent);
+              symbolCount += analysis.symbols.length;
+            } catch {
+              // Skip corrupted files
+            }
+          }
+        }
+      } catch {
+        // Directory doesn't exist or can't be read
+      }
+    };
+
+    // Start from the treesummary directory and look for any files/ subdirectories
+    await collectFromDir(treeSummaryPath);
+    
+    return { files: analysisFiles, totalFiles, symbolCount };
+  }
+
+  /**
    * Read and parse .claudeignore file from a directory
    */
   private async readClaudeIgnore(directory: string): Promise<string[]> {
@@ -146,10 +187,15 @@ export class TreeSummaryService {
       // Ensure .treesummary directory exists
       await this.ensureTreeSummaryDirectory(treeSummaryPath);
       
-      // Create atomic file write
+      // Create atomic file write with directory structure preservation
       const relativeFilePath = path.relative(projectPath, filePath);
-      const analysisFile = path.join(treeSummaryPath, 'files', 
-        relativeFilePath.replace(/[/\\]/g, '_') + '.json');
+      const relativeDirPath = path.dirname(relativeFilePath);
+      const fileName = path.basename(relativeFilePath);
+      
+      // Create directory-separated structure: .treesummary/dirname/files/filename.json
+      const analysisFile = relativeDirPath === '.' 
+        ? path.join(treeSummaryPath, 'files', fileName + '.json')
+        : path.join(treeSummaryPath, relativeDirPath, 'files', fileName + '.json');
       
       // Ensure files directory exists
       await fs.mkdir(path.dirname(analysisFile), { recursive: true });
@@ -180,8 +226,13 @@ export class TreeSummaryService {
       const treeSummaryPath = path.join(projectPath, this.treeSummaryDir);
       
       const relativeFilePath = path.relative(projectPath, filePath);
-      const analysisFile = path.join(treeSummaryPath, 'files',
-        relativeFilePath.replace(/[/\\]/g, '_') + '.json');
+      const relativeDirPath = path.dirname(relativeFilePath);
+      const fileName = path.basename(relativeFilePath);
+      
+      // Use directory-separated structure: .treesummary/dirname/files/filename.json
+      const analysisFile = relativeDirPath === '.' 
+        ? path.join(treeSummaryPath, 'files', fileName + '.json')
+        : path.join(treeSummaryPath, relativeDirPath, 'files', fileName + '.json');
       
       // Check if file exists before attempting to delete
       try {
@@ -274,29 +325,8 @@ export class TreeSummaryService {
       metadata = await this.analyzeProjectMetadata(resolvedPath);
     }
     
-    // Count symbols from all file analyses
-    const filesDir = path.join(treeSummaryPath, 'files');
-    let totalFiles = 0;
-    let symbolCount = 0;
-    
-    try {
-      const analysisFiles = await fs.readdir(filesDir);
-      totalFiles = analysisFiles.length;
-      
-      for (const file of analysisFiles) {
-        if (file.endsWith('.json')) {
-          try {
-            const analysisContent = await fs.readFile(path.join(filesDir, file), 'utf-8');
-            const analysis: FileAnalysis = JSON.parse(analysisContent);
-            symbolCount += analysis.symbols.length;
-          } catch {
-            // Skip corrupted files
-          }
-        }
-      }
-    } catch {
-      // Files directory doesn't exist yet
-    }
+    // Count symbols from all file analyses using new directory structure
+    const { totalFiles, symbolCount } = await this.collectAnalysisFiles(treeSummaryPath);
     
     // Build directory structure
     const structure = await this.buildDirectoryStructure(resolvedPath);
@@ -338,34 +368,70 @@ export class TreeSummaryService {
     }
     
     const treeSummaryPath = path.join(projectPath, this.treeSummaryDir);
-    const filesDir = path.join(treeSummaryPath, 'files');
-    
     let cleanedCount = 0;
     
-    try {
-      const analysisFiles = await fs.readdir(filesDir);
-      const maxAge = new Date(Date.now() - maxAgeDays * 24 * 60 * 60 * 1000);
-      
-      for (const file of analysisFiles) {
-        if (file.endsWith('.json')) {
-          const filePath = path.join(filesDir, file);
-          const stats = await fs.stat(filePath);
+    const maxAge = new Date(Date.now() - maxAgeDays * 24 * 60 * 60 * 1000);
+    
+    const cleanupDir = async (dirPath: string): Promise<void> => {
+      try {
+        const entries = await fs.readdir(dirPath, { withFileTypes: true });
+        
+        for (const entry of entries) {
+          const fullPath = path.join(dirPath, entry.name);
           
-          if (stats.mtime < maxAge) {
-            // Check if corresponding source file still exists
-            const originalFileName = file.replace('.json', '').replace(/_/g, path.sep);
-            const originalFilePath = path.join(projectPath, originalFileName);
+          if (entry.isDirectory()) {
+            await cleanupDir(fullPath);
             
+            // Remove empty directories after cleanup
             try {
-              await fs.access(originalFilePath);
+              const remainingEntries = await fs.readdir(fullPath);
+              if (remainingEntries.length === 0) {
+                await fs.rmdir(fullPath);
+              }
             } catch {
-              // Source file doesn't exist, safe to remove analysis
-              await fs.unlink(filePath);
-              cleanedCount++;
+              // Directory not empty or already removed
+            }
+          } else if (entry.isFile() && entry.name.endsWith('.json')) {
+            try {
+              const stats = await fs.stat(fullPath);
+              
+              if (stats.mtime < maxAge) {
+                // Reconstruct original file path from analysis file path
+                const relativePath = path.relative(treeSummaryPath, fullPath);
+                let originalFilePath: string;
+                
+                if (relativePath.startsWith('files/')) {
+                  // Root level file: .treesummary/files/filename.json
+                  const fileName = path.basename(relativePath, '.json');
+                  originalFilePath = path.join(projectPath, fileName);
+                } else {
+                  // Directory file: .treesummary/dirname/files/filename.json
+                  const parts = relativePath.split(path.sep);
+                  const fileName = path.basename(parts[parts.length - 1], '.json');
+                  const dirPath = parts.slice(0, -2).join(path.sep); // Remove 'files' and filename
+                  originalFilePath = path.join(projectPath, dirPath, fileName);
+                }
+                
+                try {
+                  await fs.access(originalFilePath);
+                } catch {
+                  // Source file doesn't exist, safe to remove analysis
+                  await fs.unlink(fullPath);
+                  cleanedCount++;
+                }
+              }
+            } catch (error) {
+              console.error(`Error processing ${fullPath}:`, error);
             }
           }
         }
+      } catch (error) {
+        console.error(`Error reading directory ${dirPath}:`, error);
       }
+    };
+    
+    try {
+      await cleanupDir(treeSummaryPath);
     } catch (error) {
       console.error('Error during cleanup:', error);
     }

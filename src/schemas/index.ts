@@ -49,11 +49,26 @@ export type {
   ChatRoomUpdate,
   ChatMessage,
   NewChatMessage,
+  RoomParticipant,
+  NewRoomParticipant,
+  RoomParticipantUpdate,
   MessageType,
+  ParticipantStatus,
   MessageFilter,
+  ParticipantFilter,
   RoomJoinRequest,
   SendMessageRequest,
   WaitForMessagesRequest,
+  AddParticipantRequest,
+  UpdateParticipantRequest,
+  // Cleanup and maintenance types
+  StaleRoomInfo,
+  RoomActivityStats,
+  CleanupConfiguration,
+  CleanupError,
+  AgentCleanupResult,
+  RoomCleanupResult,
+  ComprehensiveCleanupResult,
 } from './communication';
 
 export type {
@@ -161,17 +176,25 @@ export {
 export {
   // Communication schemas
   messageTypeSchema,
+  participantStatusSchema,
   roomMetadataSchema,
   messageMentionsSchema,
+  participantMetadataSchema,
   insertChatRoomSchema,
   selectChatRoomSchema,
   updateChatRoomSchema,
   insertChatMessageSchema,
   selectChatMessageSchema,
+  insertRoomParticipantSchema,
+  selectRoomParticipantSchema,
+  updateRoomParticipantSchema,
   messageFilterSchema,
+  participantFilterSchema,
   roomJoinRequestSchema,
   sendMessageRequestSchema,
   waitForMessagesRequestSchema,
+  addParticipantRequestSchema,
+  updateParticipantRequestSchema,
 } from './communication';
 
 export {
@@ -251,7 +274,7 @@ export {
 export { memories } from './memories';
 export { agentSessions } from './agents';
 export { tasks, taskDependencies } from './tasks';
-export { chatRooms, chatMessages } from './communication';
+export { chatRooms, chatMessages, roomParticipants } from './communication';
 export { documentationSources, scrapeJobs, websites, websitePages } from './scraping';
 export { errorLogs, toolCallLogs } from './logs';
 export { knowledgeEntities, knowledgeRelationships, knowledgeInsights } from './knowledge-graph';
@@ -280,12 +303,16 @@ import {
 } from './tasks';
 import { 
   chatRooms, 
-  chatMessages, 
+  chatMessages,
+  roomParticipants,
   insertChatRoomSchema, 
   selectChatRoomSchema, 
   updateChatRoomSchema,
   insertChatMessageSchema,
-  selectChatMessageSchema
+  selectChatMessageSchema,
+  insertRoomParticipantSchema,
+  selectRoomParticipantSchema,
+  updateRoomParticipantSchema
 } from './communication';
 import { 
   documentationSources, 
@@ -341,6 +368,7 @@ export const allTables = {
   // Communication tables  
   chatRooms,
   chatMessages,
+  roomParticipants,
   
   // Scraping tables
   documentationSources,
@@ -366,6 +394,7 @@ export const insertSchemas = {
   memories: insertMemorySchema,
   chatRooms: insertChatRoomSchema,
   chatMessages: insertChatMessageSchema,
+  roomParticipants: insertRoomParticipantSchema,
   documentationSources: insertDocumentationSourceSchema,
   scrapeJobs: insertScrapeJobSchema,
   websites: insertWebsiteSchema,
@@ -384,6 +413,7 @@ export const selectSchemas = {
   memories: selectMemorySchema,
   chatRooms: selectChatRoomSchema,
   chatMessages: selectChatMessageSchema,
+  roomParticipants: selectRoomParticipantSchema,
   documentationSources: selectDocumentationSourceSchema,
   scrapeJobs: selectScrapeJobSchema,
   websites: selectWebsiteSchema,
@@ -400,6 +430,7 @@ export const updateSchemas = {
   tasks: updateTaskSchema,
   memories: updateMemorySchema,
   chatRooms: updateChatRoomSchema,
+  roomParticipants: updateRoomParticipantSchema,
   documentationSources: updateDocumentationSourceSchema,
   scrapeJobs: updateScrapeJobSchema,
   websites: updateWebsiteSchema,

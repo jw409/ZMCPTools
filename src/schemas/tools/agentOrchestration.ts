@@ -18,7 +18,9 @@ export const SpawnAgentSchema = z.object({
   taskDescription: z.string().describe('Detailed description of the specific task or responsibility this agent should handle. Should be clear, actionable, and include any important context or requirements.'),
   capabilities: z.array(z.string()).optional().default(['ALL_TOOLS']).describe('Array of capabilities or tools the agent should have access to. Defaults to "ALL_TOOLS" which grants full access to all available tools including file operations, code analysis, web browsing, and coordination tools.'),
   dependsOn: z.array(z.string()).optional().default([]).describe('Array of agent IDs that this agent depends on. The agent will only be spawned after all dependencies are satisfied (agents exist and are active/completed).'),
-  metadata: z.record(z.string(), z.any()).optional().default({}).describe('Optional metadata object for storing additional agent configuration, context, or coordination information.')
+  metadata: z.record(z.string(), z.any()).optional().default({}).describe('Optional metadata object for storing additional agent configuration, context, or coordination information.'),
+  autoCreateRoom: z.boolean().optional().describe('Whether to automatically create a coordination room for this agent. If not specified, uses the default behavior for the agent type (most agent types auto-create rooms by default).'),
+  roomId: z.string().optional().describe('Optional existing room ID to assign the agent to. If provided, the agent will join this room instead of creating a new one.')
 });
 
 export const CreateTaskSchema = z.object({

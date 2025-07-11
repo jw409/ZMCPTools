@@ -1,6 +1,7 @@
 import { DatabaseManager } from '../database/index.js';
 import { AgentRepository } from '../repositories/AgentRepository.js';
 import { CommunicationRepository } from '../repositories/CommunicationRepository.js';
+import { CommunicationService } from './CommunicationService.js';
 import type { AgentSession, NewAgentSession, AgentSessionUpdate, AgentStatus, AgentType, ToolPermissions } from '../schemas/index.js';
 import { ClaudeSpawner } from '../process/ClaudeSpawner.js';
 import type { ClaudeSpawnConfig } from '../process/ClaudeProcess.js';
@@ -12,6 +13,8 @@ import { eventBus } from './EventBus.js';
 import { eq, and } from 'drizzle-orm';
 import { agentSessions } from '../schemas/index.js';
 import { resolve } from 'path';
+import { getCleanupConfig, type CleanupConfig } from '../config/cleanup.js';
+import type { ChatRoom } from '../schemas/index.js';
 
 export interface CreateAgentRequest {
   agentName: string;
@@ -35,14 +38,18 @@ export interface AgentStatusUpdate {
 export class AgentService {
   private agentRepo: AgentRepository;
   private communicationRepo: CommunicationRepository;
+  private communicationService: CommunicationService;
   private spawner: ClaudeSpawner;
   private logger: Logger;
+  private cleanupConfig: CleanupConfig;
 
   constructor(private db: DatabaseManager) {
     this.agentRepo = new AgentRepository(db);
     this.communicationRepo = new CommunicationRepository(db);
+    this.communicationService = new CommunicationService(db);
     this.spawner = ClaudeSpawner.getInstance();
     this.logger = new Logger('AgentService');
+    this.cleanupConfig = getCleanupConfig();
     
     // Set up event listeners for automatic agent status updates
     this.setupProcessEventListeners();
@@ -87,7 +94,8 @@ export class AgentService {
         pid,
         currentStatus: agent.status,
         exitCode: code,
-        signal
+        signal,
+        roomId: agent.roomId
       });
 
       // Determine new status based on exit code and signal
@@ -98,6 +106,11 @@ export class AgentService {
         newStatus = 'completed';
       } else {
         newStatus = 'failed';
+      }
+
+      // Handle auto-leave functionality if agent has a room
+      if (agent.roomId) {
+        await this.handleAutoLeaveRoom(agent, newStatus, code, signal);
       }
 
       // Update agent status in database
@@ -209,13 +222,61 @@ export class AgentService {
       throw new Error(`Invalid tool permissions: ${validation.errors.join(', ')}`);
     }
 
-    // Simple room assignment - only use room if explicitly provided
+    // Handle room assignment with autoCreateRoom functionality
     let roomId = request.roomId;
     
     if (roomId) {
+      // Use explicitly provided room
       this.logger.info(`Agent ${agentId} assigned to existing room ${roomId}`);
     } else {
-      this.logger.info(`Agent ${agentId} created without room - can create one later if needed`);
+      // Check if autoCreateRoom is enabled
+      const shouldAutoCreate = request.autoCreateRoom !== undefined 
+        ? request.autoCreateRoom 
+        : AgentPermissionManager.shouldAutoCreateRoom(agentType);
+      
+      if (shouldAutoCreate) {
+        this.logger.info(`Auto-creating room for agent ${agentId} (type: ${agentType})`);
+        
+        try {
+          // Generate room name using AgentPermissionManager
+          const roomName = AgentPermissionManager.generateRoomName(agentType, agentId);
+          
+          // Create room via CommunicationService
+          const newRoom = await this.communicationService.createRoom({
+            name: roomName,
+            description: `Auto-created room for ${agentType} agent: ${request.agentName}`,
+            repositoryPath: resolvedRepositoryPath,
+            isGeneral: false,
+            metadata: {
+              agentId: agentId,
+              agentType: agentType,
+              agentName: request.agentName,
+              autoCreated: true,
+              createdAt: new Date().toISOString()
+            }
+          });
+          
+          roomId = newRoom.id;
+          
+          this.logger.info(`Room auto-created successfully for agent ${agentId}`, {
+            roomId: roomId,
+            roomName: roomName,
+            agentType: agentType,
+            agentName: request.agentName
+          });
+          
+        } catch (roomError) {
+          // Handle room creation failure gracefully - continue without room
+          this.logger.warn(`Failed to auto-create room for agent ${agentId}, continuing without room`, {
+            agentId: agentId,
+            agentType: agentType,
+            error: roomError instanceof Error ? roomError.message : String(roomError)
+          });
+          roomId = undefined;
+        }
+      } else {
+        this.logger.info(`Agent ${agentId} created without room (autoCreateRoom disabled)`);
+      }
     }
     
     // Create agent record first
@@ -268,6 +329,11 @@ export class AgentService {
       repositoryPath: agent.repositoryPath,
       repositoryPathType: typeof agent.repositoryPath
     });
+
+    // Auto-join room functionality - if agent has roomId assigned
+    if (agent.roomId) {
+      await this.handleAutoJoinRoom(agent);
+    }
 
     // If we have a task description, spawn the actual Claude process
     if (request.taskDescription) {
@@ -541,10 +607,10 @@ COORDINATION PROTOCOL:`;
 
     if (hasRoom) {
       prompt += `
-- Your assigned room: ${agent.roomId}
-- Use join_room("${agent.roomId}") to join your coordination room
+- Communication Room: ${agent.roomId} (automatically joined)
+- You are automatically connected to this room for multi-agent coordination
 - Use send_message() to communicate with other agents in your room
-- This room was created for multi-agent coordination`;
+- Room will be automatically cleaned up when you exit`;
     } else {
       prompt += `
 - No room assigned - use memory-based coordination
@@ -563,17 +629,24 @@ COORDINATION METHODS AVAILABLE:
 - join_room(): Create or join coordination rooms when real-time communication needed
 - send_message(): Communicate with other agents in rooms
 
+ROOM LIFECYCLE (AUTOMATED):
+- If assigned a room, you are AUTOMATICALLY joined at startup
+- Your room will be AUTOMATICALLY cleaned up when you exit
+- You do NOT need to manually join or leave your assigned room
+- Focus on using send_message() for communication with other agents
+
 TERMINATION PROTOCOL:
 - When your task is complete, store final insights in shared memory
-- If you're in a room, report completion to other agents
-- If you're the only agent in your room, you may terminate gracefully
+- If you're in a room, report completion to other agents before exiting
+- Your room will be automatically cleaned up when you exit
 
 CRITICAL: You are an autonomous specialist with sequential thinking capabilities.
 - Work within your domain expertise
 - Use sequential_thinking() for complex challenges
 - Use appropriate coordination method based on task needs
 - Focus on successfully completing your assigned task
-- Create rooms only when you need real-time coordination with other agents`;
+- If you have a room, you are automatically connected - use send_message() for communication
+- Create new rooms only when you need additional coordination beyond your assigned room`;
 
     return prompt;
   }
@@ -633,10 +706,10 @@ ARCHITECT COORDINATION PROTOCOL:`;
 
     if (hasRoom) {
       prompt += `
-- Your assigned room: ${agent.roomId}
-- Use join_room("${agent.roomId}") to join your coordination room
+- Communication Room: ${agent.roomId} (automatically joined)
+- You are automatically connected to this room for orchestration coordination
 - Use send_message() to communicate with spawned agents
-- This room was created for orchestration coordination`;
+- Room will be automatically cleaned up when you exit`;
     } else {
       prompt += `
 - No room assigned - use memory-based coordination
@@ -652,11 +725,18 @@ ARCHITECT ORCHESTRATION TOOLS:
 - sequential_thinking(): Step-by-step problem decomposition and planning
 - create_task(): Create sub-tasks with dependencies and requirements
 - spawn_agent(): Create specialized agents with specific task assignments
-- join_room(): Join or create coordination rooms
+- join_room(): Join or create coordination rooms (for additional coordination)
 - send_message(): Communicate with agents in rooms
 - store_knowledge_memory(): Share insights, decisions, and patterns
 - search_knowledge_graph(): Learn from previous orchestration work and knowledge graph
 - list_agents(): Check agent status and coordination needs
+
+ROOM LIFECYCLE FOR ARCHITECTS (AUTOMATED):
+- If assigned a room, you are AUTOMATICALLY joined at startup
+- Your room will be AUTOMATICALLY cleaned up when you exit
+- You do NOT need to manually join or leave your assigned room
+- Use send_message() to coordinate with spawned agents in your room
+- Spawned agents may have their own auto-created rooms or share your room
 
 CRITICAL ARCHITECT GUIDELINES:
 - ALWAYS start with sequential_thinking() for initial objective analysis
@@ -668,7 +748,10 @@ CRITICAL ARCHITECT GUIDELINES:
 - Document learnings and patterns for future orchestration
 
 CRITICAL: You are an autonomous architect with advanced sequential thinking capabilities.
-Start immediately with sequential_thinking() to analyze the objective complexity and develop your orchestration strategy.`;
+- Start immediately with sequential_thinking() to analyze the objective complexity
+- If you have a room, you are automatically connected - use send_message() for coordination
+- Focus on orchestration strategy and spawned agent coordination
+- Your room will be automatically cleaned up when you exit`;
 
     return prompt;
   }
@@ -736,37 +819,9 @@ Start immediately with sequential_thinking() to analyze the objective complexity
       roomId: agent.roomId
     });
 
-    // Handle room cleanup if agent has a room
+    // Handle auto-leave functionality for manual termination
     if (agent.roomId) {
-      try {
-        // Check if this agent is alone in the room
-        const roomMembers = await this.communicationRepo.getRoomParticipants(agent.roomId);
-        const activeMembers = roomMembers.filter(member => 
-          member !== agentId
-        );
-
-        if (activeMembers.length === 0) {
-          // Agent is alone - safe to remove the room
-          this.logger.info(`Agent ${agentId} is alone in room ${agent.roomId}, cleaning up room`);
-          await this.communicationRepo.deleteRoom(agent.roomId);
-        } else {
-          // Send termination message to room
-          this.logger.info(`Agent ${agentId} leaving room ${agent.roomId} with ${activeMembers.length} remaining members`);
-          await this.communicationRepo.sendMessage({
-            id: `msg-${Date.now()}-${Math.random().toString(36).substring(2)}`,
-            roomId: agent.roomId,
-            agentName: agent.agentName,
-            message: `Agent ${agent.agentName} (${agent.agentType}) is terminating. Task status: ${agent.status}`,
-            messageType: 'system'
-          });
-        }
-      } catch (error) {
-        this.logger.warn(`Failed to handle room cleanup for agent ${agentId}`, {
-          roomId: agent.roomId,
-          error: error instanceof Error ? error.message : String(error)
-        });
-        // Continue with termination - room cleanup is not critical
-      }
+      await this.handleAutoLeaveRoom(agent, 'terminated', null, 'SIGTERM');
     }
 
     // Terminate the Claude process if it exists
@@ -809,15 +864,183 @@ Start immediately with sequential_thinking() to analyze the objective complexity
     return await this.agentRepo.findStaleAgents(staleMinutes);
   }
 
-  async cleanupStaleAgents(staleMinutes = 30): Promise<number> {
-    const staleAgents = await this.findStaleAgents(staleMinutes);
-    
-    for (const agent of staleAgents) {
-      process.stderr.write(`Cleaning up stale agent ${agent.id} (${agent.agentName})\n`);
-      await this.terminateAgent(agent.id);
-    }
+  async cleanupStaleAgents(options: {
+    staleMinutes?: number;
+    dryRun?: boolean;
+    includeRoomCleanup?: boolean;
+    notifyParticipants?: boolean;
+  } = {}): Promise<{
+    totalStaleAgents: number;
+    terminatedAgents: number;
+    failedTerminations: number;
+    roomsProcessed: number;
+    roomsCleaned: number;
+    errors: Array<{ agentId: string; error: string }>;
+    dryRun: boolean;
+    staleAgentDetails: Array<{
+      agentId: string;
+      agentName: string;
+      agentType: string;
+      repositoryPath: string;
+      roomId?: string;
+      lastHeartbeat: string | null;
+      staleDuration: string;
+    }>;
+  }> {
+    const {
+      staleMinutes = 30,
+      dryRun = false,
+      includeRoomCleanup = true,
+      notifyParticipants = true
+    } = options;
 
-    return staleAgents.length;
+    this.logger.info(`Starting enhanced stale agent cleanup`, {
+      staleMinutes,
+      dryRun,
+      includeRoomCleanup,
+      notifyParticipants
+    });
+
+    const results = {
+      totalStaleAgents: 0,
+      terminatedAgents: 0,
+      failedTerminations: 0,
+      roomsProcessed: 0,
+      roomsCleaned: 0,
+      errors: [] as Array<{ agentId: string; error: string }>,
+      dryRun,
+      staleAgentDetails: [] as Array<{
+        agentId: string;
+        agentName: string;
+        agentType: string;
+        repositoryPath: string;
+        roomId?: string;
+        lastHeartbeat: string | null;
+        staleDuration: string;
+      }>
+    };
+
+    try {
+      // Find stale agents
+      const staleAgents = await this.findStaleAgents(staleMinutes);
+      results.totalStaleAgents = staleAgents.length;
+
+      this.logger.info(`Found ${staleAgents.length} stale agents`, {
+        staleMinutes,
+        agentIds: staleAgents.map(a => a.id)
+      });
+
+      if (staleAgents.length === 0) {
+        this.logger.info('No stale agents found, cleanup completed');
+        return results;
+      }
+
+      // Build stale agent details
+      const now = new Date();
+      for (const agent of staleAgents) {
+        const lastHeartbeat = agent.lastHeartbeat ? new Date(agent.lastHeartbeat) : null;
+        const staleDuration = lastHeartbeat
+          ? `${Math.round((now.getTime() - lastHeartbeat.getTime()) / (1000 * 60))} minutes`
+          : 'unknown';
+
+        results.staleAgentDetails.push({
+          agentId: agent.id,
+          agentName: agent.agentName,
+          agentType: agent.agentType || 'unknown',
+          repositoryPath: agent.repositoryPath,
+          roomId: agent.roomId || undefined,
+          lastHeartbeat: agent.lastHeartbeat,
+          staleDuration
+        });
+      }
+
+      if (dryRun) {
+        this.logger.info('Dry run mode - would cleanup the following stale agents:', {
+          staleAgentDetails: results.staleAgentDetails
+        });
+        return results;
+      }
+
+      // Process each stale agent
+      for (const agent of staleAgents) {
+        try {
+          this.logger.info(`Cleaning up stale agent ${agent.id}`, {
+            agentId: agent.id,
+            agentName: agent.agentName,
+            agentType: agent.agentType,
+            repositoryPath: agent.repositoryPath,
+            roomId: agent.roomId,
+            lastHeartbeat: agent.lastHeartbeat
+          });
+
+          // Notify participants in room before cleanup (if enabled and agent has room)
+          if (notifyParticipants && agent.roomId && includeRoomCleanup) {
+            await this.notifyRoomBeforeAgentCleanup(agent);
+          }
+
+          // Terminate the agent (this will handle auto-leave if agent has room)
+          await this.terminateAgent(agent.id);
+          results.terminatedAgents++;
+
+          this.logger.info(`Successfully cleaned up stale agent ${agent.id}`, {
+            agentId: agent.id,
+            agentName: agent.agentName
+          });
+
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          this.logger.error(`Failed to cleanup stale agent ${agent.id}`, {
+            agentId: agent.id,
+            agentName: agent.agentName,
+            error: errorMessage
+          });
+
+          results.failedTerminations++;
+          results.errors.push({
+            agentId: agent.id,
+            error: errorMessage
+          });
+        }
+      }
+
+      // Perform room cleanup if enabled
+      if (includeRoomCleanup) {
+        const roomCleanupResults = await this.cleanupStaleRooms({
+          inactiveMinutes: staleMinutes,
+          dryRun: false, // Already handled dry-run at agent level
+          notifyParticipants
+        });
+
+        results.roomsProcessed = roomCleanupResults.totalStaleRooms;
+        results.roomsCleaned = roomCleanupResults.deletedRooms;
+
+        this.logger.info('Room cleanup completed as part of agent cleanup', {
+          roomsProcessed: results.roomsProcessed,
+          roomsCleaned: results.roomsCleaned
+        });
+      }
+
+      this.logger.info('Enhanced stale agent cleanup completed', {
+        totalStaleAgents: results.totalStaleAgents,
+        terminatedAgents: results.terminatedAgents,
+        failedTerminations: results.failedTerminations,
+        roomsProcessed: results.roomsProcessed,
+        roomsCleaned: results.roomsCleaned,
+        errorCount: results.errors.length
+      });
+
+      return results;
+
+    } catch (error) {
+      this.logger.error('Enhanced stale agent cleanup failed', {
+        error: error instanceof Error ? error.message : String(error),
+        staleMinutes,
+        dryRun,
+        includeRoomCleanup
+      });
+
+      throw new Error(`Enhanced stale agent cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   async getAgentCount(repositoryPath?: string, status?: string): Promise<number> {
@@ -1318,5 +1541,705 @@ Start immediately with sequential_thinking() to analyze the objective complexity
     };
 
     return `${priorityEmoji[priority]} ${typeEmoji[messageType]} **${messageType.toUpperCase()}** (${priority} priority)\n\n${message}`;
+  }
+
+  /**
+   * Handle auto-leave functionality when agent process exits
+   */
+  private async handleAutoLeaveRoom(
+    agent: AgentSession, 
+    exitStatus: AgentStatus, 
+    exitCode: number | null, 
+    signal: string | null
+  ): Promise<void> {
+    if (!agent.roomId) {
+      return;
+    }
+
+    try {
+      this.logger.info(`Handling auto-leave for agent ${agent.id} from room ${agent.roomId}`, {
+        agentId: agent.id,
+        agentName: agent.agentName,
+        roomId: agent.roomId,
+        exitStatus,
+        exitCode,
+        signal
+      });
+
+      // Check if room exists
+      let room = await this.communicationService.getRoom(agent.roomId);
+      if (!room) {
+        room = await this.communicationService.getRoomById(agent.roomId);
+      }
+
+      if (!room) {
+        this.logger.warn(`Room ${agent.roomId} not found for auto-leave`, {
+          agentId: agent.id,
+          agentName: agent.agentName,
+          roomId: agent.roomId
+        });
+        return;
+      }
+
+      // Get current room participants before sending farewell message
+      const participants = await this.communicationRepo.getRoomParticipants(agent.roomId);
+      this.logger.info(`Room participants before auto-leave`, {
+        agentId: agent.id,
+        roomId: agent.roomId,
+        participants,
+        participantCount: participants.length
+      });
+
+      // Send farewell message to room
+      const farewellMessage = this.generateFarewellMessage(agent, exitStatus, exitCode, signal);
+      await this.communicationRepo.sendMessage({
+        id: `msg-${Date.now()}-${Math.random().toString(36).substring(2)}`,
+        roomId: agent.roomId,
+        agentName: agent.agentName,
+        message: farewellMessage,
+        messageType: 'system'
+      });
+
+      this.logger.info(`Farewell message sent for agent ${agent.id}`, {
+        agentId: agent.id,
+        agentName: agent.agentName,
+        roomId: agent.roomId,
+        message: farewellMessage
+      });
+
+      // Check if this agent is the last participant in the room
+      // Filter out this agent from participants since it's leaving
+      const remainingParticipants = participants.filter(participant => 
+        participant !== agent.agentName
+      );
+
+      if (remainingParticipants.length === 0) {
+        // Agent is the last participant - clean up the room
+        this.logger.info(`Agent ${agent.id} is the last participant, cleaning up room ${agent.roomId}`, {
+          agentId: agent.id,
+          agentName: agent.agentName,
+          roomId: agent.roomId,
+          roomName: room.name
+        });
+
+        await this.communicationRepo.deleteRoom(agent.roomId);
+
+        this.logger.info(`Room ${agent.roomId} cleaned up successfully`, {
+          agentId: agent.id,
+          roomId: agent.roomId,
+          roomName: room.name
+        });
+
+        // Emit room cleanup event (using room_closed event type)
+        await eventBus.emit('room_closed', {
+          roomId: agent.roomId,
+          roomName: room.name,
+          timestamp: new Date(),
+          repositoryPath: agent.repositoryPath
+        });
+      } else {
+        this.logger.info(`Agent ${agent.id} left room with remaining participants`, {
+          agentId: agent.id,
+          roomId: agent.roomId,
+          remainingParticipants,
+          remainingCount: remainingParticipants.length
+        });
+      }
+
+      // Emit agent status change event for auto-leave monitoring
+      await eventBus.emit('agent_status_change', {
+        agentId: agent.id,
+        previousStatus: agent.status,
+        newStatus: exitStatus,
+        timestamp: new Date(),
+        metadata: {
+          roomId: agent.roomId,
+          roomName: room.name,
+          exitCode,
+          signal,
+          remainingParticipants,
+          roomCleaned: remainingParticipants.length === 0,
+          autoLeaveProcessed: true
+        },
+        repositoryPath: agent.repositoryPath
+      });
+
+    } catch (error) {
+      // Log error but don't fail the process exit handling
+      this.logger.error(`Failed to handle auto-leave for agent ${agent.id}`, {
+        agentId: agent.id,
+        agentName: agent.agentName,
+        roomId: agent.roomId,
+        exitStatus,
+        exitCode,
+        signal,
+        error: error,
+        errorMessage: error instanceof Error ? error.message : String(error),
+        errorStack: error instanceof Error ? error.stack : undefined
+      });
+
+      // Emit system warning for auto-leave failure
+      await eventBus.emit('system_warning', {
+        message: `Auto-leave failed for agent ${agent.agentName}: ${error instanceof Error ? error.message : String(error)}`,
+        context: 'agent_auto_leave',
+        timestamp: new Date(),
+        repositoryPath: agent.repositoryPath
+      });
+
+      // Don't throw error - auto-leave failure should not fail process exit handling
+      this.logger.warn(`Process exit will continue despite auto-leave failure for agent ${agent.id}`);
+    }
+  }
+
+  /**
+   * Generate contextual farewell message based on exit status
+   */
+  private generateFarewellMessage(
+    agent: AgentSession, 
+    exitStatus: AgentStatus, 
+    exitCode: number | null, 
+    signal: string | null
+  ): string {
+    const agentInfo = `Agent ${agent.agentName} (${agent.agentType || 'general_agent'})`;
+    
+    let statusMessage: string;
+    let emoji: string;
+
+    switch (exitStatus) {
+      case 'completed':
+        statusMessage = 'has completed its task successfully';
+        emoji = '✅';
+        break;
+      case 'terminated':
+        if (signal === 'SIGTERM') {
+          statusMessage = 'was gracefully terminated';
+          emoji = '🛑';
+        } else if (signal === 'SIGKILL') {
+          statusMessage = 'was force-killed';
+          emoji = '💀';
+        } else {
+          statusMessage = 'was terminated';
+          emoji = '🔴';
+        }
+        break;
+      case 'failed':
+        statusMessage = `failed with exit code ${exitCode || 'unknown'}`;
+        emoji = '❌';
+        break;
+      default:
+        statusMessage = 'has exited';
+        emoji = '👋';
+        break;
+    }
+
+    const baseMessage = `${emoji} ${agentInfo} ${statusMessage}`;
+    
+    // Add additional context for debugging if available
+    const contextParts = [];
+    if (exitCode !== null && exitCode !== 0) {
+      contextParts.push(`exit code: ${exitCode}`);
+    }
+    if (signal) {
+      contextParts.push(`signal: ${signal}`);
+    }
+    
+    const contextMessage = contextParts.length > 0 ? ` (${contextParts.join(', ')})` : '';
+    
+    return `${baseMessage}${contextMessage}`;
+  }
+
+  // =================== ROOM CLEANUP FUNCTIONALITY ===================
+
+  /**
+   * Cleanup stale rooms with comprehensive options
+   */
+  async cleanupStaleRooms(options: {
+    inactiveMinutes?: number;
+    dryRun?: boolean;
+    notifyParticipants?: boolean;
+    deleteEmptyRooms?: boolean;
+    deleteNoActiveParticipants?: boolean;
+    deleteNoRecentMessages?: boolean;
+  } = {}): Promise<{
+    totalStaleRooms: number;
+    deletedRooms: number;
+    failedDeletions: number;
+    notifiedParticipants: number;
+    errors: Array<{ roomId: string; roomName: string; error: string }>;
+    dryRun: boolean;
+    staleRoomDetails: Array<{
+      roomId: string;
+      roomName: string;
+      repositoryPath: string;
+      lastActivity: string | null;
+      activeParticipants: number;
+      totalParticipants: number;
+      messageCount: number;
+      staleness: {
+        noActiveParticipants: boolean;
+        noRecentMessages: boolean;
+        isEmpty: boolean;
+        isInactive: boolean;
+      };
+    }>;
+  }> {
+    const {
+      inactiveMinutes = 60,
+      dryRun = false,
+      notifyParticipants = true,
+      deleteEmptyRooms = true,
+      deleteNoActiveParticipants = true,
+      deleteNoRecentMessages = true
+    } = options;
+
+    this.logger.info(`Starting stale room cleanup`, {
+      inactiveMinutes,
+      dryRun,
+      notifyParticipants,
+      deleteEmptyRooms,
+      deleteNoActiveParticipants,
+      deleteNoRecentMessages
+    });
+
+    const results = {
+      totalStaleRooms: 0,
+      deletedRooms: 0,
+      failedDeletions: 0,
+      notifiedParticipants: 0,
+      errors: [] as Array<{ roomId: string; roomName: string; error: string }>,
+      dryRun,
+      staleRoomDetails: [] as Array<{
+        roomId: string;
+        roomName: string;
+        repositoryPath: string;
+        lastActivity: string | null;
+        activeParticipants: number;
+        totalParticipants: number;
+        messageCount: number;
+        staleness: {
+          noActiveParticipants: boolean;
+          noRecentMessages: boolean;
+          isEmpty: boolean;
+          isInactive: boolean;
+        };
+      }>
+    };
+
+    try {
+      // Find stale rooms
+      const staleRooms = await this.communicationRepo.findStaleRooms({
+        inactiveMinutes,
+        noActiveParticipants: deleteNoActiveParticipants,
+        noRecentMessages: deleteNoRecentMessages,
+        emptyRooms: deleteEmptyRooms,
+        gracePeriodMinutes: this.cleanupConfig.rooms.gracePeriodMinutes,
+        maxResults: this.cleanupConfig.rooms.maxBatchSize,
+        preserveGeneralRooms: this.cleanupConfig.rooms.preserveGeneralRooms
+      });
+
+      results.totalStaleRooms = staleRooms.length;
+
+      this.logger.info(`Found ${staleRooms.length} stale rooms`, {
+        inactiveMinutes,
+        roomIds: staleRooms.map(r => r.room.id)
+      });
+
+      if (staleRooms.length === 0) {
+        this.logger.info('No stale rooms found, cleanup completed');
+        return results;
+      }
+
+      // Build stale room details
+      for (const staleRoom of staleRooms) {
+        results.staleRoomDetails.push({
+          roomId: staleRoom.room.id,
+          roomName: staleRoom.room.name,
+          repositoryPath: staleRoom.room.repositoryPath,
+          lastActivity: staleRoom.lastActivity,
+          activeParticipants: staleRoom.activeParticipantCount,
+          totalParticipants: staleRoom.totalParticipantCount,
+          messageCount: staleRoom.messageCount,
+          staleness: staleRoom.staleness
+        });
+      }
+
+      if (dryRun) {
+        this.logger.info('Dry run mode - would cleanup the following stale rooms:', {
+          staleRoomDetails: results.staleRoomDetails
+        });
+        return results;
+      }
+
+      // Process each stale room
+      for (const staleRoom of staleRooms) {
+        try {
+          this.logger.info(`Cleaning up stale room ${staleRoom.room.id}`, {
+            roomId: staleRoom.room.id,
+            roomName: staleRoom.room.name,
+            repositoryPath: staleRoom.room.repositoryPath,
+            lastActivity: staleRoom.lastActivity,
+            activeParticipants: staleRoom.activeParticipantCount,
+            totalParticipants: staleRoom.totalParticipantCount,
+            messageCount: staleRoom.messageCount,
+            staleness: staleRoom.staleness
+          });
+
+          // Notify remaining participants before cleanup
+          if (notifyParticipants && staleRoom.activeParticipantCount > 0) {
+            const notifiedCount = await this.notifyParticipantsBeforeRoomCleanup(staleRoom.room);
+            results.notifiedParticipants += notifiedCount;
+          }
+
+          // Delete the room
+          const deleted = await this.communicationRepo.deleteRoom(staleRoom.room.id);
+          
+          if (deleted) {
+            results.deletedRooms++;
+            this.logger.info(`Successfully cleaned up stale room ${staleRoom.room.id}`, {
+              roomId: staleRoom.room.id,
+              roomName: staleRoom.room.name
+            });
+
+            // Emit room cleanup event
+            await eventBus.emit('room_cleaned_up', {
+              roomId: staleRoom.room.id,
+              roomName: staleRoom.room.name,
+              repositoryPath: staleRoom.room.repositoryPath,
+              timestamp: new Date(),
+              cleanupReason: `Stale room cleanup: ${this.getStalenessReasons(staleRoom.staleness)}`,
+              wasActive: staleRoom.activeParticipantCount > 0
+            });
+          } else {
+            this.logger.warn(`Room ${staleRoom.room.id} was not deleted (may not exist)`, {
+              roomId: staleRoom.room.id,
+              roomName: staleRoom.room.name
+            });
+          }
+
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          this.logger.error(`Failed to cleanup stale room ${staleRoom.room.id}`, {
+            roomId: staleRoom.room.id,
+            roomName: staleRoom.room.name,
+            error: errorMessage
+          });
+
+          results.failedDeletions++;
+          results.errors.push({
+            roomId: staleRoom.room.id,
+            roomName: staleRoom.room.name,
+            error: errorMessage
+          });
+        }
+      }
+
+      this.logger.info('Stale room cleanup completed', {
+        totalStaleRooms: results.totalStaleRooms,
+        deletedRooms: results.deletedRooms,
+        failedDeletions: results.failedDeletions,
+        notifiedParticipants: results.notifiedParticipants,
+        errorCount: results.errors.length
+      });
+
+      return results;
+
+    } catch (error) {
+      this.logger.error('Stale room cleanup failed', {
+        error: error instanceof Error ? error.message : String(error),
+        inactiveMinutes,
+        dryRun
+      });
+
+      throw new Error(`Stale room cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Notify participants before room cleanup
+   */
+  private async notifyParticipantsBeforeRoomCleanup(room: ChatRoom): Promise<number> {
+    try {
+      const activeParticipants = await this.communicationRepo.getActiveParticipants(room.id);
+      
+      if (activeParticipants.length === 0) {
+        return 0;
+      }
+
+      const notificationMessage = `🔔 **ROOM CLEANUP NOTICE**\n\nThis room (${room.name}) will be cleaned up due to inactivity. If you need to preserve this room or its content, please send a message to keep it active.\n\nReason: Automated stale room cleanup\nRepository: ${room.repositoryPath}`;
+
+      await this.communicationRepo.sendMessage({
+        id: `cleanup-notice-${Date.now()}-${Math.random().toString(36).substring(2)}`,
+        roomId: room.id,
+        agentName: 'System Cleanup Service',
+        message: notificationMessage,
+        messageType: 'notification'
+      });
+
+      this.logger.info(`Notified ${activeParticipants.length} participants before room cleanup`, {
+        roomId: room.id,
+        roomName: room.name,
+        participantCount: activeParticipants.length,
+        participants: activeParticipants.map(p => p.agentName)
+      });
+
+      return activeParticipants.length;
+    } catch (error) {
+      this.logger.warn(`Failed to notify participants before room cleanup`, {
+        roomId: room.id,
+        roomName: room.name,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return 0;
+    }
+  }
+
+  /**
+   * Notify room participants before agent cleanup
+   */
+  private async notifyRoomBeforeAgentCleanup(agent: AgentSession): Promise<void> {
+    if (!agent.roomId) {
+      return;
+    }
+
+    try {
+      const notificationMessage = `⚠️ **AGENT CLEANUP NOTICE**\n\nAgent ${agent.agentName} (${agent.agentType || 'unknown type'}) will be cleaned up due to inactivity.\n\nLast heartbeat: ${agent.lastHeartbeat || 'never'}\nRepository: ${agent.repositoryPath}`;
+
+      await this.communicationRepo.sendMessage({
+        id: `agent-cleanup-notice-${Date.now()}-${Math.random().toString(36).substring(2)}`,
+        roomId: agent.roomId,
+        agentName: 'System Cleanup Service',
+        message: notificationMessage,
+        messageType: 'notification'
+      });
+
+      this.logger.info(`Notified room before agent cleanup`, {
+        agentId: agent.id,
+        agentName: agent.agentName,
+        roomId: agent.roomId
+      });
+    } catch (error) {
+      this.logger.warn(`Failed to notify room before agent cleanup`, {
+        agentId: agent.id,
+        agentName: agent.agentName,
+        roomId: agent.roomId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  /**
+   * Get current cleanup configuration
+   */
+  getCleanupConfiguration(): CleanupConfig {
+    return this.cleanupConfig;
+  }
+
+  /**
+   * Update cleanup configuration
+   */
+  updateCleanupConfiguration(newConfig: Partial<CleanupConfig>): void {
+    this.cleanupConfig = {
+      agents: {
+        ...this.cleanupConfig.agents,
+        ...newConfig.agents
+      },
+      rooms: {
+        ...this.cleanupConfig.rooms,
+        ...newConfig.rooms
+      },
+      general: {
+        ...this.cleanupConfig.general,
+        ...newConfig.general
+      }
+    };
+
+    this.logger.info('Cleanup configuration updated', {
+      newConfig: this.cleanupConfig
+    });
+  }
+
+  /**
+   * Run comprehensive cleanup with both agents and rooms
+   */
+  async runComprehensiveCleanup(options: {
+    dryRun?: boolean;
+    agentStaleMinutes?: number;
+    roomInactiveMinutes?: number;
+    notifyParticipants?: boolean;
+  } = {}): Promise<{
+    agentCleanup: Awaited<ReturnType<typeof this.cleanupStaleAgents>>;
+    roomCleanup: Awaited<ReturnType<typeof this.cleanupStaleRooms>>;
+    summary: {
+      totalAgentsProcessed: number;
+      totalRoomsProcessed: number;
+      totalAgentsTerminated: number;
+      totalRoomsDeleted: number;
+      totalErrors: number;
+    };
+  }> {
+    const {
+      dryRun = false,
+      agentStaleMinutes = 30,
+      roomInactiveMinutes = 60,
+      notifyParticipants = true
+    } = options;
+
+    this.logger.info('Starting comprehensive cleanup', {
+      dryRun,
+      agentStaleMinutes,
+      roomInactiveMinutes,
+      notifyParticipants
+    });
+
+    try {
+      // Run agent cleanup (which includes basic room cleanup)
+      const agentCleanupResults = await this.cleanupStaleAgents({
+        staleMinutes: agentStaleMinutes,
+        dryRun,
+        includeRoomCleanup: false, // We'll do comprehensive room cleanup separately
+        notifyParticipants
+      });
+
+      // Run comprehensive room cleanup
+      const roomCleanupResults = await this.cleanupStaleRooms({
+        inactiveMinutes: roomInactiveMinutes,
+        dryRun,
+        notifyParticipants,
+        deleteEmptyRooms: true,
+        deleteNoActiveParticipants: true,
+        deleteNoRecentMessages: true
+      });
+
+      const summary = {
+        totalAgentsProcessed: agentCleanupResults.totalStaleAgents,
+        totalRoomsProcessed: roomCleanupResults.totalStaleRooms,
+        totalAgentsTerminated: agentCleanupResults.terminatedAgents,
+        totalRoomsDeleted: roomCleanupResults.deletedRooms,
+        totalErrors: agentCleanupResults.errors.length + roomCleanupResults.errors.length
+      };
+
+      this.logger.info('Comprehensive cleanup completed', summary);
+
+      return {
+        agentCleanup: agentCleanupResults,
+        roomCleanup: roomCleanupResults,
+        summary
+      };
+    } catch (error) {
+      this.logger.error('Comprehensive cleanup failed', {
+        error: error instanceof Error ? error.message : String(error),
+        dryRun,
+        agentStaleMinutes,
+        roomInactiveMinutes
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Handle auto-join functionality for agents with assigned rooms
+   */
+  private async handleAutoJoinRoom(agent: AgentSession): Promise<void> {
+    if (!agent.roomId) {
+      return;
+    }
+
+    try {
+      this.logger.info(`Auto-joining agent ${agent.id} to room ${agent.roomId}`, {
+        agentId: agent.id,
+        agentName: agent.agentName,
+        roomId: agent.roomId,
+        agentType: agent.agentType
+      });
+
+      // Check if room exists first - try both by name and by ID
+      let room = await this.communicationService.getRoom(agent.roomId);
+      if (!room) {
+        room = await this.communicationService.getRoomById(agent.roomId);
+      }
+      
+      if (!room) {
+        this.logger.warn(`Room ${agent.roomId} does not exist for agent auto-join`, {
+          agentId: agent.id,
+          agentName: agent.agentName,
+          roomId: agent.roomId
+        });
+        return;
+      }
+
+      // Join the room using room name (this will send a system message)
+      await this.communicationService.joinRoom(room.name, agent.agentName);
+
+      this.logger.info(`Agent ${agent.id} successfully auto-joined room ${agent.roomId}`, {
+        agentId: agent.id,
+        agentName: agent.agentName,
+        roomId: agent.roomId,
+        roomName: room.name,
+        roomDescription: room.description
+      });
+
+      // Emit agent status change event for auto-join monitoring
+      await eventBus.emit('agent_status_change', {
+        agentId: agent.id,
+        previousStatus: agent.status,
+        newStatus: agent.status,
+        timestamp: new Date(),
+        metadata: {
+          roomId: agent.roomId,
+          roomName: room.name,
+          autoJoinProcessed: true
+        },
+        repositoryPath: agent.repositoryPath
+      });
+
+    } catch (error) {
+      // Log error but don't fail agent creation
+      this.logger.error(`Failed to auto-join agent ${agent.id} to room ${agent.roomId}`, {
+        agentId: agent.id,
+        agentName: agent.agentName,
+        roomId: agent.roomId,
+        error: error,
+        errorMessage: error instanceof Error ? error.message : String(error),
+        errorStack: error instanceof Error ? error.stack : undefined
+      });
+
+      // Emit system warning for auto-join failure
+      await eventBus.emit('system_warning', {
+        message: `Auto-join failed for agent ${agent.agentName}: ${error instanceof Error ? error.message : String(error)}`,
+        context: 'agent_auto_join',
+        timestamp: new Date(),
+        repositoryPath: agent.repositoryPath
+      });
+
+      // Don't throw error - auto-join failure should not fail agent creation
+      this.logger.warn(`Agent creation will continue despite auto-join failure for agent ${agent.id}`);
+    }
+  }
+
+  /**
+   * Helper method to generate human-readable staleness reasons
+   */
+  private getStalenessReasons(staleness: {
+    noActiveParticipants: boolean;
+    noRecentMessages: boolean;
+    isEmpty: boolean;
+    isInactive: boolean;
+  }): string {
+    const reasons: string[] = [];
+    
+    if (staleness.isEmpty) {
+      reasons.push('empty room');
+    }
+    if (staleness.noActiveParticipants) {
+      reasons.push('no active participants');
+    }
+    if (staleness.noRecentMessages) {
+      reasons.push('no recent messages');
+    }
+    if (staleness.isInactive) {
+      reasons.push('inactive for extended period');
+    }
+    
+    return reasons.length > 0 ? reasons.join(', ') : 'general staleness criteria';
   }
 }

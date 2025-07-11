@@ -94,6 +94,15 @@ export interface EventTypes {
     repositoryPath: string;
   };
   
+  room_cleaned_up: {
+    roomId: string;
+    roomName: string;
+    repositoryPath: string;
+    timestamp: Date;
+    cleanupReason: string;
+    wasActive: boolean;
+  };
+  
   // Orchestration events
   orchestration_update: {
     orchestrationId: string;

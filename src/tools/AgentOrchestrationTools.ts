@@ -42,6 +42,18 @@ import {
   ContinueAgentSessionResponseSchema
 } from '../schemas/tools/agentOrchestration.js';
 
+// Import cleanup tool schemas
+import {
+  CleanupStaleAgentsSchema,
+  CleanupStaleRoomsSchema,
+  ComprehensiveCleanupSchema,
+  GetCleanupConfigurationSchema,
+  CleanupStaleAgentsResponseSchema,
+  CleanupStaleRoomsResponseSchema,
+  ComprehensiveCleanupResponseSchema,
+  GetCleanupConfigurationResponseSchema
+} from '../schemas/tools/cleanup.js';
+
 // Legacy types for backward compatibility
 export const OrchestrationResultSchema = z.object({
   success: z.boolean(),
@@ -162,6 +174,34 @@ export class AgentOrchestrationTools {
         inputSchema: zodToJsonSchema(ContinueAgentSessionSchema),
         outputSchema: zodToJsonSchema(ContinueAgentSessionResponseSchema),
         handler: this.continueAgentSession.bind(this)
+      },
+      {
+        name: 'cleanup_stale_agents',
+        description: 'Clean up stale agents with enhanced options and optional room cleanup',
+        inputSchema: zodToJsonSchema(CleanupStaleAgentsSchema),
+        outputSchema: zodToJsonSchema(CleanupStaleAgentsResponseSchema),
+        handler: this.cleanupStaleAgents.bind(this)
+      },
+      {
+        name: 'cleanup_stale_rooms',
+        description: 'Clean up stale rooms based on activity and participant criteria',
+        inputSchema: zodToJsonSchema(CleanupStaleRoomsSchema),
+        outputSchema: zodToJsonSchema(CleanupStaleRoomsResponseSchema),
+        handler: this.cleanupStaleRooms.bind(this)
+      },
+      {
+        name: 'run_comprehensive_cleanup',
+        description: 'Run comprehensive cleanup for both agents and rooms with detailed reporting',
+        inputSchema: zodToJsonSchema(ComprehensiveCleanupSchema),
+        outputSchema: zodToJsonSchema(ComprehensiveCleanupResponseSchema),
+        handler: this.runComprehensiveCleanup.bind(this)
+      },
+      {
+        name: 'get_cleanup_configuration',
+        description: 'Get current cleanup configuration and settings for agents and rooms',
+        inputSchema: zodToJsonSchema(GetCleanupConfigurationSchema),
+        outputSchema: zodToJsonSchema(GetCleanupConfigurationResponseSchema),
+        handler: this.getCleanupConfiguration.bind(this)
       }
     ];
   }
@@ -360,7 +400,9 @@ export class AgentOrchestrationTools {
       taskDescription: args.taskDescription || args.task_description,
       capabilities: args.capabilities,
       dependsOn: args.dependsOn || args.depends_on,
-      metadata: args.metadata
+      metadata: args.metadata,
+      autoCreateRoom: args.autoCreateRoom || args.auto_create_room,
+      roomId: args.roomId || args.room_id
     };
     
     const options = {
@@ -369,7 +411,9 @@ export class AgentOrchestrationTools {
       taskDescription: normalizedArgs.taskDescription,
       capabilities: normalizedArgs.capabilities,
       dependsOn: normalizedArgs.dependsOn,
-      metadata: normalizedArgs.metadata
+      metadata: normalizedArgs.metadata,
+      autoCreateRoom: normalizedArgs.autoCreateRoom,
+      roomId: normalizedArgs.roomId
     };
     try {
       // Add detailed logging to track what architects are passing
@@ -398,7 +442,9 @@ export class AgentOrchestrationTools {
         taskDescription,
         capabilities = ['ALL_TOOLS'],
         dependsOn = [],
-        metadata = {}
+        metadata = {},
+        autoCreateRoom,
+        roomId
       } = options;
 
       // 1. Check dependencies if any
@@ -428,6 +474,8 @@ export class AgentOrchestrationTools {
           spawnedAt: new Date().toISOString(),
           fullAutonomy: true
         },
+        autoCreateRoom,
+        roomId,
         claudeConfig: {
           prompt: specializedPrompt
         }
@@ -1747,6 +1795,191 @@ SPECIALIST AGENT:
         'Failed to continue agent session',
         error instanceof Error ? error.message : 'Unknown error occurred',
         'CONTINUE_AGENT_SESSION_ERROR'
+      );
+    }
+  }
+
+  // =================== CLEANUP TOOLS ===================
+
+  /**
+   * Clean up stale agents with enhanced options
+   */
+  async cleanupStaleAgents(args: {
+    staleMinutes?: number;
+    dryRun?: boolean;
+    includeRoomCleanup?: boolean;
+    notifyParticipants?: boolean;
+  }): Promise<AgentOrchestrationResponse> {
+    const startTime = performance.now();
+    const { staleMinutes = 30, dryRun = true, includeRoomCleanup = true, notifyParticipants = true } = args;
+    
+    try {
+      const results = await this.agentService.cleanupStaleAgents({
+        staleMinutes,
+        dryRun,
+        includeRoomCleanup,
+        notifyParticipants
+      });
+
+      const executionTime = performance.now() - startTime;
+      
+      return createSuccessResponse(
+        `Stale agent cleanup completed: ${results.terminatedAgents} agents cleaned up`,
+        {
+          total_stale_agents: results.totalStaleAgents,
+          terminated_agents: results.terminatedAgents,
+          failed_terminations: results.failedTerminations,
+          rooms_processed: results.roomsProcessed,
+          rooms_cleaned: results.roomsCleaned,
+          dry_run: results.dryRun,
+          error_count: results.errors.length,
+          stale_agent_details: results.staleAgentDetails,
+          errors: results.errors
+        },
+        executionTime
+      );
+
+    } catch (error: any) {
+      const executionTime = performance.now() - startTime;
+      return createErrorResponse(
+        'Failed to cleanup stale agents',
+        error instanceof Error ? error.message : 'Unknown error occurred',
+        'CLEANUP_STALE_AGENTS_ERROR'
+      );
+    }
+  }
+
+  /**
+   * Clean up stale rooms with enhanced options
+   */
+  async cleanupStaleRooms(args: {
+    inactiveMinutes?: number;
+    dryRun?: boolean;
+    notifyParticipants?: boolean;
+    deleteEmptyRooms?: boolean;
+    deleteNoActiveParticipants?: boolean;
+    deleteNoRecentMessages?: boolean;
+  }): Promise<AgentOrchestrationResponse> {
+    const startTime = performance.now();
+    const {
+      inactiveMinutes = 60,
+      dryRun = true,
+      notifyParticipants = true,
+      deleteEmptyRooms = true,
+      deleteNoActiveParticipants = true,
+      deleteNoRecentMessages = true
+    } = args;
+    
+    try {
+      const results = await this.agentService.cleanupStaleRooms({
+        inactiveMinutes,
+        dryRun,
+        notifyParticipants,
+        deleteEmptyRooms,
+        deleteNoActiveParticipants,
+        deleteNoRecentMessages
+      });
+
+      const executionTime = performance.now() - startTime;
+      
+      return createSuccessResponse(
+        `Stale room cleanup completed: ${results.deletedRooms} rooms cleaned up`,
+        {
+          total_stale_rooms: results.totalStaleRooms,
+          deleted_rooms: results.deletedRooms,
+          failed_deletions: results.failedDeletions,
+          notified_participants: results.notifiedParticipants,
+          dry_run: results.dryRun,
+          error_count: results.errors.length,
+          stale_room_details: results.staleRoomDetails,
+          errors: results.errors
+        },
+        executionTime
+      );
+
+    } catch (error: any) {
+      const executionTime = performance.now() - startTime;
+      return createErrorResponse(
+        'Failed to cleanup stale rooms',
+        error instanceof Error ? error.message : 'Unknown error occurred',
+        'CLEANUP_STALE_ROOMS_ERROR'
+      );
+    }
+  }
+
+  /**
+   * Run comprehensive cleanup for both agents and rooms
+   */
+  async runComprehensiveCleanup(args: {
+    dryRun?: boolean;
+    agentStaleMinutes?: number;
+    roomInactiveMinutes?: number;
+    notifyParticipants?: boolean;
+  }): Promise<AgentOrchestrationResponse> {
+    const startTime = performance.now();
+    const {
+      dryRun = true,
+      agentStaleMinutes = 30,
+      roomInactiveMinutes = 60,
+      notifyParticipants = true
+    } = args;
+    
+    try {
+      const results = await this.agentService.runComprehensiveCleanup({
+        dryRun,
+        agentStaleMinutes,
+        roomInactiveMinutes,
+        notifyParticipants
+      });
+
+      const executionTime = performance.now() - startTime;
+      
+      return createSuccessResponse(
+        `Comprehensive cleanup completed: ${results.summary.totalAgentsTerminated} agents and ${results.summary.totalRoomsDeleted} rooms cleaned up`,
+        {
+          agent_cleanup: results.agentCleanup,
+          room_cleanup: results.roomCleanup,
+          summary: results.summary,
+          dry_run: results.agentCleanup.dryRun
+        },
+        executionTime
+      );
+
+    } catch (error: any) {
+      const executionTime = performance.now() - startTime;
+      return createErrorResponse(
+        'Failed to run comprehensive cleanup',
+        error instanceof Error ? error.message : 'Unknown error occurred',
+        'COMPREHENSIVE_CLEANUP_ERROR'
+      );
+    }
+  }
+
+  /**
+   * Get cleanup configuration and status
+   */
+  async getCleanupConfiguration(): Promise<AgentOrchestrationResponse> {
+    const startTime = performance.now();
+    
+    try {
+      const config = this.agentService.getCleanupConfiguration();
+      const executionTime = performance.now() - startTime;
+      
+      return createSuccessResponse(
+        'Cleanup configuration retrieved successfully',
+        {
+          configuration: config,
+          environment: process.env.NODE_ENV || 'development'
+        },
+        executionTime
+      );
+
+    } catch (error: any) {
+      const executionTime = performance.now() - startTime;
+      return createErrorResponse(
+        'Failed to get cleanup configuration',
+        error instanceof Error ? error.message : 'Unknown error occurred',
+        'GET_CLEANUP_CONFIG_ERROR'
       );
     }
   }

@@ -10,7 +10,9 @@ import type { McpTool } from '../schemas/tools/index.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
+import { createHash } from 'crypto';
 import type { KnowledgeGraphService } from '../services/KnowledgeGraphService.js';
+import { TreeSitterParser } from '../services/TreeSitterParser.js';
 import { FileOperationsService, type ListFilesOptions, type FindFilesOptions, type ReplaceOptions } from '../services/FileOperationsService.js';
 import { FoundationCacheService } from '../services/FoundationCacheService.js';
 import { TreeSummaryService, type DirectoryNode } from '../services/TreeSummaryService.js';
@@ -64,6 +66,7 @@ const access = promisify(fs.access);
 export class AnalysisMcpTools {
   private fileOpsService: FileOperationsService;
   private treeSummaryService: TreeSummaryService;
+  private treeSitterParser: TreeSitterParser;
 
   constructor(
     private knowledgeGraphService: KnowledgeGraphService,
@@ -72,6 +75,7 @@ export class AnalysisMcpTools {
   ) {
     this.fileOpsService = new FileOperationsService();
     this.treeSummaryService = new TreeSummaryService(foundationCache);
+    this.treeSitterParser = new TreeSitterParser();
   }
 
   /**
@@ -202,6 +206,9 @@ export class AnalysisMcpTools {
       const summaryPath = path.join(projectPath, '.treesummary', 'structure.txt');
       const summaryContent = this.generateTreeSummary(structure);
       await writeFile(summaryPath, summaryContent, 'utf8');
+      
+      // Generate file analyses for all source files
+      await this.generateFileAnalyses(projectPath, structure as DirectoryNode);
     }
 
     const executionTime = Date.now() - startTime;
@@ -359,21 +366,195 @@ export class AnalysisMcpTools {
     });
     
     const filePath = path.resolve(params.file_path);
+    
+    // Use TreeSitterParser for robust symbol extraction
     const content = await readFile(filePath, 'utf8');
-    const symbols = this.extractSymbols(content, params.symbol_types);
+    const parseResult = await this.treeSitterParser.parseFile(filePath, content);
+    
+    if (!parseResult.parseSuccess) {
+      // Fallback to regex-based parsing for unsupported files
+      const content = await readFile(filePath, 'utf8');
+      const symbols = this.extractSymbolsFallback(content, params.symbol_types);
+      
+      const executionTime = Date.now() - startTime;
+      
+      return createSuccessResponse(
+        `Successfully analyzed symbols in ${filePath} (fallback parsing)`,
+        {
+          symbols: {
+            file_path: filePath,
+            symbols
+          }
+        },
+        executionTime
+      ) as AnalyzeFileSymbolsResponse;
+    }
+
+    // Filter symbols by requested types
+    const requestedTypes = new Set(params.symbol_types);
+    const typeMapping: Record<string, string> = {
+      'function': 'functions',
+      'class': 'classes', 
+      'interface': 'interfaces',
+      'type': 'types',
+      'variable': 'variables',
+      'method': 'functions' // Treat methods as functions
+    };
+    
+    const filteredSymbols = parseResult.symbols.filter(symbol => {
+      const mappedType = typeMapping[symbol.type] || symbol.type;
+      return requestedTypes.has(mappedType as any);
+    });
 
     const executionTime = Date.now() - startTime;
     
     return createSuccessResponse(
-      `Successfully analyzed symbols in ${filePath}`,
+      `Successfully analyzed symbols in ${filePath} using Tree-sitter (${parseResult.language})`,
       {
         symbols: {
           file_path: filePath,
-          symbols
+          symbols: filteredSymbols
         }
       },
       executionTime
     ) as AnalyzeFileSymbolsResponse;
+  }
+
+  /**
+   * Generate file analyses for all source files in a project structure
+   */
+  private async generateFileAnalyses(projectPath: string, structure: DirectoryNode): Promise<void> {
+    // Get supported extensions from TreeSitterParser
+    const supportedExtensions = new Set(this.treeSitterParser.getSupportedExtensions());
+    
+    const processNode = async (node: DirectoryNode, currentPath: string): Promise<void> => {
+      for (const child of node.children || []) {
+        const childPath = path.join(currentPath, child.name);
+        
+        if (child.type === 'file') {
+          const ext = path.extname(child.name).toLowerCase();
+          if (supportedExtensions.has(ext)) {
+            try {
+              // Use TreeSitterParser for comprehensive analysis
+              const analysis = await this.treeSitterParser.analyzeFile(childPath);
+              
+              if (analysis) {
+                // Store the analysis using TreeSummaryService
+                await this.treeSummaryService.updateFileAnalysis(childPath, analysis);
+              } else {
+                // Fallback to regex-based analysis for unsupported files
+                const fallbackAnalysis = await this.generateFallbackAnalysis(childPath, ext);
+                if (fallbackAnalysis) {
+                  await this.treeSummaryService.updateFileAnalysis(childPath, fallbackAnalysis);
+                }
+              }
+            } catch (error) {
+              // Skip files that can't be read or analyzed
+              console.warn(`Failed to analyze ${childPath}:`, error);
+            }
+          }
+        } else if (child.type === 'directory') {
+          await processNode(child, childPath);
+        }
+      }
+    };
+    
+    await processNode(structure, projectPath);
+  }
+
+  /**
+   * Extract imports from file content based on file extension
+   */
+  private extractImports(content: string, extension: string): string[] {
+    const imports: string[] = [];
+    const lines = content.split('\n');
+    
+    for (const line of lines) {
+      const trimmed = line.trim();
+      
+      if (extension === '.ts' || extension === '.js' || extension === '.tsx' || extension === '.jsx') {
+        // TypeScript/JavaScript imports
+        const importMatch = trimmed.match(/^import\s+(?:(?:\{[^}]*\}|\*\s+as\s+\w+|\w+)\s+from\s+)?['"]([^'"]+)['"]/);
+        if (importMatch) {
+          imports.push(importMatch[1]);
+        }
+        
+        // CommonJS requires
+        const requireMatch = trimmed.match(/require\(['"]([^'"]+)['"]\)/);
+        if (requireMatch) {
+          imports.push(requireMatch[1]);
+        }
+      } else if (extension === '.py') {
+        // Python imports
+        const importMatch = trimmed.match(/^(?:import\s+([^\s]+)|from\s+([^\s]+)\s+import)/);
+        if (importMatch) {
+          imports.push(importMatch[1] || importMatch[2]);
+        }
+      }
+    }
+    
+    return Array.from(new Set(imports)); // Remove duplicates
+  }
+
+  /**
+   * Extract exports from file content based on file extension
+   */
+  private extractExports(content: string, extension: string): string[] {
+    const exports: string[] = [];
+    const lines = content.split('\n');
+    
+    for (const line of lines) {
+      const trimmed = line.trim();
+      
+      if (extension === '.ts' || extension === '.js' || extension === '.tsx' || extension === '.jsx') {
+        // Named exports
+        const namedExportMatch = trimmed.match(/^export\s+(?:const|let|var|function|class|interface|type|enum)\s+(\w+)/);
+        if (namedExportMatch) {
+          exports.push(namedExportMatch[1]);
+        }
+        
+        // Export lists
+        const exportListMatch = trimmed.match(/^export\s+\{([^}]+)\}/);
+        if (exportListMatch) {
+          const names = exportListMatch[1].split(',').map(name => name.trim().split(/\s+as\s+/)[0]);
+          exports.push(...names);
+        }
+        
+        // Default exports (use filename)
+        if (trimmed.match(/^export\s+default/)) {
+          const filename = path.basename(content, extension);
+          exports.push(filename);
+        }
+      }
+    }
+    
+    return Array.from(new Set(exports)); // Remove duplicates
+  }
+
+  /**
+   * Get programming language from file extension
+   */
+  private getLanguageFromExtension(extension: string): string {
+    const languageMap: Record<string, string> = {
+      '.ts': 'typescript',
+      '.tsx': 'typescript',
+      '.js': 'javascript', 
+      '.jsx': 'javascript',
+      '.py': 'python',
+      '.java': 'java',
+      '.cpp': 'cpp',
+      '.c': 'c',
+      '.h': 'c',
+      '.cs': 'csharp',
+      '.go': 'go',
+      '.rs': 'rust',
+      '.php': 'php',
+      '.rb': 'ruby',
+      '.swift': 'swift',
+      '.kt': 'kotlin'
+    };
+    
+    return languageMap[extension.toLowerCase()] || 'unknown';
   }
 
   private async listFiles(args: any): Promise<ListFilesResponse> {
@@ -827,7 +1008,52 @@ export class AnalysisMcpTools {
     return undefined;
   }
 
-  private extractSymbols(content: string, symbolTypes: string[]): any {
+  /**
+   * Generate fallback analysis for files that TreeSitter can't parse
+   */
+  private async generateFallbackAnalysis(filePath: string, extension: string): Promise<any> {
+    try {
+      const content = await readFile(filePath, 'utf8');
+      const stats = await fs.promises.stat(filePath);
+      const hash = createHash('sha256').update(content).digest('hex');
+      
+      // Extract symbols using regex fallback
+      const symbols = this.extractSymbolsFallback(content, ['functions', 'classes', 'interfaces', 'types', 'variables']);
+      
+      // Extract imports and exports using existing regex methods
+      const imports = this.extractImports(content, extension);
+      const exports = this.extractExports(content, extension);
+      
+      // Determine language
+      const language = this.getLanguageFromExtension(extension);
+      
+      return {
+        filePath,
+        hash,
+        lastModified: stats.mtime,
+        symbols: symbols.functions.concat(symbols.classes, symbols.interfaces, symbols.types, symbols.variables)
+          .map(symbol => ({
+            name: symbol.name,
+            type: symbol.type || 'function',
+            line: symbol.line || 1,
+            column: symbol.column || 1,
+            isExported: exports.includes(symbol.name)
+          })),
+        imports,
+        exports,
+        size: stats.size,
+        language
+      };
+    } catch (error) {
+      console.error(`Failed to generate fallback analysis for ${filePath}:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Fallback regex-based symbol extraction for unsupported files
+   */
+  private extractSymbolsFallback(content: string, symbolTypes: string[]): any {
     const symbols: any = {
       functions: [],
       classes: [],
@@ -847,7 +1073,9 @@ export class AnalysisMcpTools {
         if (functionMatch) {
           symbols.functions.push({
             name: functionMatch[1],
+            type: 'function',
             line: lineNumber,
+            column: 1,
             signature: line.trim()
           });
         }
@@ -858,7 +1086,9 @@ export class AnalysisMcpTools {
         if (classMatch) {
           symbols.classes.push({
             name: classMatch[1],
-            line: lineNumber
+            type: 'class',
+            line: lineNumber,
+            column: 1
           });
         }
       }
@@ -868,7 +1098,9 @@ export class AnalysisMcpTools {
         if (interfaceMatch) {
           symbols.interfaces.push({
             name: interfaceMatch[1],
-            line: lineNumber
+            type: 'interface',
+            line: lineNumber,
+            column: 1
           });
         }
       }

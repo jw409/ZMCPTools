@@ -2,23 +2,46 @@
   📁 .claude
   📁 .treesummary
     📁 files
-    📁 structure.txt
+    📄 structure.txt
+  📄 AUTO_LEAVE_IMPLEMENTATION.md
   📄 CHANGELOG.md
   📄 CLAUDE.md
+  📄 COMMUNICATION_IMPROVEMENTS.md
   📄 README.md
   📄 TOOL_LIST.md
   📁 examples
-    📁 sequential-thinking-architect.md
+    📄 sequential-thinking-architect.md
   📁 src
     📁 cli
+      📄 index.ts
     📁 database
-    📁 index.ts
+      📄 drizzle.ts
+      📄 index.ts
+    📄 index.ts
     📁 installer
-    📁 lib.ts
+      📄 index.ts
+    📄 lib.ts
     📁 managers
     📁 schemas
+      📄 agents.ts
+      📄 index.ts
+      📄 scraping.ts
+      📄 tasks.ts
     📁 server
+      📄 McpServer.ts
     📁 services
+      📄 AgentService.ts
+      📄 EventBus.ts
+      📄 LanceDBService.ts
+      📄 TaskService.ts
+      📄 TreeSummaryService.ts
+      📄 WebScrapingService.ts
+      📄 index.ts
     📁 utils
+      📄 crashHandler.ts
+      📄 pathUtils.ts
+      📄 patternMatcher.ts
+      📄 scrapingOptimizer.ts
+      📄 sitemapParser.ts
   📁 tmp
-    📁 REPO_FINDINGS.md
+    📄 REPO_FINDINGS.md
