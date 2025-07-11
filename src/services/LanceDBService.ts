@@ -386,7 +386,7 @@ export class LanceDBService {
   }
 
   /**
-   * Remove documents from a collection by ID
+   * Remove documents from a collection by ID using LanceDB delete
    */
   async removeDocuments(
     collectionName: string,
@@ -402,14 +402,17 @@ export class LanceDBService {
         return { success: false, removedCount: 0, error: `Collection ${collectionName} not found` };
       }
 
-      // LanceDB doesn't have direct delete by ID, so we need to rebuild without these documents
-      this.logger.warn(`Removing documents from ${collectionName} requires table recreation`, {
+      // Build SQL WHERE clause for deletion
+      const deleteConditions = documentIds.map(id => `id = '${id.replace(/'/g, "''")}'`);
+      const deleteWhereClause = deleteConditions.join(' OR ');
+      
+      // Delete documents using LanceDB's delete method
+      await table.delete(deleteWhereClause);
+      
+      this.logger.info(`Removed ${documentIds.length} documents from collection ${collectionName}`, {
         documentIds,
-        count: documentIds.length
+        whereClause: deleteWhereClause
       });
-
-      // For now, we'll track what needs to be removed and let the caller handle cleanup
-      // This is a limitation of LanceDB - it doesn't support efficient row deletion
       
       return {
         success: true,
@@ -418,7 +421,10 @@ export class LanceDBService {
 
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`Failed to remove documents from ${collectionName}`, { error: errorMsg });
+      this.logger.error(`Failed to remove documents from ${collectionName}`, { 
+        error: errorMsg,
+        documentIds 
+      });
       return {
         success: false,
         removedCount: 0,
@@ -428,7 +434,7 @@ export class LanceDBService {
   }
 
   /**
-   * Find documents by metadata criteria
+   * Find documents by metadata criteria using LanceDB SQL filtering
    */
   async findDocumentsByMetadata(
     collectionName: string,
@@ -440,75 +446,162 @@ export class LanceDBService {
         throw new Error(`Collection ${collectionName} not found`);
       }
 
-      // Since LanceDB doesn't support direct metadata filtering, we'll search with a dummy query
-      // and filter the results manually - this is inefficient but necessary for cleanup
-      const allResults = await table
-        .search([0]) // Dummy search vector
-        .limit(10000) // Get a large number of results
-        .toArray();
-
-      // Filter by metadata
-      const filteredResults: VectorSearchResult[] = [];
-      for (const result of allResults) {
-        try {
-          const metadata = JSON.parse(result.metadata || '{}');
-          
-          // Check if all filter criteria match
-          const matches = Object.entries(metadataFilter).every(([key, value]) => {
-            return metadata[key] === value;
-          });
-
-          if (matches) {
-            filteredResults.push({
-              id: result.id,
-              content: result.content,
-              metadata,
-              score: 1.0, // Not a real similarity search
-              distance: 0
-            });
-          }
-        } catch (error) {
-          this.logger.warn('Failed to parse metadata for document', { id: result.id });
+      // Build SQL WHERE clause for metadata filtering
+      const whereConditions: string[] = [];
+      for (const [key, value] of Object.entries(metadataFilter)) {
+        if (typeof value === 'string') {
+          // String values need to be properly escaped and quoted
+          const escapedValue = value.replace(/'/g, "''");
+          whereConditions.push(`JSON_EXTRACT(metadata, '$.${key}') = '${escapedValue}'`);
+        } else if (typeof value === 'number') {
+          whereConditions.push(`JSON_EXTRACT(metadata, '$.${key}') = ${value}`);
+        } else if (typeof value === 'boolean') {
+          whereConditions.push(`JSON_EXTRACT(metadata, '$.${key}') = ${value}`);
+        } else {
+          // For complex values, convert to JSON string
+          const jsonValue = JSON.stringify(value).replace(/'/g, "''");
+          whereConditions.push(`JSON_EXTRACT(metadata, '$.${key}') = '${jsonValue}'`);
         }
       }
 
-      this.logger.info(`Found ${filteredResults.length} documents matching metadata filter in ${collectionName}`);
+      const whereClause = whereConditions.join(' AND ');
+
+      // Use LanceDB's SQL filtering without vector search (pure metadata query)
+      const results = await table
+        .query()
+        .where(whereClause)
+        .limit(10000)
+        .toArray();
+
+      // Convert to standard format
+      const filteredResults: VectorSearchResult[] = results.map((result: any) => {
+        let metadata = {};
+        try {
+          metadata = JSON.parse(result.metadata || '{}');
+        } catch (error) {
+          this.logger.warn('Failed to parse metadata for document', { id: result.id });
+        }
+
+        return {
+          id: result.id,
+          content: result.content,
+          metadata,
+          score: 1.0, // Not a similarity search
+          distance: 0
+        };
+      });
+
+      this.logger.info(`Found ${filteredResults.length} documents matching metadata filter in ${collectionName}`, {
+        whereClause,
+        filterKeys: Object.keys(metadataFilter)
+      });
       return filteredResults;
 
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`Failed to find documents by metadata in ${collectionName}`, { error: errorMsg });
+      this.logger.error(`Failed to find documents by metadata in ${collectionName}`, { 
+        error: errorMsg,
+        metadataFilter 
+      });
       throw new Error(`Metadata search failed: ${errorMsg}`);
     }
   }
 
   /**
-   * Update documents by replacing existing ones with the same ID
+   * Update documents by replacing existing ones with matching metadata
    */
   async updateDocuments(
     collectionName: string,
     documents: VectorDocument[]
-  ): Promise<{ success: boolean; updatedCount: number; error?: string }> {
+  ): Promise<{ success: boolean; updatedCount: number; deletedCount: number; error?: string }> {
     try {
-      // For LanceDB, updating means removing old and adding new
-      // Since direct deletion is not efficient, we'll just add the new documents
-      // The application layer should handle cleanup of old documents if needed
-      
-      const addResult = await this.addDocuments(collectionName, documents);
-      
-      if (addResult.success) {
-        this.logger.info(`Updated ${addResult.addedCount} documents in collection ${collectionName}`);
-        return {
-          success: true,
-          updatedCount: addResult.addedCount
-        };
-      } else {
-        return {
-          success: false,
-          updatedCount: 0,
-          error: addResult.error
+      const table = this.tables.get(collectionName);
+      if (!table) {
+        return { 
+          success: false, 
+          updatedCount: 0, 
+          deletedCount: 0, 
+          error: `Collection ${collectionName} not found` 
         };
       }
+
+      let totalDeleted = 0;
+      let totalUpdated = 0;
+
+      // Process each document individually for precise replacement
+      for (const document of documents) {
+        try {
+          // Build filter based on document's unique identifiers
+          // Priority: id > websiteId+pageId > websiteId+url
+          let metadataFilter: Record<string, any> = {};
+          
+          if (document.id) {
+            // First try to find by exact ID
+            metadataFilter = { id: document.id };
+          } else if (document.metadata?.websiteId && document.metadata?.pageId) {
+            // Find by website + page combination
+            metadataFilter = { 
+              websiteId: document.metadata.websiteId, 
+              pageId: document.metadata.pageId 
+            };
+          } else if (document.metadata?.websiteId && document.metadata?.url) {
+            // Find by website + URL combination
+            metadataFilter = { 
+              websiteId: document.metadata.websiteId, 
+              url: document.metadata.url 
+            };
+          } else {
+            this.logger.warn(`Document ${document.id} has insufficient metadata for unique identification, skipping update`);
+            continue;
+          }
+
+          // Find existing documents to replace
+          const existingDocs = await this.findDocumentsByMetadata(collectionName, metadataFilter);
+          
+          if (existingDocs.length > 0) {
+            // Delete existing documents by ID
+            const idsToDelete = existingDocs.map(doc => doc.id);
+            
+            // Build SQL WHERE clause for deletion
+            const deleteConditions = idsToDelete.map(id => `id = '${id.replace(/'/g, "''")}'`);
+            const deleteWhereClause = deleteConditions.join(' OR ');
+            
+            // Delete existing documents
+            await table.delete(deleteWhereClause);
+            totalDeleted += idsToDelete.length;
+            
+            this.logger.debug(`Deleted ${idsToDelete.length} existing documents for update`, {
+              collectionName,
+              documentId: document.id,
+              deletedIds: idsToDelete
+            });
+          }
+
+          // Add the new document
+          const addResult = await this.addDocuments(collectionName, [document]);
+          if (addResult.success) {
+            totalUpdated += 1;
+          } else {
+            this.logger.error(`Failed to add updated document ${document.id}`, { error: addResult.error });
+          }
+
+        } catch (error) {
+          this.logger.error(`Failed to update individual document ${document.id}`, { error });
+          // Continue with other documents even if one fails
+        }
+      }
+
+      this.logger.info(`Updated ${totalUpdated} documents in collection ${collectionName}`, {
+        totalDocuments: documents.length,
+        deletedCount: totalDeleted,
+        updatedCount: totalUpdated
+      });
+
+      return {
+        success: true,
+        updatedCount: totalUpdated,
+        deletedCount: totalDeleted
+      };
 
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
@@ -516,6 +609,7 @@ export class LanceDBService {
       return {
         success: false,
         updatedCount: 0,
+        deletedCount: 0,
         error: errorMsg
       };
     }
@@ -688,13 +782,14 @@ export class LanceDBService {
   }
 
   /**
-   * Search for similar documents using vector similarity
+   * Search for similar documents using vector similarity with optional metadata filtering
    */
   async searchSimilar(
     collectionName: string,
     query: string,
     limit: number = 10,
-    threshold: number = 0.7
+    threshold: number = 0.7,
+    metadataFilter?: Record<string, any>
   ): Promise<VectorSearchResult[]> {
     try {
       // Ensure collection exists
@@ -709,11 +804,31 @@ export class LanceDBService {
       const queryEmbedding = await this.embeddingFunction.embed([query]);
       const queryVector = queryEmbedding[0];
 
+      // Build search query with optional metadata filtering
+      let searchQuery = table.search(queryVector).limit(limit);
+
+      // Add metadata filtering if provided
+      if (metadataFilter && Object.keys(metadataFilter).length > 0) {
+        const whereConditions: string[] = [];
+        for (const [key, value] of Object.entries(metadataFilter)) {
+          if (typeof value === 'string') {
+            const escapedValue = value.replace(/'/g, "''");
+            whereConditions.push(`JSON_EXTRACT(metadata, '$.${key}') = '${escapedValue}'`);
+          } else if (typeof value === 'number') {
+            whereConditions.push(`JSON_EXTRACT(metadata, '$.${key}') = ${value}`);
+          } else if (typeof value === 'boolean') {
+            whereConditions.push(`JSON_EXTRACT(metadata, '$.${key}') = ${value}`);
+          } else {
+            const jsonValue = JSON.stringify(value).replace(/'/g, "''");
+            whereConditions.push(`JSON_EXTRACT(metadata, '$.${key}') = '${jsonValue}'`);
+          }
+        }
+        const whereClause = whereConditions.join(' AND ');
+        searchQuery = searchQuery.where(whereClause);
+      }
+
       // Perform vector similarity search
-      const results = await table
-        .search(queryVector)
-        .limit(limit)
-        .toArray();
+      const results = await searchQuery.toArray();
 
       // Convert to standard format and apply threshold
       const searchResults: VectorSearchResult[] = results
