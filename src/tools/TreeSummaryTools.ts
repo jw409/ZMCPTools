@@ -45,36 +45,34 @@ export class TreeSummaryTools {
         name: "update_file_analysis",
         description:
           "Update or create analysis data for a specific file in the TreeSummary system",
-        inputSchema: z.toJSONSchema(UpdateFileAnalysisSchema) as any,
-        outputSchema: z.toJSONSchema(UpdateFileAnalysisResponseSchema) as any,
+        inputSchema: UpdateFileAnalysisSchema,
+        outputSchema: UpdateFileAnalysisResponseSchema,
       },
       {
         name: "remove_file_analysis",
         description:
           "Remove analysis data for a deleted file from the TreeSummary system",
-        inputSchema: z.toJSONSchema(RemoveFileAnalysisSchema) as any,
-        outputSchema: z.toJSONSchema(RemoveFileAnalysisResponseSchema) as any,
+        inputSchema: RemoveFileAnalysisSchema,
+        outputSchema: RemoveFileAnalysisResponseSchema,
       },
       {
         name: "update_project_metadata",
         description: "Update project metadata in the TreeSummary system",
-        inputSchema: z.toJSONSchema(UpdateProjectMetadataSchema) as any,
-        outputSchema: z.toJSONSchema(
-          UpdateProjectMetadataResponseSchema
-        ) as any,
+        inputSchema: UpdateProjectMetadataSchema,
+        outputSchema: UpdateProjectMetadataResponseSchema,
       },
       {
         name: "get_project_overview",
         description:
           "Get comprehensive project overview from TreeSummary analysis",
-        inputSchema: z.toJSONSchema(GetProjectOverviewSchema) as any,
-        outputSchema: z.toJSONSchema(GetProjectOverviewResponseSchema) as any,
+        inputSchema: GetProjectOverviewSchema,
+        outputSchema: GetProjectOverviewResponseSchema,
       },
       {
         name: "cleanup_stale_analyses",
         description: "Clean up stale analysis files older than specified days",
-        inputSchema: z.toJSONSchema(CleanupStaleAnalysesSchema) as any,
-        outputSchema: z.toJSONSchema(CleanupStaleAnalysesResponseSchema) as any,
+        inputSchema: CleanupStaleAnalysesSchema,
+        outputSchema: CleanupStaleAnalysesResponseSchema,
       },
     ];
   }

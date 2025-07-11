@@ -3,7 +3,7 @@
  * Centralized schema definitions for the progress reporting tool
  */
 
-import { z } from 'zod';
+import { z } from 'zod/v4';
 import { type TaskStatus, type AgentStatus, agentStatusSchema } from '../index.js';
 
 // ===============================================

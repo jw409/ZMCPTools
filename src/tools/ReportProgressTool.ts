@@ -61,8 +61,8 @@ export class ReportProgressTool {
         name: "report_progress",
         description:
           "Report progress updates for agent tasks and status changes",
-        inputSchema: z.toJSONSchema(ReportProgressSchema) as any,
-        outputSchema: z.toJSONSchema(ProgressReportResponseSchema) as any,
+        inputSchema: ReportProgressSchema,
+        outputSchema: ProgressReportResponseSchema,
       },
     ];
   }

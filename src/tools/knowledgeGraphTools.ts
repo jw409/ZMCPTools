@@ -49,26 +49,26 @@ export class KnowledgeGraphMcpTools {
       {
         name: 'store_knowledge_memory',
         description: 'Store a knowledge graph memory with entity creation',
-        inputSchema: z.toJSONSchema(StoreKnowledgeMemorySchema) as any,
-        outputSchema: z.toJSONSchema(StoreKnowledgeMemoryResponseSchema) as any
+        inputSchema: StoreKnowledgeMemorySchema,
+        outputSchema: StoreKnowledgeMemoryResponseSchema
       },
       {
         name: 'create_knowledge_relationship',
         description: 'Create a relationship between two entities in the knowledge graph',
-        inputSchema: z.toJSONSchema(CreateRelationshipSchema) as any,
-        outputSchema: z.toJSONSchema(CreateKnowledgeRelationshipResponseSchema) as any
+        inputSchema: CreateRelationshipSchema,
+        outputSchema: CreateKnowledgeRelationshipResponseSchema
       },
       {
         name: 'search_knowledge_graph',
         description: 'Search the knowledge graph using semantic or basic search',
-        inputSchema: z.toJSONSchema(SearchKnowledgeGraphSchema) as any,
-        outputSchema: z.toJSONSchema(SearchKnowledgeGraphResponseSchema) as any
+        inputSchema: SearchKnowledgeGraphSchema,
+        outputSchema: SearchKnowledgeGraphResponseSchema
       },
       {
         name: 'find_related_entities',
         description: 'Find related entities through relationship traversal',
-        inputSchema: z.toJSONSchema(FindRelatedEntitiesSchema) as any,
-        outputSchema: z.toJSONSchema(FindRelatedEntitiesResponseSchema) as any
+        inputSchema: FindRelatedEntitiesSchema,
+        outputSchema: FindRelatedEntitiesResponseSchema
       }
     ];
   }

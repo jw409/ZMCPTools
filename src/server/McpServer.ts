@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import express from "express";
 import http from "http";
 import net from "net";
-import { z } from "zod";
+import { z } from "zod/v4";
 import {
   ErrorCode,
   McpError,
@@ -395,7 +395,7 @@ export class McpToolsServer {
       if (prompt.arguments) {
         prompt.arguments.forEach(arg => {
           // Create Zod string schema with description
-          let schema = z.string().describe(arg.description || '');
+          let schema: z.ZodString | z.ZodOptional<z.ZodString> = z.string().describe(arg.description || '');
           
           // Make it optional if not required
           if (arg.required === false) {

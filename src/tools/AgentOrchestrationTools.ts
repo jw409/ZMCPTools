@@ -121,92 +121,92 @@ export class AgentOrchestrationTools {
       {
         name: 'orchestrate_objective',
         description: 'Spawn architect agent to coordinate multi-agent objective completion',
-        inputSchema: z.toJSONSchema(OrchestrationObjectiveSchema) as any,
-        outputSchema: z.toJSONSchema(OrchestrationObjectiveResponseSchema) as any,
+        inputSchema: OrchestrationObjectiveSchema,
+        outputSchema: OrchestrationObjectiveResponseSchema,
       },
       {
         name: 'spawn_agent',
         description: 'Spawn fully autonomous Claude agent with complete tool access',
-        inputSchema: z.toJSONSchema(SpawnAgentSchema) as any,
-        outputSchema: z.toJSONSchema(SpawnAgentResponseSchema) as any
+        inputSchema: SpawnAgentSchema,
+        outputSchema: SpawnAgentResponseSchema
       },
       {
         name: 'create_task',
         description: 'Create and assign task to agents with enhanced capabilities',
-        inputSchema: z.toJSONSchema(CreateTaskSchema) as any,
-        outputSchema: z.toJSONSchema(CreateTaskResponseSchema) as any
+        inputSchema: CreateTaskSchema,
+        outputSchema: CreateTaskResponseSchema
       },
       {
         name: 'join_room',
         description: 'Join communication room for coordination',
-        inputSchema: z.toJSONSchema(JoinRoomSchema) as any,
-        outputSchema: z.toJSONSchema(JoinRoomResponseSchema) as any
+        inputSchema: JoinRoomSchema,
+        outputSchema: JoinRoomResponseSchema
       },
       {
         name: 'send_message',
         description: 'Send message to coordination room',
-        inputSchema: z.toJSONSchema(SendMessageSchema) as any,
-        outputSchema: z.toJSONSchema(SendMessageResponseSchema) as any
+        inputSchema: SendMessageSchema,
+        outputSchema: SendMessageResponseSchema
       },
       {
         name: 'wait_for_messages',
         description: 'Wait for messages in a room',
-        inputSchema: z.toJSONSchema(WaitForMessagesSchema) as any,
-        outputSchema: z.toJSONSchema(WaitForMessagesResponseSchema) as any
+        inputSchema: WaitForMessagesSchema,
+        outputSchema: WaitForMessagesResponseSchema
       },
       {
         name: 'store_memory',
         description: 'Store insights and learnings in shared memory',
-        inputSchema: z.toJSONSchema(StoreMemorySchema) as any,
-        outputSchema: z.toJSONSchema(StoreMemoryResponseSchema) as any
+        inputSchema: StoreMemorySchema,
+        outputSchema: StoreMemoryResponseSchema
       },
       {
         name: 'search_memory',
         description: 'Search shared memory for insights',
-        inputSchema: z.toJSONSchema(SearchMemorySchema) as any,
-        outputSchema: z.toJSONSchema(SearchMemoryResponseSchema) as any
+        inputSchema: SearchMemorySchema,
+        outputSchema: SearchMemoryResponseSchema
       },
       {
         name: 'list_agents',
         description: 'Get list of active agents',
-        inputSchema: z.toJSONSchema(ListAgentsSchema) as any,
-        outputSchema: z.toJSONSchema(ListAgentsResponseSchema) as any
+        inputSchema: ListAgentsSchema,
+        outputSchema: ListAgentsResponseSchema
       },
       {
         name: 'terminate_agent',
         description: 'Terminate one or more agents',
-        inputSchema: z.toJSONSchema(TerminateAgentSchema) as any,
-        outputSchema: z.toJSONSchema(TerminateAgentResponseSchema) as any
+        inputSchema: TerminateAgentSchema,
+        outputSchema: TerminateAgentResponseSchema
       },
       {
         name: 'close_room',
         description: 'Close a communication room (soft delete - marks as closed but keeps data)',
-        inputSchema: z.toJSONSchema(CloseRoomSchema) as any,
-        outputSchema: z.toJSONSchema(CloseRoomResponseSchema) as any
+        inputSchema: CloseRoomSchema,
+        outputSchema: CloseRoomResponseSchema
       },
       {
         name: 'delete_room',
         description: 'Permanently delete a communication room and all its messages',
-        inputSchema: z.toJSONSchema(DeleteRoomSchema) as any,
-        outputSchema: z.toJSONSchema(DeleteRoomResponseSchema) as any
+        inputSchema: DeleteRoomSchema,
+        outputSchema: DeleteRoomResponseSchema
       },
       {
         name: 'list_rooms',
         description: 'List communication rooms with filtering and pagination',
-        inputSchema: z.toJSONSchema(ListRoomsSchema) as any,
-        outputSchema: z.toJSONSchema(ListRoomsResponseSchema) as any
+        inputSchema: ListRoomsSchema,
+        outputSchema: ListRoomsResponseSchema
       },
       {
         name: 'list_room_messages',
         description: 'List messages from a specific room with pagination',
-        inputSchema: z.toJSONSchema(ListRoomMessagesSchema) as any,
-        outputSchema: z.toJSONSchema(ListRoomMessagesResponseSchema) as any
+        inputSchema: ListRoomMessagesSchema,
+        outputSchema: ListRoomMessagesResponseSchema
       },
       {
         name: 'monitor_agents',
         description: 'Monitor agents with real-time updates using EventBus system',
-        inputSchema: z.toJSONSchema(MonitorAgentsSchema) as any,
-        outputSchema: z.toJSONSchema(MonitorAgentsResponseSchema) as any
+        inputSchema: MonitorAgentsSchema,
+        outputSchema: MonitorAgentsResponseSchema
       }
     ];
   }

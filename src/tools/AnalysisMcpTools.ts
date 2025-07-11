@@ -80,44 +80,44 @@ export class AnalysisMcpTools {
       {
         name: 'analyze_project_structure',
         description: 'Analyze project structure and generate a comprehensive overview',
-        inputSchema: z.toJSONSchema(AnalyzeProjectStructureSchema) as any,
-        outputSchema: z.toJSONSchema(AnalyzeProjectStructureResponseSchema) as any
+        inputSchema: AnalyzeProjectStructureSchema,
+        outputSchema: AnalyzeProjectStructureResponseSchema
       },
       {
         name: 'generate_project_summary',
         description: 'Generate AI-optimized project overview and analysis',
-        inputSchema: z.toJSONSchema(GenerateProjectSummarySchema) as any,
-        outputSchema: z.toJSONSchema(GenerateProjectSummaryResponseSchema) as any
+        inputSchema: GenerateProjectSummarySchema,
+        outputSchema: GenerateProjectSummaryResponseSchema
       },
       {
         name: 'analyze_file_symbols',
         description: 'Extract and analyze symbols (functions, classes, etc.) from code files',
-        inputSchema: z.toJSONSchema(AnalyzeFileSymbolsSchema) as any,
-        outputSchema: z.toJSONSchema(AnalyzeFileSymbolsResponseSchema) as any
+        inputSchema: AnalyzeFileSymbolsSchema,
+        outputSchema: AnalyzeFileSymbolsResponseSchema
       },
       {
         name: 'list_files',
         description: 'List files in a directory with smart ignore patterns',
-        inputSchema: z.toJSONSchema(ListFilesSchema) as any,
-        outputSchema: z.toJSONSchema(ListFilesResponseSchema) as any
+        inputSchema: ListFilesSchema,
+        outputSchema: ListFilesResponseSchema
       },
       {
         name: 'find_files',
         description: 'Search for files by pattern with optional content matching',
-        inputSchema: z.toJSONSchema(FindFilesSchema) as any,
-        outputSchema: z.toJSONSchema(FindFilesResponseSchema) as any
+        inputSchema: FindFilesSchema,
+        outputSchema: FindFilesResponseSchema
       },
       {
         name: 'easy_replace',
         description: 'Fuzzy string replacement in files with smart matching',
-        inputSchema: z.toJSONSchema(EasyReplaceSchema) as any,
-        outputSchema: z.toJSONSchema(EasyReplaceResponseSchema) as any
+        inputSchema: EasyReplaceSchema,
+        outputSchema: EasyReplaceResponseSchema
       },
       {
         name: 'cleanup_orphaned_projects',
         description: 'Clean up orphaned or unused project directories',
-        inputSchema: z.toJSONSchema(CleanupOrphanedProjectsSchema) as any,
-        outputSchema: z.toJSONSchema(CleanupOrphanedProjectsResponseSchema) as any
+        inputSchema: CleanupOrphanedProjectsSchema,
+        outputSchema: CleanupOrphanedProjectsResponseSchema
       }
     ];
   }

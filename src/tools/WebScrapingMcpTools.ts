@@ -166,57 +166,57 @@ export class WebScrapingMcpTools {
       {
         name: 'scrape_documentation',
         description: 'Scrape documentation from a website using intelligent sub-agents. Jobs are queued and processed automatically by the background worker. Supports plain string selectors for content extraction.',
-        inputSchema: z.toJSONSchema(ScrapeDocumentationSchema) as any,
-        outputSchema: z.toJSONSchema(ScrapeDocumentationResponseSchema) as any
+        inputSchema: ScrapeDocumentationSchema,
+        outputSchema: ScrapeDocumentationResponseSchema
       },
       {
         name: 'get_scraping_status',
         description: 'Get status of active and recent scraping jobs (worker runs automatically)',
-        inputSchema: z.toJSONSchema(GetScrapingStatusSchema) as any,
-        outputSchema: z.toJSONSchema(GetScrapingStatusResponseSchema) as any
+        inputSchema: GetScrapingStatusSchema,
+        outputSchema: GetScrapingStatusResponseSchema
       },
       {
         name: 'cancel_scrape_job',
         description: 'Cancel an active or pending scraping job',
-        inputSchema: z.toJSONSchema(CancelScrapeJobSchema) as any,
-        outputSchema: z.toJSONSchema(CancelScrapeJobResponseSchema) as any
+        inputSchema: CancelScrapeJobSchema,
+        outputSchema: CancelScrapeJobResponseSchema
       },
       {
         name: 'force_unlock_job',
         description: 'Force unlock a stuck scraping job - useful for debugging and recovery',
-        inputSchema: z.toJSONSchema(ForceUnlockJobSchema) as any,
-        outputSchema: z.toJSONSchema(ForceUnlockJobResponseSchema) as any
+        inputSchema: ForceUnlockJobSchema,
+        outputSchema: ForceUnlockJobResponseSchema
       },
       {
         name: 'force_unlock_stuck_jobs',
         description: 'Force unlock all stuck scraping jobs (jobs that haven\'t been updated recently)',
-        inputSchema: z.toJSONSchema(ForceUnlockStuckJobsSchema) as any,
-        outputSchema: z.toJSONSchema(ForceUnlockStuckJobsResponseSchema) as any
+        inputSchema: ForceUnlockStuckJobsSchema,
+        outputSchema: ForceUnlockStuckJobsResponseSchema
       },
       // Manual worker control tools removed - worker now starts/stops automatically with MCP server
       {
         name: 'list_documentation_sources',
         description: 'List all configured documentation sources',
-        inputSchema: z.toJSONSchema(ListDocumentationSourcesSchema) as any,
-        outputSchema: z.toJSONSchema(ListDocumentationSourcesResponseSchema) as any
+        inputSchema: ListDocumentationSourcesSchema,
+        outputSchema: ListDocumentationSourcesResponseSchema
       },
       {
         name: 'delete_pages_by_pattern',
         description: 'Delete website pages matching URL patterns (useful for cleaning up version URLs, static assets)',
-        inputSchema: z.toJSONSchema(DeletePagesByPatternSchema) as any,
-        outputSchema: z.toJSONSchema(DeletePagesByPatternResponseSchema) as any
+        inputSchema: DeletePagesByPatternSchema,
+        outputSchema: DeletePagesByPatternResponseSchema
       },
       {
         name: 'delete_pages_by_ids',
         description: 'Delete specific pages by their IDs',
-        inputSchema: z.toJSONSchema(DeletePagesByIdsSchema) as any,
-        outputSchema: z.toJSONSchema(DeletePagesByIdsResponseSchema) as any
+        inputSchema: DeletePagesByIdsSchema,
+        outputSchema: DeletePagesByIdsResponseSchema
       },
       {
         name: 'delete_all_website_pages',
         description: 'Delete all pages for a website (useful for clean slate before re-scraping)',
-        inputSchema: z.toJSONSchema(DeleteAllWebsitePagesSchema) as any,
-        outputSchema: z.toJSONSchema(DeleteAllWebsitePagesResponseSchema) as any
+        inputSchema: DeleteAllWebsitePagesSchema,
+        outputSchema: DeleteAllWebsitePagesResponseSchema
       }
     ];
   }

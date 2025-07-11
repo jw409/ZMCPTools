@@ -162,33 +162,33 @@ export class BrowserTools {
       {
         name: 'create_browser_session',
         description: 'Create a new browser session with intelligent auto-close and session management',
-        inputSchema: z.toJSONSchema(BrowserCreateSessionSchema) as any,
-        outputSchema: z.toJSONSchema(BrowserOperationResponseSchema) as any
+        inputSchema: BrowserCreateSessionSchema,
+        outputSchema: BrowserOperationResponseSchema
       },
       {
         name: 'navigate_and_scrape',
         description: 'Navigate to a URL and optionally scrape content in one operation. Auto-creates session if needed.',
-        inputSchema: z.toJSONSchema(BrowserNavigateAndScrapeSchema) as any,
-        outputSchema: z.toJSONSchema(BrowserOperationResponseSchema) as any
+        inputSchema: BrowserNavigateAndScrapeSchema,
+        outputSchema: BrowserOperationResponseSchema
       },
       {
         name: 'interact_with_page',
         description: 'Perform multiple interactions with a page: click, type, hover, select, screenshot, wait, scroll',
-        inputSchema: z.toJSONSchema(BrowserInteractWithPageSchema) as any,
-        outputSchema: z.toJSONSchema(BrowserOperationResponseSchema) as any
+        inputSchema: BrowserInteractWithPageSchema,
+        outputSchema: BrowserOperationResponseSchema
       },
       {
         name: 'manage_browser_sessions',
         description: 'Manage browser sessions: list, close, cleanup idle sessions, get status',
-        inputSchema: z.toJSONSchema(BrowserManageSessionsSchema) as any,
-        outputSchema: z.toJSONSchema(BrowserOperationResponseSchema) as any
+        inputSchema: BrowserManageSessionsSchema,
+        outputSchema: BrowserOperationResponseSchema
       },
       // Legacy tools for backward compatibility
       {
         name: 'navigate_to_url',
         description: '[LEGACY] Navigate to a URL in an existing browser session. Use navigate_and_scrape instead.',
-        inputSchema: z.toJSONSchema(BrowserLegacyNavigateSchema) as any,
-        outputSchema: z.toJSONSchema(BrowserOperationResponseSchema) as any
+        inputSchema: BrowserLegacyNavigateSchema,
+        outputSchema: BrowserOperationResponseSchema
       }
     ];
   }
