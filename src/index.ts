@@ -12,7 +12,7 @@ import os from 'os';
 
 // Export key components for testing and external use
 export { ClaudeProcess, ClaudeSpawner, ProcessReaper } from './process/index.js';
-export type { ClaudeSpawnConfig, CLIMessage } from './process/index.js';
+export type { ClaudeSpawnConfig } from './process/index.js';
 
 // Default configuration
 const DEFAULT_DATA_DIR = path.join(os.homedir(), '.mcptools', 'data');

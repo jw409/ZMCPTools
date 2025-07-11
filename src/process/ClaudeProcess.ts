@@ -4,6 +4,7 @@ import path, { join } from "path";
 import { tmpdir, homedir } from "os";
 import { execSync, execFile } from "child_process";
 import { spawn } from "child_process";
+import { type SDKMessage } from "@anthropic-ai/claude-code";
 
 export interface ClaudeSpawnConfig {
   workingDirectory: string;
@@ -21,16 +22,6 @@ export interface ClaudeSpawnConfig {
   roomId?: string; // For coordination-based append instructions
   additionalInstructions?: string; // High-priority instructions from orchestrator
   onSessionIdExtracted?: (sessionId: string) => Promise<void>; // Callback for session ID extraction
-}
-
-export interface CLIMessage {
-  type: 'assistant' | 'user' | 'system' | 'result' | 'error' | 'session_id';
-  content?: string;
-  session_id?: string;
-  result?: any;
-  error?: any;
-  subtype?: string;
-  metadata?: any;
 }
 
 export class ClaudeProcess extends EventEmitter {
@@ -147,7 +138,7 @@ export class ClaudeProcess extends EventEmitter {
         // Process any remaining buffer content
         if (this.stdoutBuffer.trim()) {
           try {
-            const message = JSON.parse(this.stdoutBuffer.trim()) as CLIMessage;
+            const message = JSON.parse(this.stdoutBuffer.trim()) as SDKMessage;
             this.handleCLIMessage(message);
           } catch (parseError) {
             // Emit as raw text if not JSON
@@ -235,6 +226,14 @@ export class ClaudeProcess extends EventEmitter {
   }
 
   /**
+   * Validate if a string is a valid UUID format
+   */
+  private isValidUUID(uuid: string): boolean {
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    return uuidRegex.test(uuid);
+  }
+
+  /**
    * Build the CLI command arguments array
    */
   private buildCliCommand(): string[] {
@@ -243,8 +242,8 @@ export class ClaudeProcess extends EventEmitter {
     // Always use print mode for non-interactive execution
     args.push('-p');
     
-    // Use json output format for structured parsing (not stream-json)
-    args.push('--output-format', 'json');
+    // Use stream-json output format for line-by-line JSON parsing
+    args.push('--output-format', 'stream-json');
     
     // Add model if specified
     if (this.config.model) {
@@ -261,9 +260,14 @@ export class ClaudeProcess extends EventEmitter {
       args.push('--disallowedTools', this.config.disallowedTools.join(' '));
     }
     
-    // Add session ID for resuming
-    if (this.config.sessionId) {
+    // Add session ID for resuming - only if it's a valid UUID
+    if (this.config.sessionId && this.isValidUUID(this.config.sessionId)) {
       args.push('--resume', this.config.sessionId);
+    } else if (this.config.sessionId && !this.isValidUUID(this.config.sessionId)) {
+      // Log when we skip using --resume due to invalid UUID format
+      process.stderr.write(
+        `Skipping --resume flag for session ID "${this.config.sessionId}" - Claude CLI requires UUID format\n`
+      );
     }
     
     // Add verbose logging
@@ -288,8 +292,8 @@ export class ClaudeProcess extends EventEmitter {
     // Always use print mode for non-interactive execution
     args.push('-p');
     
-    // Use json output format for structured parsing (not stream-json)
-    args.push('--output-format', 'json');
+    // Use stream-json output format for line-by-line JSON parsing
+    args.push('--output-format', 'stream-json');
     
     // Add model if specified
     if (this.config.model) {
@@ -306,9 +310,14 @@ export class ClaudeProcess extends EventEmitter {
       args.push('--disallowedTools', this.config.disallowedTools.join(' '));
     }
     
-    // Add session ID for resuming
-    if (this.config.sessionId) {
+    // Add session ID for resuming - only if it's a valid UUID
+    if (this.config.sessionId && this.isValidUUID(this.config.sessionId)) {
       args.push('--resume', this.config.sessionId);
+    } else if (this.config.sessionId && !this.isValidUUID(this.config.sessionId)) {
+      // Log when we skip using --resume due to invalid UUID format
+      process.stderr.write(
+        `Skipping --resume flag for session ID "${this.config.sessionId}" - Claude CLI requires UUID format\n`
+      );
     }
     
     // Add verbose logging
@@ -342,28 +351,41 @@ export class ClaudeProcess extends EventEmitter {
    * Process streaming output from CLI and emit appropriate events
    */
   private processStreamOutput(): void {
-    // Handle json format which may output complete JSON objects
-    // Try to find complete JSON messages in the buffer
-    let processedLength = 0;
-    
-    // Look for JSON objects separated by newlines or complete messages
+    // Handle json-stream format which outputs one JSON object per line
     const lines = this.stdoutBuffer.split('\n');
     
-    // Keep the last line in buffer in case it's incomplete
-    this.stdoutBuffer = lines.pop() || '';
+    // Keep the last line in buffer if it might be incomplete
+    if (lines.length > 0 && !this.stdoutBuffer.endsWith('\n')) {
+      this.stdoutBuffer = lines.pop() || '';
+    } else {
+      this.stdoutBuffer = '';
+    }
     
+    // Process each complete line
     for (const line of lines) {
       const trimmedLine = line.trim();
       if (!trimmedLine) continue;
       
       try {
         // Try to parse as JSON
-        const message = JSON.parse(trimmedLine) as CLIMessage;
+        const message = JSON.parse(trimmedLine) as SDKMessage;
+
+        // Always attempt to extract session ID from any JSON message
+        this.extractSessionIdFromCLIMessage(message);
+        
         this.handleCLIMessage(message);
       } catch (parseError) {
         // If we can't parse as JSON, treat as plain text output
+        // But also check if it contains session_id as plain text
+        if (!this.sessionIdExtracted && trimmedLine.includes('session_id')) {
+          const sessionIdMatch = trimmedLine.match(/session_id["\s]*:\s*["']?([a-f0-9-]{36})["']?/i);
+          if (sessionIdMatch && sessionIdMatch[1] && this.isValidUUID(sessionIdMatch[1])) {
+            this.handleSessionIdExtraction(sessionIdMatch[1]);
+          }
+        }
+        
         this.emit("stdout", {
-          data: line,
+          data: trimmedLine,
           pid: this.pid,
           isJson: false,
           messageType: "text",
@@ -375,7 +397,7 @@ export class ClaudeProcess extends EventEmitter {
   /**
    * Handle CLI message similar to SDK message handling
    */
-  private handleCLIMessage(message: CLIMessage): void {
+  private handleCLIMessage(message: SDKMessage): void {
     try {
       const messageStr = JSON.stringify(message);
       
@@ -395,6 +417,9 @@ export class ClaudeProcess extends EventEmitter {
           break;
 
         case "system":
+          if (message.session_id) {
+            this.handleSessionIdExtraction(message.session_id);
+          }
           this.emit("stdout", {
             data: messageStr,
             pid: this.pid,
@@ -420,20 +445,6 @@ export class ClaudeProcess extends EventEmitter {
             });
           }
           break;
-
-        case "session_id":
-          if (message.session_id) {
-            this.handleSessionIdExtraction(message.session_id);
-          }
-          break;
-
-        case "error":
-          this.emit("stderr", {
-            data: messageStr,
-            pid: this.pid,
-            messageType: "error",
-          });
-          break;
       }
     } catch (error) {
       process.stderr.write(
@@ -445,7 +456,7 @@ export class ClaudeProcess extends EventEmitter {
   /**
    * Extract session_id from CLI message and call callback if configured
    */
-  private async extractSessionIdFromCLIMessage(message: CLIMessage): Promise<void> {
+  private async extractSessionIdFromCLIMessage(message: SDKMessage): Promise<void> {
     // Skip if already extracted
     if (this.sessionIdExtracted) {
       return;
@@ -457,14 +468,18 @@ export class ClaudeProcess extends EventEmitter {
       // Check for session_id in the message
       if (message.session_id) {
         sessionId = message.session_id;
-      } else if (message.type === 'session_id' && message.content) {
-        sessionId = message.content;
-      } else if (message.metadata?.session_id) {
-        sessionId = message.metadata.session_id;
+      } else if (message.type === 'system' && (message as any).session_id) {
+        // Handle system init messages that contain session_id at top level
+        sessionId = (message as any).session_id;
       }
 
-      if (sessionId) {
+      // Validate session ID is UUID format before storing
+      if (sessionId && this.isValidUUID(sessionId)) {
         this.handleSessionIdExtraction(sessionId);
+      } else if (sessionId) {
+        process.stderr.write(
+          `Ignoring invalid session ID format "${sessionId}" for process ${this.pid} - Claude CLI requires UUID format\n`
+        );
       }
     } catch (error) {
       // Log error but don't fail the message handling
@@ -480,6 +495,9 @@ export class ClaudeProcess extends EventEmitter {
   private async handleSessionIdExtraction(sessionId: string): Promise<void> {
     this.extractedSessionId = sessionId;
     this.sessionIdExtracted = true;
+
+    // Emit a specific gotSessionId event first
+    this.emit('gotSessionId', { sessionId, pid: this.pid });
 
     // Call the callback if provided
     if (this.config.onSessionIdExtracted) {

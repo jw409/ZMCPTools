@@ -1,5 +1,5 @@
 import { DatabaseManager } from '../database/index.js';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { join, dirname, resolve } from 'path';
 import { homedir } from 'os';
 import { mkdirSync, existsSync, statSync } from 'fs';
@@ -1624,7 +1624,7 @@ export class FoundationCacheService {
   }
 
   private generateSessionId(): string {
-    return `foundation_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    return randomUUID();
   }
 
   private generateCacheId(): string {

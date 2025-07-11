@@ -429,7 +429,6 @@ export class AgentService {
     const config: ClaudeSpawnConfig = {
       workingDirectory,
       prompt,
-      sessionId: foundationSessionId || `agent_${agent.id}`, // Use foundation session if available
       capabilities: agent.capabilities,
       allowedTools: allowedTools,
       disallowedTools: disallowedTools,
@@ -445,7 +444,8 @@ export class AgentService {
         ROOM_ID: agent.roomId || '',
         FOUNDATION_SESSION_ID: foundationSessionId || ''
       },
-      ...claudeConfig
+      ...claudeConfig,
+      sessionId: undefined // Always override - only set when resuming existing Claude sessions (UUID format)
     };
 
     this.logger.info(`Final configuration for Claude process spawn`, {

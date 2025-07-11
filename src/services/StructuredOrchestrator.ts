@@ -709,7 +709,7 @@ export class StructuredOrchestrator extends EventEmitter {
       claudeConfig: {
         model,
         prompt: this.generateSpecializedPrompt(specialization, taskDescription, orchestrationId),
-        sessionId: foundationSessionId
+        sessionId: undefined // Only set when resuming existing Claude sessions (UUID format)
       }
     });
 

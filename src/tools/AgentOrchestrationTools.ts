@@ -251,7 +251,7 @@ export class AgentOrchestrationTools {
         },
         claudeConfig: {
           prompt: architectPrompt,
-          sessionId: foundationSessionId,
+          sessionId: undefined, // Only set when resuming existing Claude sessions (UUID format)
           environmentVars: {
             ORCHESTRATION_MODE: 'architect',
             TARGET_ROOM: roomName,
