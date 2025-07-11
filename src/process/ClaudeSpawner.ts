@@ -1,8 +1,8 @@
-import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
-import { writeFileSync, mkdirSync, existsSync, createWriteStream } from 'fs';
+import { writeFileSync, mkdirSync, existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir, homedir } from 'os';
+import { query, type SDKMessage, type Options } from '@anthropic-ai/claude-code';
 
 export interface ClaudeSpawnConfig {
   workingDirectory: string;
@@ -19,17 +19,18 @@ export interface ClaudeSpawnConfig {
 export class ClaudeProcess extends EventEmitter {
   public readonly pid: number;
   public readonly config: ClaudeSpawnConfig;
-  private process: ChildProcess;
+  private abortController: AbortController;
   private _exitCode: number | null = null;
   private _hasExited = false;
   private stdoutPath: string;
   private stderrPath: string;
+  private runPromise: Promise<void> | null = null;
 
-  constructor(childProcess: ChildProcess, config: ClaudeSpawnConfig) {
+  constructor(config: ClaudeSpawnConfig) {
     super();
-    this.process = childProcess;
-    this.pid = childProcess.pid!;
     this.config = config;
+    this.pid = Math.floor(Math.random() * 100000) + Date.now(); // Generate unique pseudo-PID
+    this.abortController = new AbortController();
 
     // Set up log files in the dedicated claude_agents directory
     const logDir = join(homedir(), '.mcptools', 'logs', 'claude_agents');
@@ -49,60 +50,136 @@ export class ClaudeProcess extends EventEmitter {
       this.stdoutPath = join(tempDir, `claude-${this.pid}-stdout.log`);
       this.stderrPath = join(tempDir, `claude-${this.pid}-stderr.log`);
     }
-
-    this.setupEventHandlers();
   }
 
-  private setupEventHandlers(): void {
-    this.process.on('exit', (code, signal) => {
-      this._exitCode = code;
-      this._hasExited = true;
-      this.emit('exit', { code, signal, pid: this.pid });
-    });
-
-    this.process.on('error', (error) => {
-      this.emit('error', { error, pid: this.pid });
-    });
-
-    // Capture stdout/stderr to log files with JSON filtering
-    if (this.process.stdout) {
-      this.process.stdout.on('data', (data) => {
-        try {
-          const output = data.toString();
-          writeFileSync(this.stdoutPath, output, { flag: 'a' });
-          
-          // Filter and emit only valid JSON lines to prevent parsing errors
-          const lines = output.split('\n');
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (trimmed && trimmed.startsWith('{')) {
-              try {
-                JSON.parse(trimmed); // Validate JSON
-                this.emit('stdout', { data: trimmed, pid: this.pid, isJson: true });
-              } catch {
-                // Invalid JSON, emit as plain text
-                this.emit('stdout', { data: trimmed, pid: this.pid, isJson: false });
-              }
-            } else if (trimmed) {
-              // Plain text output
-              this.emit('stdout', { data: trimmed, pid: this.pid, isJson: false });
-            }
-          }
-        } catch (error) {
-          process.stderr.write(`Failed to write stdout log for process ${this.pid}: ${error}\n`);
-        }
-      });
+  async start(): Promise<void> {
+    if (this.runPromise || this._hasExited) {
+      return;
     }
 
-    if (this.process.stderr) {
-      this.process.stderr.on('data', (data) => {
-        try {
-          writeFileSync(this.stderrPath, data, { flag: 'a' });
-          this.emit('stderr', { data: data.toString(), pid: this.pid });
-        } catch (error) {
-          process.stderr.write(`Failed to write stderr log for process ${this.pid}: ${error}\n`);
-        }
+    this.runPromise = this.executeQuery();
+    return this.runPromise;
+  }
+
+  private async executeQuery(): Promise<void> {
+    try {
+      // Inject CLAUDE.md content into system prompt for agent context
+      const systemPrompt = this.buildSystemPrompt();
+      
+      // Build Claude SDK options
+      const options: Options = {
+        abortController: this.abortController,
+        cwd: this.config.workingDirectory,
+        allowedTools: this.config.allowedTools,
+        disallowedTools: this.config.disallowedTools,
+        model: this.config.model,
+        appendSystemPrompt: systemPrompt,
+        permissionMode: 'bypassPermissions', // Equivalent to --dangerously-skip-permissions
+        resume: this.config.sessionId,
+      };
+
+      // Execute Claude query with SDK
+      const response = query({
+        prompt: this.config.prompt,
+        abortController: this.abortController,
+        options
       });
+
+      // Process streaming messages
+      for await (const message of response) {
+        this.handleSDKMessage(message);
+        
+        if (this.abortController.signal.aborted) {
+          break;
+        }
+      }
+
+      // Mark as completed successfully
+      this._exitCode = 0;
+      this._hasExited = true;
+      this.emit('exit', { code: 0, signal: null, pid: this.pid });
+
+    } catch (error) {
+      // Handle errors
+      let errorMessage = 'Unknown error';
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+      
+      try {
+        writeFileSync(this.stderrPath, `Error: ${errorMessage}\n`, { flag: 'a' });
+      } catch (logError) {
+        process.stderr.write(`Failed to write error log for process ${this.pid}: ${logError}\n`);
+      }
+
+      this._exitCode = 1;
+      this._hasExited = true;
+      this.emit('error', { error, pid: this.pid });
+      this.emit('exit', { code: 1, signal: null, pid: this.pid });
+    }
+  }
+
+  private buildSystemPrompt(): string {
+    try {
+      // Inject CLAUDE.md content for agent context
+      const claudeMdPath = join(this.config.workingDirectory, 'CLAUDE.md');
+      if (existsSync(claudeMdPath)) {
+        const claudeMdContent = readFileSync(claudeMdPath, 'utf-8');
+        return `\n\n<system-context>\n${claudeMdContent}\n</system-context>\n\nYou are a specialized Claude agent with access to the ClaudeMcpTools system. Use the context above to understand your capabilities and coordinate with other agents as needed.`;
+      }
+    } catch (error) {
+      process.stderr.write(`Warning: Could not read CLAUDE.md for system prompt injection: ${error}\n`);
+    }
+    
+    return '\n\nYou are a specialized Claude agent running via ClaudeMcpTools. Work autonomously to complete your assigned task.';
+  }
+
+  private handleSDKMessage(message: SDKMessage): void {
+    try {
+      const messageStr = JSON.stringify(message);
+      writeFileSync(this.stdoutPath, messageStr + '\n', { flag: 'a' });
+      
+      // Emit structured message based on type
+      switch (message.type) {
+        case 'assistant':
+        case 'user':
+          this.emit('stdout', { 
+            data: messageStr, 
+            pid: this.pid, 
+            isJson: true,
+            messageType: message.type 
+          });
+          break;
+          
+        case 'system':
+          this.emit('stdout', { 
+            data: messageStr, 
+            pid: this.pid, 
+            isJson: true,
+            messageType: 'system' 
+          });
+          break;
+          
+        case 'result':
+          if (message.subtype === 'success') {
+            this.emit('stdout', { 
+              data: messageStr, 
+              pid: this.pid, 
+              isJson: true,
+              messageType: 'result',
+              result: message.result 
+            });
+          } else {
+            this.emit('stderr', { 
+              data: messageStr, 
+              pid: this.pid,
+              messageType: 'error' 
+            });
+          }
+          break;
+      }
+    } catch (error) {
+      process.stderr.write(`Failed to handle SDK message for process ${this.pid}: ${error}\n`);
     }
   }
 
@@ -116,7 +193,11 @@ export class ClaudeProcess extends EventEmitter {
 
   terminate(signal: NodeJS.Signals = 'SIGTERM'): void {
     if (!this._hasExited) {
-      this.process.kill(signal);
+      this.abortController.abort('Process terminated');
+      // For compatibility, we'll set exit code based on signal
+      this._exitCode = signal === 'SIGKILL' ? 137 : 143;
+      this._hasExited = true;
+      this.emit('exit', { code: this._exitCode, signal, pid: this.pid });
     }
   }
 
@@ -178,74 +259,28 @@ export class ClaudeSpawner extends EventEmitter {
       this.reaper.start();
     }
     
-    // Build Claude CLI command - matching claude-code-mcp approach
-    const cmd = [
-      'claude',
-      '--dangerously-skip-permissions', // CRITICAL: Enables full autonomy
-      '--output-format', 'json'
-    ];
-
-    // Add model
-    if (config.model) {
-      cmd.push('--model', config.model);
-    }
-
-    // Add tool restrictions if specified (CRITICAL: prevents MCP recursion)
-    if (config.allowedTools && config.allowedTools.length > 0) {
-      cmd.push('--allowedTools', config.allowedTools.join(','));
-    }
-
-    if (config.disallowedTools && config.disallowedTools.length > 0) {
-      cmd.push('--disallowedTools', config.disallowedTools.join(','));
-    }
-
-    // Add session ID if provided for continuity (resume session)
-    // Note: Claude CLI requires UUID format for session IDs, so we skip this for now
-    // if (config.sessionId) {
-    //   cmd.push('-r', config.sessionId);
-    // }
-
-    // Add prompt via -p flag (this is the key fix!)
-    cmd.push('-p', config.prompt);
-
-    // Set up isolated environment per agent
-    const env = {
-      ...process.env,
-      MCPTOOLS_SERVER_STARTUP_DIAGNOSTICS: 'false',
-      MCPTOOLS_DOCUMENTATION_AUTO_BOOTSTRAP: 'false',
-      CLAUDE_SESSION_ID: config.sessionId || `session_${Date.now()}`,
-      CLAUDE_AGENT_CAPABILITIES: JSON.stringify(config.capabilities || []),
-      // Mark this as an agent process (not main MCP process)
-      MCP_AGENT_ID: config.sessionId || `agent_${Date.now()}`,
-      MCP_MAIN_PROCESS: 'false',
-      ...config.environmentVars
-    };
-
-    // Validate working directory before spawn
+    // Validate working directory before creating process
     const workingDir = config.workingDirectory || process.cwd();
     if (!existsSync(workingDir)) {
       throw new Error(`Working directory does not exist: ${workingDir}`);
     }
 
-    process.stderr.write(`Spawning Claude agent with PID context in: ${workingDir}\n`);
-    process.stderr.write(`Command: ${cmd.join(' ')}\n`);
-    process.stderr.write(`Prompt: ${config.prompt.substring(0, 100)}...\n`);
-
-    // Spawn the Claude process - matching claude-code-mcp stdio setup
-    const childProcess = spawn(cmd[0], cmd.slice(1), {
-      cwd: workingDir,
-      env,
-      stdio: ['ignore', 'pipe', 'pipe'], // ignore stdin, pipe stdout/stderr
-      detached: false,
-      shell: false
-    });
-
-    if (!childProcess.pid) {
-      throw new Error('Failed to spawn Claude process - no PID assigned');
+    // Validate and set default model to one of the supported models
+    const supportedModels = ['claude-3-7-sonnet-latest', 'claude-sonnet-4-0', 'claude-opus-4-0'];
+    if (config.model && !supportedModels.includes(config.model)) {
+      process.stderr.write(`Warning: Model ${config.model} is not in supported list. Using claude-sonnet-4-0 instead.\n`);
+      config.model = 'claude-sonnet-4-0';
+    } else if (!config.model) {
+      config.model = 'claude-sonnet-4-0'; // Default to Sonnet 4
     }
 
-    // Create our wrapper
-    const claudeProcess = new ClaudeProcess(childProcess, config);
+    process.stderr.write(`Creating Claude SDK agent in: ${workingDir}\n`);
+    process.stderr.write(`Model: ${config.model}\n`);
+    process.stderr.write(`Session ID: ${config.sessionId || 'auto-generated'}\n`);
+    process.stderr.write(`Prompt: ${config.prompt.substring(0, 100)}...\n`);
+
+    // Create our SDK-based wrapper
+    const claudeProcess = new ClaudeProcess(config);
     
     // Register in our tracking system
     this.processRegistry.set(claudeProcess.pid, claudeProcess);
@@ -268,18 +303,17 @@ export class ClaudeSpawner extends EventEmitter {
         if (!claudeProcess.hasExited()) {
           process.stderr.write(`Claude process ${claudeProcess.pid} timed out after ${config.timeout}ms\n`);
           claudeProcess.terminate('SIGTERM');
-          
-          // Force kill after grace period
-          setTimeout(() => {
-            if (!claudeProcess.hasExited()) {
-              claudeProcess.terminate('SIGKILL');
-            }
-          }, 5000);
         }
       }, config.timeout);
     }
 
-    process.stderr.write(`Successfully spawned Claude agent with PID: ${claudeProcess.pid}\n`);
+    // Start the SDK execution asynchronously
+    claudeProcess.start().catch((error) => {
+      process.stderr.write(`Failed to start Claude SDK process ${claudeProcess.pid}: ${error}\n`);
+      claudeProcess.emit('error', { error, pid: claudeProcess.pid });
+    });
+
+    process.stderr.write(`Successfully created Claude SDK agent with PID: ${claudeProcess.pid}\n`);
     return claudeProcess;
   }
 
@@ -294,7 +328,8 @@ export class ClaudeSpawner extends EventEmitter {
   terminateAllProcesses(signal: NodeJS.Signals = 'SIGTERM'): void {
     process.stderr.write(`Terminating ${this.processRegistry.size} Claude processes\n`);
     
-    for (const process of this.processRegistry.values()) {
+    const processes = Array.from(this.processRegistry.values());
+    for (const process of processes) {
       if (!process.hasExited()) {
         process.terminate(signal);
       }
