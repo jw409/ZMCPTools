@@ -165,11 +165,12 @@ export class AnalysisMcpTools {
       
       if (cachedStructure) {
         const executionTime = Date.now() - startTime;
+        const stats = this.calculateProjectStats(cachedStructure.structure);
         
         return createSuccessResponse(
-          `Successfully retrieved cached project structure for ${projectPath}`,
+          `Successfully analyzed ${stats.totalFiles} files and ${stats.totalDirectories} directories (cached), summary written to .treesummary/structure.txt`,
           {
-            project_info: cachedStructure.structure,
+            stats,
             summary_generated: params.generate_summary,
             summary_path: params.generate_summary ? path.join(projectPath, '.treesummary', 'structure.txt') : null,
             cached: true
@@ -204,11 +205,12 @@ export class AnalysisMcpTools {
     }
 
     const executionTime = Date.now() - startTime;
+    const stats = this.calculateProjectStats(structure);
     
     return createSuccessResponse(
-      `Successfully analyzed project structure for ${projectPath}`,
+      `Successfully analyzed ${stats.totalFiles} files and ${stats.totalDirectories} directories, summary written to .treesummary/structure.txt`,
       {
-        project_info: structure,
+        stats,
         summary_generated: params.generate_summary,
         summary_path: params.generate_summary ? path.join(projectPath, '.treesummary', 'structure.txt') : null,
         cached: false
@@ -454,7 +456,7 @@ export class AnalysisMcpTools {
       if (params.include_content) {
         try {
           const content = await readFile(filePath, 'utf8');
-          result.preview = content.substring(0, 500) + (content.length > 500 ? '...' : '');
+          result.preview = content.substring(0, 50) + (content.length > 50 ? '...' : '');
         } catch {
           result.preview = '[Could not read file]';
         }
