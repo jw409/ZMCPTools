@@ -13,6 +13,7 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
+import type { McpTool } from '../schemas/tools/index.js';
 import { chromium, firefox, webkit } from 'patchright';
 import type { Browser, Page, BrowserContext } from 'patchright';
 import UserAgent from 'user-agents';
@@ -158,126 +159,89 @@ export class BrowserTools {
    * Get optimized browser-related MCP tools (Phase 4)
    * Consolidated from 8 tools to 5 essential tools with smart session management
    */
-  getTools() {
+  getTools(): McpTool[] {
     return [
       {
         name: 'create_browser_session',
         description: 'Create a new browser session with intelligent auto-close and session management',
         inputSchema: zodToJsonSchema(BrowserCreateSessionSchema),
-        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema)
+        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema),
+        handler: (args: any) => this.createBrowserSessionEnhanced(args)
       },
       {
         name: 'navigate_and_scrape',
         description: 'Navigate to a URL and optionally scrape content in one operation. Auto-creates session if needed.',
         inputSchema: zodToJsonSchema(BrowserNavigateAndScrapeSchema),
-        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema)
+        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema),
+        handler: (args: any) => this.navigateAndScrape(args)
       },
       {
         name: 'interact_with_page',
         description: 'Perform multiple interactions with a page: click, type, hover, select, screenshot, wait, scroll',
         inputSchema: zodToJsonSchema(BrowserInteractWithPageSchema),
-        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema)
+        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema),
+        handler: (args: any) => this.interactWithPage(args)
       },
       {
         name: 'manage_browser_sessions',
         description: 'Manage browser sessions: list, close, cleanup idle sessions, get status',
         inputSchema: zodToJsonSchema(BrowserManageSessionsSchema),
-        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema)
+        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema),
+        handler: (args: any) => this.manageBrowserSessions(args)
       },
       // Legacy tools for backward compatibility
       {
         name: 'navigate_to_url',
         description: '[LEGACY] Navigate to a URL in an existing browser session. Use navigate_and_scrape instead.',
         inputSchema: zodToJsonSchema(BrowserLegacyNavigateSchema),
-        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema)
+        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema),
+        handler: (args: any) => this.navigateToUrl(args)
+      },
+      {
+        name: 'scrape_content',
+        description: '[LEGACY] Scrape content from the current page. Use navigate_and_scrape instead.',
+        inputSchema: zodToJsonSchema(BrowserLegacyScrapeSchema),
+        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema),
+        handler: (args: any) => this.scrapeContent(args)
+      },
+      {
+        name: 'take_screenshot',
+        description: '[LEGACY] Take a screenshot of the current page. Use interact_with_page instead.',
+        inputSchema: zodToJsonSchema(BrowserScreenshotSchema),
+        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema),
+        handler: (args: any) => this.takeScreenshot(args)
+      },
+      {
+        name: 'execute_browser_script',
+        description: '[LEGACY] Execute JavaScript in the browser context. Use interact_with_page instead.',
+        inputSchema: zodToJsonSchema(BrowserExecuteScriptSchema),
+        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema),
+        handler: (args: any) => this.executeScript(args)
+      },
+      {
+        name: 'interact_with_element',
+        description: '[LEGACY] Interact with a page element. Use interact_with_page instead.',
+        inputSchema: zodToJsonSchema(BrowserInteractSchema),
+        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema),
+        handler: (args: any) => this.interactWithElement(args)
+      },
+      {
+        name: 'close_browser_session',
+        description: '[LEGACY] Close a browser session. Use manage_browser_sessions instead.',
+        inputSchema: zodToJsonSchema(z.object({ session_id: z.string() })),
+        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema),
+        handler: (args: any) => this.closeBrowserSession(args)
+      },
+      {
+        name: 'list_browser_sessions',
+        description: '[LEGACY] List all browser sessions. Use manage_browser_sessions instead.',
+        inputSchema: zodToJsonSchema(z.object({})),
+        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema),
+        handler: (args: any) => this.listBrowserSessions()
       }
     ];
   }
 
-  /**
-   * Handle MCP tool calls for browser functionality with intelligent session management
-   */
-  async handleToolCall(name: string, arguments_: any): Promise<BrowserOperationResponse> {
-    const startTime = performance.now();
-    
-    try {
-      let result: any;
-      
-      switch (name) {
-        case 'create_browser_session':
-          result = await this.createBrowserSessionEnhanced(arguments_);
-          break;
-        
-        case 'navigate_and_scrape':
-          result = await this.navigateAndScrape(arguments_);
-          break;
-        
-        case 'interact_with_page':
-          result = await this.interactWithPage(arguments_);
-          break;
-        
-        case 'manage_browser_sessions':
-          result = await this.manageBrowserSessions(arguments_);
-          break;
-        
-        // Legacy support
-        case 'navigate_to_url':
-          result = await this.navigateToUrl(arguments_);
-          break;
-        
-        case 'scrape_content':
-          result = await this.scrapeContent(arguments_);
-          break;
-        
-        case 'take_screenshot':
-          result = await this.takeScreenshot(arguments_);
-          break;
-        
-        case 'execute_browser_script':
-          result = await this.executeScript(arguments_);
-          break;
-        
-        case 'interact_with_element':
-          result = await this.interactWithElement(arguments_);
-          break;
-        
-        case 'close_browser_session':
-          result = await this.closeBrowserSession(arguments_);
-          break;
-        
-        case 'list_browser_sessions':
-          result = await this.listBrowserSessions();
-          break;
-        
-        default:
-          throw new Error(`Unknown browser tool: ${name}`);
-      }
-      
-      const executionTime = performance.now() - startTime;
-      
-      // Transform result to standardized format
-      if (result && typeof result === 'object' && 'success' in result) {
-        return createSuccessResponse(
-          result.message || `${name} completed successfully`,
-          this.transformResultData(result, name),
-          executionTime
-        ) as BrowserOperationResponse;
-      } else {
-        return createSuccessResponse(
-          `${name} completed successfully`,
-          this.transformResultData(result, name),
-          executionTime
-        ) as BrowserOperationResponse;
-      }
-    } catch (error) {
-      const executionTime = performance.now() - startTime;
-      return createErrorResponse(
-        `${name} failed to execute`,
-        error instanceof Error ? error.message : 'Unknown error occurred',
-        'BROWSER_TOOL_ERROR'
-      ) as BrowserOperationResponse;
-    }
-  }
 
   // ===================================
   // Core Browser Automation Methods
@@ -704,7 +668,7 @@ export class BrowserTools {
   // MCP Enhanced Methods
   // ===================================
 
-  private async createBrowserSessionEnhanced(args: any) {
+  private async createBrowserSessionEnhanced(args: z.infer<typeof BrowserCreateSessionSchema>) {
     const params = BrowserCreateSessionSchema.parse(args);
     
     const result = await this.createBrowserSessionCore(
@@ -747,7 +711,7 @@ export class BrowserTools {
       }
     }
 
-    return {
+    const enhancedResult = {
       ...result,
       sessionConfig: {
         workflowType: params.workflow_type,
@@ -756,9 +720,11 @@ export class BrowserTools {
         maxIdleTime: params.max_idle_time
       }
     };
+
+    return this.transformResultData(enhancedResult, 'create_browser_session');
   }
 
-  private async navigateAndScrape(args: any) {
+  private async navigateAndScrape(args: z.infer<typeof BrowserNavigateAndScrapeSchema>) {
     const params = BrowserNavigateAndScrapeSchema.parse(args);
     
     let sessionId = params.session_id;
@@ -776,7 +742,8 @@ export class BrowserTools {
         return createResult;
       }
       
-      sessionId = createResult.sessionId;
+      // Extract session_id from transformed result
+      sessionId = createResult.data?.session_id || createResult.sessionId;
       sessionCreated = true;
     }
 
@@ -829,7 +796,7 @@ export class BrowserTools {
       }, 5000); // 5 second delay to allow for immediate follow-up operations
     }
 
-    return {
+    const result = {
       success: true,
       sessionId,
       sessionCreated,
@@ -838,9 +805,11 @@ export class BrowserTools {
       url: navResult.url,
       title: navResult.title
     };
+
+    return this.transformResultData(result, 'navigate_and_scrape');
   }
 
-  private async interactWithPage(args: any) {
+  private async interactWithPage(args: z.infer<typeof BrowserInteractWithPageSchema>) {
     const params = BrowserInteractWithPageSchema.parse(args);
     
     this.updateSessionActivity(params.session_id);
@@ -912,39 +881,50 @@ export class BrowserTools {
       }, 2000); // 2 second delay
     }
     
-    return {
+    const pageResult = {
       success: results.every(r => r.result.success),
+      sessionId: params.session_id,
       results,
       totalActions: params.actions.length,
       completedActions: results.length
     };
+    
+    return this.transformResultData(pageResult, 'interact_with_page');
   }
 
-  private async manageBrowserSessions(args: any) {
+  private async manageBrowserSessions(args: z.infer<typeof BrowserManageSessionsSchema>) {
     const params = BrowserManageSessionsSchema.parse(args);
     
+    let result;
     switch (params.action) {
       case 'list':
-        return await this.listBrowserSessionsEnhanced();
+        result = await this.listBrowserSessionsEnhanced();
+        break;
         
       case 'close':
         if (!params.session_id) {
           return { success: false, error: 'session_id required for close action' };
         }
-        return await this.closeBrowserSessionEnhanced(params.session_id, params.force_close);
+        result = await this.closeBrowserSessionEnhanced(params.session_id, params.force_close);
+        break;
         
       case 'close_all':
-        return await this.closeAllSessions(params.force_close);
+        result = await this.closeAllSessions(params.force_close);
+        break;
         
       case 'cleanup_idle':
-        return await this.cleanupIdleSessions(params.cleanup_criteria);
+        result = await this.cleanupIdleSessions(params.cleanup_criteria);
+        break;
         
       case 'get_status':
-        return await this.getSessionsStatus();
+        result = await this.getSessionsStatus();
+        break;
         
       default:
         return { success: false, error: `Unknown action: ${params.action}` };
     }
+    
+    return this.transformResultData(result, 'manage_browser_sessions');
   }
 
   // Enhanced session management methods
@@ -1206,54 +1186,129 @@ export class BrowserTools {
    */
   private transformResultData(result: any, toolName: string): any {
     if (!result || typeof result !== 'object') {
-      return { script_result: result };
+      return { 
+        success: false,
+        message: 'Invalid result data',
+        timestamp: new Date().toISOString(),
+        data: { script_result: result }
+      };
     }
     
     const data: any = {};
     
-    // Map common fields
+    // Map common fields from camelCase to snake_case
     if (result.sessionId) data.session_id = result.sessionId;
     if (result.url) data.url = result.url;
     if (result.content) data.content = result.content;
     if (result.html) data.html = result.html;
     if (result.sessions) data.sessions = result.sessions;
     if (result.results) data.interactions = result.results;
-    if (result.screenshot_path || result.filepath) {
-      data.screenshot_path = result.screenshot_path || result.filepath;
+    
+    // Handle screenshot paths (multiple possible field names)
+    if (result.screenshot_path) {
+      data.screenshot_path = result.screenshot_path;
+    } else if (result.filepath) {
+      data.screenshot_path = result.filepath;
     }
     
     // Handle navigation results
     if (result.navigation) {
       data.url = result.navigation.url;
-      data.metadata = {
-        title: result.navigation.title,
-        navigation_success: result.navigation.success
-      };
+      if (!data.metadata) data.metadata = {};
+      data.metadata.title = result.navigation.title;
+      data.metadata.navigation_success = result.navigation.success;
     }
     
     // Handle script execution results
     if (result.scriptResult !== undefined) {
       data.script_result = result.scriptResult;
+    } else if (result.result !== undefined) {
+      data.script_result = result.result;
     }
     
     // Handle session management results
     if (toolName === 'manage_browser_sessions') {
-      if (result.status) data.metadata = result.status;
+      if (result.status) {
+        if (!data.metadata) data.metadata = {};
+        data.metadata = { ...data.metadata, ...result.status };
+      }
       if (result.cleanedSessions !== undefined) {
-        data.metadata = { ...data.metadata, cleaned_sessions: result.cleanedSessions };
+        if (!data.metadata) data.metadata = {};
+        data.metadata.cleaned_sessions = result.cleanedSessions;
       }
     }
     
+    // Handle session configuration (for create_browser_session)
+    if (result.sessionConfig) {
+      if (!data.metadata) data.metadata = {};
+      data.metadata.session_config = {
+        workflow_type: result.sessionConfig.workflowType,
+        auto_close: result.sessionConfig.autoClose,
+        session_timeout: result.sessionConfig.sessionTimeout,
+        max_idle_time: result.sessionConfig.maxIdleTime
+      };
+    }
+    
+    // Handle browser type and other session info
+    if (result.browserType) {
+      if (!data.metadata) data.metadata = {};
+      data.metadata.browser_type = result.browserType;
+    }
+    
+    // Handle interaction-specific fields
+    if (result.action) {
+      if (!data.metadata) data.metadata = {};
+      data.metadata.action = result.action;
+    }
+    if (result.selector) {
+      if (!data.metadata) data.metadata = {};
+      data.metadata.selector = result.selector;
+    }
+    if (result.value !== undefined) {
+      if (!data.metadata) data.metadata = {};
+      data.metadata.value = result.value;
+    }
+    
+    // Handle pagination/counting fields
+    if (result.totalActions !== undefined) {
+      if (!data.metadata) data.metadata = {};
+      data.metadata.total_actions = result.totalActions;
+    }
+    if (result.completedActions !== undefined) {
+      if (!data.metadata) data.metadata = {};
+      data.metadata.completed_actions = result.completedActions;
+    }
+    if (result.sessionCreated !== undefined) {
+      if (!data.metadata) data.metadata = {};
+      data.metadata.session_created = result.sessionCreated;
+    }
+    
     // Include any additional data that doesn't match standard fields
-    const standardFields = ['sessionId', 'url', 'content', 'html', 'sessions', 'results', 'screenshot_path', 'filepath', 'navigation', 'scriptResult', 'status', 'cleanedSessions'];
+    const standardFields = [
+      'sessionId', 'url', 'content', 'html', 'sessions', 'results', 'screenshot_path', 
+      'filepath', 'navigation', 'scriptResult', 'result', 'status', 'cleanedSessions',
+      'sessionConfig', 'browserType', 'action', 'selector', 'value', 'totalActions',
+      'completedActions', 'sessionCreated', 'success', 'error', 'message', 'timestamp'
+    ];
+    
     Object.keys(result).forEach(key => {
       if (!standardFields.includes(key) && !data.hasOwnProperty(key)) {
+        // Convert camelCase to snake_case for metadata
+        const snakeKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
         if (!data.metadata) data.metadata = {};
-        data.metadata[key] = result[key];
+        data.metadata[snakeKey] = result[key];
       }
     });
     
-    return data;
+    // Return the full response structure
+    return {
+      success: result.success !== false, // default to true unless explicitly false
+      message: result.message || `${toolName} completed successfully`,
+      timestamp: new Date().toISOString(),
+      execution_time_ms: result.execution_time_ms,
+      error: result.error,
+      data: Object.keys(data).length > 0 ? data : undefined
+    };
   }
   
   async shutdown() {
@@ -1272,7 +1327,7 @@ export class BrowserTools {
   }
   
   // Legacy method implementations for backward compatibility
-  private async navigateToUrl(args: any) {
+  private async navigateToUrl(args: z.infer<typeof BrowserLegacyNavigateSchema>) {
     const params = BrowserLegacyNavigateSchema.parse(args);
     
     this.updateSessionActivity(params.session_id);
@@ -1286,10 +1341,15 @@ export class BrowserTools {
       }
     );
 
-    return result;
+    const enhancedResult = {
+      ...result,
+      sessionId: params.session_id
+    };
+
+    return this.transformResultData(enhancedResult, 'navigate_to_url');
   }
   
-  private async scrapeContent(args: any) {
+  private async scrapeContent(args: z.infer<typeof BrowserLegacyScrapeSchema>) {
     const params = BrowserLegacyScrapeSchema.parse(args);
     
     this.updateSessionActivity(params.session_id);
@@ -1306,10 +1366,15 @@ export class BrowserTools {
       }
     );
 
-    return result;
+    const enhancedResult = {
+      ...result,
+      sessionId: params.session_id
+    };
+
+    return this.transformResultData(enhancedResult, 'scrape_content');
   }
   
-  private async takeScreenshot(args: any) {
+  private async takeScreenshot(args: z.infer<typeof BrowserScreenshotSchema>) {
     const params = BrowserScreenshotSchema.parse(args);
     
     this.updateSessionActivity(params.session_id);
@@ -1324,10 +1389,15 @@ export class BrowserTools {
       }
     );
 
-    return result;
+    const enhancedResult = {
+      ...result,
+      sessionId: params.session_id
+    };
+
+    return this.transformResultData(enhancedResult, 'take_screenshot');
   }
   
-  private async executeScript(args: any) {
+  private async executeScript(args: z.infer<typeof BrowserExecuteScriptSchema>) {
     const params = BrowserExecuteScriptSchema.parse(args);
     
     this.updateSessionActivity(params.session_id);
@@ -1338,10 +1408,16 @@ export class BrowserTools {
       params.args
     );
 
-    return result;
+    const enhancedResult = {
+      ...result,
+      sessionId: params.session_id,
+      scriptResult: result.result
+    };
+
+    return this.transformResultData(enhancedResult, 'execute_browser_script');
   }
   
-  private async interactWithElement(args: any) {
+  private async interactWithElement(args: z.infer<typeof BrowserInteractSchema>) {
     const params = BrowserInteractSchema.parse(args);
     
     this.updateSessionActivity(params.session_id);
@@ -1353,18 +1429,33 @@ export class BrowserTools {
       params.value
     );
 
-    return result;
+    const enhancedResult = {
+      ...result,
+      sessionId: params.session_id,
+      action: params.action,
+      selector: params.selector,
+      value: params.value
+    };
+
+    return this.transformResultData(enhancedResult, 'interact_with_element');
   }
   
   private async closeBrowserSession(args: any) {
     const { session_id } = z.object({ session_id: z.string() }).parse(args);
     
-    return await this.closeBrowserSessionEnhanced(session_id, false);
+    const result = await this.closeBrowserSessionEnhanced(session_id, false);
+    
+    const enhancedResult = {
+      ...result,
+      sessionId: session_id
+    };
+    
+    return this.transformResultData(enhancedResult, 'close_browser_session');
   }
   
   private async listBrowserSessions() {
     const result = await this.listBrowserSessionsEnhanced();
-    return result;
+    return this.transformResultData(result, 'list_browser_sessions');
   }
 }
 

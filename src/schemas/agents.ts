@@ -35,7 +35,7 @@ export const toolCategorySchema = z.enum([
   'core_tools',           // Basic tools like Read, Write, Edit, LS, Glob, Grep
   'execution_tools',      // Bash, command execution
   'communication_tools',  // join_room, send_message, wait_for_messages
-  'memory_tools',         // store_memory, search_memory
+  'knowledge_graph_tools', // store_knowledge_memory, search_knowledge_graph
   'agent_tools',          // spawn_agent, list_agents, terminate_agent
   'orchestration_tools',  // orchestrate_objective, create_task
   'file_tools',           // list_files, find_files, easy_replace
@@ -79,6 +79,8 @@ export const agentSessions = sqliteTable('agent_sessions', {
   capabilities: text('capabilities', { mode: 'json' }).$type<string[]>().default([]),
   toolPermissions: text('toolPermissions', { mode: 'json' }).$type<Record<string, any>>(),
   roomId: text('roomId'),
+  convoSessionId: text('convoSessionId'),
+  additionalInstructions: text('additionalInstructions'),
   createdAt: text('createdAt').notNull().default('CURRENT_TIMESTAMP'),
   lastHeartbeat: text('lastHeartbeat').notNull().default('CURRENT_TIMESTAMP'),
   agentMetadata: text('agentMetadata', { mode: 'json' }).$type<Record<string, unknown>>(),
@@ -104,6 +106,8 @@ export type AgentSession = {
   capabilities: string[];
   toolPermissions?: Record<string, any>;
   roomId?: string;
+  convoSessionId?: string;
+  additionalInstructions?: string;
   createdAt: string;
   lastHeartbeat: string;
   agentMetadata?: Record<string, unknown>;
@@ -146,7 +150,7 @@ export const AGENT_TYPE_DEFINITIONS: AgentTypeDefinitions = {
   architect: {
     description: 'High-level coordinator that orchestrates multiple specialized agents',
     defaultCapabilities: ['ALL_TOOLS'],
-    defaultAllowedCategories: ['core_tools', 'execution_tools', 'communication_tools', 'memory_tools', 'agent_tools', 'orchestration_tools', 'file_tools', 'analysis_tools', 'thinking_tools'],
+    defaultAllowedCategories: ['core_tools', 'execution_tools', 'communication_tools', 'knowledge_graph_tools', 'agent_tools', 'orchestration_tools', 'file_tools', 'analysis_tools', 'thinking_tools'],
     autoCreateRoom: true,
     roomNamingPattern: 'architect_{timestamp}',
     maxConcurrentAgents: 1
@@ -154,7 +158,7 @@ export const AGENT_TYPE_DEFINITIONS: AgentTypeDefinitions = {
   backend_agent: {
     description: 'Specialized in backend development, APIs, databases, and server-side logic',
     defaultCapabilities: ['backend_development', 'api_design', 'database_operations'],
-    defaultAllowedCategories: ['core_tools', 'execution_tools', 'communication_tools', 'memory_tools', 'file_tools', 'analysis_tools'],
+    defaultAllowedCategories: ['core_tools', 'execution_tools', 'communication_tools', 'knowledge_graph_tools', 'file_tools', 'analysis_tools'],
     defaultDisallowedCategories: ['browser_tools', 'web_tools'],
     autoCreateRoom: true,
     roomNamingPattern: 'backend_{timestamp}'
@@ -162,7 +166,7 @@ export const AGENT_TYPE_DEFINITIONS: AgentTypeDefinitions = {
   frontend_agent: {
     description: 'Specialized in frontend development, UI/UX, and client-side applications',
     defaultCapabilities: ['frontend_development', 'ui_design', 'client_side_logic'],
-    defaultAllowedCategories: ['core_tools', 'execution_tools', 'communication_tools', 'memory_tools', 'file_tools', 'analysis_tools', 'browser_tools'],
+    defaultAllowedCategories: ['core_tools', 'execution_tools', 'communication_tools', 'knowledge_graph_tools', 'file_tools', 'analysis_tools', 'browser_tools'],
     defaultDisallowedCategories: ['web_tools'],
     autoCreateRoom: true,
     roomNamingPattern: 'frontend_{timestamp}'
@@ -170,7 +174,7 @@ export const AGENT_TYPE_DEFINITIONS: AgentTypeDefinitions = {
   testing_agent: {
     description: 'Focused on testing, quality assurance, and test automation',
     defaultCapabilities: ['test_automation', 'quality_assurance', 'test_design'],
-    defaultAllowedCategories: ['core_tools', 'execution_tools', 'communication_tools', 'memory_tools', 'file_tools', 'browser_tools'],
+    defaultAllowedCategories: ['core_tools', 'execution_tools', 'communication_tools', 'knowledge_graph_tools', 'file_tools', 'browser_tools'],
     defaultDisallowedCategories: ['agent_tools', 'orchestration_tools'],
     autoCreateRoom: true,
     roomNamingPattern: 'testing_{timestamp}'
@@ -178,7 +182,7 @@ export const AGENT_TYPE_DEFINITIONS: AgentTypeDefinitions = {
   documentation_agent: {
     description: 'Specialized in creating, updating, and maintaining documentation',
     defaultCapabilities: ['documentation_writing', 'content_creation', 'research'],
-    defaultAllowedCategories: ['core_tools', 'communication_tools', 'memory_tools', 'file_tools', 'analysis_tools', 'web_tools'],
+    defaultAllowedCategories: ['core_tools', 'communication_tools', 'knowledge_graph_tools', 'file_tools', 'analysis_tools', 'web_tools'],
     defaultDisallowedCategories: ['execution_tools', 'agent_tools', 'orchestration_tools'],
     autoCreateRoom: true,
     roomNamingPattern: 'docs_{timestamp}'
@@ -186,7 +190,7 @@ export const AGENT_TYPE_DEFINITIONS: AgentTypeDefinitions = {
   bugfix_agent: {
     description: 'Focused on identifying, analyzing, and fixing bugs and issues',
     defaultCapabilities: ['debugging', 'error_analysis', 'issue_resolution'],
-    defaultAllowedCategories: ['core_tools', 'execution_tools', 'communication_tools', 'memory_tools', 'file_tools', 'analysis_tools'],
+    defaultAllowedCategories: ['core_tools', 'execution_tools', 'communication_tools', 'knowledge_graph_tools', 'file_tools', 'analysis_tools'],
     defaultDisallowedCategories: ['agent_tools', 'orchestration_tools', 'browser_tools', 'web_tools'],
     autoCreateRoom: true,
     roomNamingPattern: 'bugfix_{timestamp}'
@@ -194,7 +198,7 @@ export const AGENT_TYPE_DEFINITIONS: AgentTypeDefinitions = {
   planner_agent: {
     description: 'Strategic planning, task breakdown, and project coordination',
     defaultCapabilities: ['project_planning', 'task_management', 'coordination'],
-    defaultAllowedCategories: ['core_tools', 'communication_tools', 'memory_tools', 'orchestration_tools', 'analysis_tools', 'thinking_tools', 'file_tools'],
+    defaultAllowedCategories: ['core_tools', 'communication_tools', 'knowledge_graph_tools', 'orchestration_tools', 'analysis_tools', 'thinking_tools', 'file_tools'],
     defaultDisallowedCategories: ['execution_tools', 'browser_tools', 'web_tools'],
     autoCreateRoom: true,
     roomNamingPattern: 'planner_{timestamp}'
@@ -202,7 +206,7 @@ export const AGENT_TYPE_DEFINITIONS: AgentTypeDefinitions = {
   security_agent: {
     description: 'Security analysis, vulnerability assessment, and security implementation',
     defaultCapabilities: ['security_analysis', 'vulnerability_assessment', 'security_implementation'],
-    defaultAllowedCategories: ['core_tools', 'communication_tools', 'memory_tools', 'file_tools', 'analysis_tools'],
+    defaultAllowedCategories: ['core_tools', 'communication_tools', 'knowledge_graph_tools', 'file_tools', 'analysis_tools'],
     defaultDisallowedCategories: ['execution_tools', 'agent_tools', 'orchestration_tools', 'browser_tools', 'web_tools'],
     autoCreateRoom: true,
     roomNamingPattern: 'security_{timestamp}'
@@ -210,7 +214,7 @@ export const AGENT_TYPE_DEFINITIONS: AgentTypeDefinitions = {
   devops_agent: {
     description: 'DevOps, infrastructure, deployment, and system administration',
     defaultCapabilities: ['infrastructure_management', 'deployment', 'system_administration'],
-    defaultAllowedCategories: ['core_tools', 'execution_tools', 'communication_tools', 'memory_tools', 'file_tools'],
+    defaultAllowedCategories: ['core_tools', 'execution_tools', 'communication_tools', 'knowledge_graph_tools', 'file_tools'],
     defaultDisallowedCategories: ['agent_tools', 'orchestration_tools', 'browser_tools', 'web_tools'],
     autoCreateRoom: true,
     roomNamingPattern: 'devops_{timestamp}'
@@ -218,7 +222,7 @@ export const AGENT_TYPE_DEFINITIONS: AgentTypeDefinitions = {
   data_agent: {
     description: 'Data analysis, processing, and data science tasks',
     defaultCapabilities: ['data_analysis', 'data_processing', 'data_science'],
-    defaultAllowedCategories: ['core_tools', 'execution_tools', 'communication_tools', 'memory_tools', 'file_tools', 'analysis_tools'],
+    defaultAllowedCategories: ['core_tools', 'execution_tools', 'communication_tools', 'knowledge_graph_tools', 'file_tools', 'analysis_tools'],
     defaultDisallowedCategories: ['agent_tools', 'orchestration_tools', 'browser_tools'],
     autoCreateRoom: true,
     roomNamingPattern: 'data_{timestamp}'
@@ -226,7 +230,7 @@ export const AGENT_TYPE_DEFINITIONS: AgentTypeDefinitions = {
   general_agent: {
     description: 'General purpose agent with balanced capabilities',
     defaultCapabilities: ['general_development', 'problem_solving'],
-    defaultAllowedCategories: ['core_tools', 'execution_tools', 'communication_tools', 'memory_tools', 'file_tools', 'analysis_tools', 'thinking_tools'],
+    defaultAllowedCategories: ['core_tools', 'execution_tools', 'communication_tools', 'knowledge_graph_tools', 'file_tools', 'analysis_tools', 'thinking_tools'],
     defaultDisallowedCategories: ['agent_tools', 'orchestration_tools'],
     autoCreateRoom: true,
     roomNamingPattern: 'general_{timestamp}'
@@ -238,7 +242,7 @@ export const TOOL_CATEGORY_MAPPINGS: Record<ToolCategory, string[]> = {
   core_tools: ['Read', 'Write', 'Edit', 'MultiEdit', 'LS', 'Glob', 'Grep'],
   execution_tools: ['Bash', 'Task'],
   communication_tools: ['mcp__claude-mcp-tools__join_room', 'mcp__claude-mcp-tools__send_message', 'mcp__claude-mcp-tools__wait_for_messages'],
-  memory_tools: ['mcp__claude-mcp-tools__store_memory', 'mcp__claude-mcp-tools__search_memory'],
+  knowledge_graph_tools: ['mcp__claude-mcp-tools__store_knowledge_memory', 'mcp__claude-mcp-tools__search_knowledge_graph'],
   agent_tools: ['mcp__claude-mcp-tools__spawn_agent', 'mcp__claude-mcp-tools__list_agents', 'mcp__claude-mcp-tools__terminate_agent'],
   orchestration_tools: ['mcp__claude-mcp-tools__orchestrate_objective', 'mcp__claude-mcp-tools__create_task'],
   file_tools: ['mcp__claude-mcp-tools__list_files', 'mcp__claude-mcp-tools__find_files', 'mcp__claude-mcp-tools__easy_replace'],

@@ -1,4 +1,5 @@
 onlyBuiltDependencies:
+  - '@anthropic-ai/claude-code'
   - better-sqlite3
   - esbuild
   - sharp

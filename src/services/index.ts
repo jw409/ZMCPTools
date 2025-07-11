@@ -61,6 +61,23 @@ export {
   type VectorSearchResult,
   type Collection
 } from './LanceDBService.js';
+export {
+  TaskComplexityAnalyzer,
+  type TaskComplexityAnalysis,
+  type ModelType,
+  type ComplexityLevel,
+  type AgentSpecialization,
+  type AnalysisConfig
+} from './TaskComplexityAnalyzer.js';
+export {
+  StructuredOrchestrator,
+  type StructuredOrchestrationRequest,
+  type OrchestrationProgress,
+  type OrchestrationPhase,
+  type StructuredOrchestrationStatus,
+  type PhaseStatus,
+  type StructuredOrchestrationResult
+} from './StructuredOrchestrator.js';
 // Over-engineered services removed - keeping only type exports for backwards compatibility
 export { 
   type CoordinationStatus,

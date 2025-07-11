@@ -10,7 +10,9 @@ export * from './schemas/index.js';
 export * from './services/index.js';
 
 // Process Management
-export { ClaudeSpawner, ProcessReaper, ClaudeProcess } from './process/ClaudeSpawner.js';
+export { ClaudeSpawner } from './process/ClaudeSpawner.js';
+export { ProcessReaper } from './process/ProcessReaper.js';
+export { ClaudeProcess, type ClaudeSpawnConfig } from './process/ClaudeProcess.js';
 
 // Tools
 export { AgentOrchestrationTools, type OrchestrationResult, type SpawnAgentOptions } from './tools/AgentOrchestrationTools.js';

@@ -13,9 +13,11 @@ export class PathUtils {
    */
   static resolveRepositoryPath(repositoryPath: string | undefined, context: string = 'operation'): string {
     if (!repositoryPath) {
-      const error = `Repository path is required and cannot be empty or undefined for ${context}`;
-      logger.error(error, { repositoryPath, context });
-      throw new Error(error);
+      repositoryPath = process.cwd();
+      logger.debug(`Repository path was undefined for ${context}, defaulting to current directory`, {
+        defaultPath: repositoryPath,
+        context
+      });
     }
     
     if (typeof repositoryPath !== 'string') {

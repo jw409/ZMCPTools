@@ -10,6 +10,7 @@
 
 import { DatabaseManager } from '../database/index.js';
 import { Logger } from '../utils/logger.js';
+import { eventBus } from './EventBus.js';
 
 const logger = new Logger('ProgressTracker');
 
@@ -107,6 +108,23 @@ export class ProgressTracker {
         aggregatedProgress: aggregated.totalProgress
       });
       
+      // Emit EventBus event for internal monitoring
+      try {
+        await eventBus.emit('progress_update', {
+          contextId: context.contextId,
+          contextType: context.contextType,
+          agentId,
+          actualProgress: cappedProgress,
+          reportedProgress,
+          message,
+          timestamp: new Date(report.timestamp),
+          repositoryPath: context.repositoryPath,
+          metadata: report.metadata
+        });
+      } catch (eventError) {
+        logger.error('Failed to emit progress event:', eventError);
+      }
+      
       return report;
       
     } catch (error) {
@@ -157,6 +175,22 @@ export class ProgressTracker {
         reportedProgress,
         lastReportedProgress
       });
+      
+      // Emit EventBus event for internal monitoring
+      try {
+        await eventBus.emit('progress_update', {
+          contextId: context.contextId,
+          contextType: context.contextType,
+          actualProgress: cappedProgress,
+          reportedProgress,
+          message,
+          timestamp: new Date(report.timestamp),
+          repositoryPath: context.repositoryPath,
+          metadata: report.metadata
+        });
+      } catch (eventError) {
+        logger.error('Failed to emit progress event:', eventError);
+      }
       
       return report;
       
@@ -247,17 +281,21 @@ export class ProgressTracker {
 
   /**
    * Create an MCP-compliant progress notification
+   * Converts percentage-based progress to MCP integer format
    */
   createMcpProgressNotification(
     progressToken: string | number,
     report: ProgressReport,
     total: number = 100
   ): any {
+    // Convert percentage (0-100) to current steps out of total
+    const currentStep = Math.round((report.reportedProgress / 100) * total);
+    
     return {
       method: 'notifications/progress',
       params: {
         progressToken,
-        progress: report.reportedProgress,
+        progress: currentStep,
         total,
         message: report.message || `Progress: ${report.reportedProgress.toFixed(1)}%`
       }

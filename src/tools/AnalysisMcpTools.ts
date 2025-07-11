@@ -6,6 +6,7 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
+import type { McpTool } from '../schemas/tools/index.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
@@ -76,114 +77,80 @@ export class AnalysisMcpTools {
   /**
    * Get all analysis-related MCP tools
    */
-  getTools() {
+  getTools(): McpTool[] {
     return [
       {
         name: 'analyze_project_structure',
         description: 'Analyze project structure and generate a comprehensive overview',
         inputSchema: zodToJsonSchema(AnalyzeProjectStructureSchema),
-        outputSchema: zodToJsonSchema(AnalyzeProjectStructureResponseSchema)
+        outputSchema: zodToJsonSchema(AnalyzeProjectStructureResponseSchema),
+        handler: this.analyzeProjectStructure.bind(this)
       },
       {
         name: 'generate_project_summary',
         description: 'Generate AI-optimized project overview and analysis',
         inputSchema: zodToJsonSchema(GenerateProjectSummarySchema),
-        outputSchema: zodToJsonSchema(GenerateProjectSummaryResponseSchema)
+        outputSchema: zodToJsonSchema(GenerateProjectSummaryResponseSchema),
+        handler: this.generateProjectSummary.bind(this)
       },
       {
         name: 'analyze_file_symbols',
         description: 'Extract and analyze symbols (functions, classes, etc.) from code files',
         inputSchema: zodToJsonSchema(AnalyzeFileSymbolsSchema),
-        outputSchema: zodToJsonSchema(AnalyzeFileSymbolsResponseSchema)
+        outputSchema: zodToJsonSchema(AnalyzeFileSymbolsResponseSchema),
+        handler: this.analyzeFileSymbols.bind(this)
       },
       {
         name: 'list_files',
         description: 'List files in a directory with smart ignore patterns',
         inputSchema: zodToJsonSchema(ListFilesSchema),
-        outputSchema: zodToJsonSchema(ListFilesResponseSchema)
+        outputSchema: zodToJsonSchema(ListFilesResponseSchema),
+        handler: this.listFiles.bind(this)
       },
       {
         name: 'find_files',
         description: 'Search for files by pattern with optional content matching',
         inputSchema: zodToJsonSchema(FindFilesSchema),
-        outputSchema: zodToJsonSchema(FindFilesResponseSchema)
+        outputSchema: zodToJsonSchema(FindFilesResponseSchema),
+        handler: this.findFiles.bind(this)
       },
       {
         name: 'easy_replace',
         description: 'Fuzzy string replacement in files with smart matching',
         inputSchema: zodToJsonSchema(EasyReplaceSchema),
-        outputSchema: zodToJsonSchema(EasyReplaceResponseSchema)
+        outputSchema: zodToJsonSchema(EasyReplaceResponseSchema),
+        handler: this.easyReplace.bind(this)
       },
       {
         name: 'cleanup_orphaned_projects',
         description: 'Clean up orphaned or unused project directories',
         inputSchema: zodToJsonSchema(CleanupOrphanedProjectsSchema),
-        outputSchema: zodToJsonSchema(CleanupOrphanedProjectsResponseSchema)
+        outputSchema: zodToJsonSchema(CleanupOrphanedProjectsResponseSchema),
+        handler: this.cleanupOrphanedProjects.bind(this)
       }
     ];
   }
 
-  /**
-   * Handle MCP tool calls for analysis functionality
-   */
-  async handleToolCall(name: string, args: any): Promise<AnalysisToolResponse> {
+
+  private async analyzeProjectStructure(args: any): Promise<AnalyzeProjectStructureResponse> {
     const startTime = Date.now();
     
-    try {
-      let result: any;
-      
-      switch (name) {
-        case 'analyze_project_structure':
-          result = await this.analyzeProjectStructure(args);
-          break;
-        
-        case 'generate_project_summary':
-          result = await this.generateProjectSummary(args);
-          break;
-        
-        case 'analyze_file_symbols':
-          result = await this.analyzeFileSymbols(args);
-          break;
-        
-        case 'list_files':
-          result = await this.listFiles(args);
-          break;
-        
-        case 'find_files':
-          result = await this.findFiles(args);
-          break;
-        
-        case 'easy_replace':
-          result = await this.easyReplace(args);
-          break;
-        
-        case 'cleanup_orphaned_projects':
-          result = await this.cleanupOrphanedProjects(args);
-          break;
-        
-        default:
-          throw new Error(`Unknown analysis tool: ${name}`);
-      }
-      
-      const executionTime = Date.now() - startTime;
-      
-      return createSuccessResponse(
-        `Successfully executed ${name}`,
-        result,
-        executionTime
-      ) as AnalysisToolResponse;
-      
-    } catch (error) {
-      return createErrorResponse(
-        `Failed to execute ${name}`,
-        error instanceof Error ? error.message : 'Unknown error occurred',
-        'ANALYSIS_ERROR'
-      ) as AnalysisToolResponse;
-    }
-  }
-
-  private async analyzeProjectStructure(args: any): Promise<any> {
-    const params = AnalyzeProjectStructureSchema.parse(args);
+    // Map snake_case to camelCase for compatibility
+    const normalizedArgs = {
+      projectPath: args.projectPath || args.project_path,
+      includePatterns: args.includePatterns || args.include_patterns,
+      excludePatterns: args.excludePatterns || args.exclude_patterns,
+      maxDepth: args.maxDepth || args.max_depth,
+      generateSummary: args.generateSummary || args.generate_summary
+    };
+    
+    const params = AnalyzeProjectStructureSchema.parse({
+      project_path: normalizedArgs.projectPath,
+      include_patterns: normalizedArgs.includePatterns,
+      exclude_patterns: normalizedArgs.excludePatterns,
+      max_depth: normalizedArgs.maxDepth,
+      generate_summary: normalizedArgs.generateSummary
+    });
     
     const projectPath = path.resolve(params.project_path);
     
@@ -197,12 +164,18 @@ export class AnalysisMcpTools {
       );
       
       if (cachedStructure) {
-        return {
-          project_info: cachedStructure.structure,
-          summary_generated: params.generate_summary,
-          summary_path: params.generate_summary ? path.join(projectPath, '.treesummary', 'structure.txt') : null,
-          cached: true
-        };
+        const executionTime = Date.now() - startTime;
+        
+        return createSuccessResponse(
+          `Successfully retrieved cached project structure for ${projectPath}`,
+          {
+            project_info: cachedStructure.structure,
+            summary_generated: params.generate_summary,
+            summary_path: params.generate_summary ? path.join(projectPath, '.treesummary', 'structure.txt') : null,
+            cached: true
+          },
+          executionTime
+        ) as AnalyzeProjectStructureResponse;
       }
     }
     
@@ -230,16 +203,39 @@ export class AnalysisMcpTools {
       await writeFile(summaryPath, summaryContent, 'utf8');
     }
 
-    return {
-      project_info: structure,
-      summary_generated: params.generate_summary,
-      summary_path: params.generate_summary ? path.join(projectPath, '.treesummary', 'structure.txt') : null,
-      cached: false
-    };
+    const executionTime = Date.now() - startTime;
+    
+    return createSuccessResponse(
+      `Successfully analyzed project structure for ${projectPath}`,
+      {
+        project_info: structure,
+        summary_generated: params.generate_summary,
+        summary_path: params.generate_summary ? path.join(projectPath, '.treesummary', 'structure.txt') : null,
+        cached: false
+      },
+      executionTime
+    ) as AnalyzeProjectStructureResponse;
   }
 
-  private async generateProjectSummary(args: any): Promise<any> {
-    const params = GenerateProjectSummarySchema.parse(args);
+  private async generateProjectSummary(args: any): Promise<GenerateProjectSummaryResponse> {
+    const startTime = Date.now();
+    
+    // Map snake_case to camelCase for compatibility
+    const normalizedArgs = {
+      projectPath: args.projectPath || args.project_path,
+      includeReadme: args.includeReadme || args.include_readme,
+      includePackageInfo: args.includePackageInfo || args.include_package_info,
+      includeGitInfo: args.includeGitInfo || args.include_git_info,
+      outputPath: args.outputPath || args.output_path
+    };
+    
+    const params = GenerateProjectSummarySchema.parse({
+      project_path: normalizedArgs.projectPath,
+      include_readme: normalizedArgs.includeReadme,
+      include_package_info: normalizedArgs.includePackageInfo,
+      include_git_info: normalizedArgs.includeGitInfo,
+      output_path: normalizedArgs.outputPath
+    });
     
     const projectPath = path.resolve(params.project_path);
     
@@ -253,10 +249,16 @@ export class AnalysisMcpTools {
       );
       
       if (cachedSummary) {
-        return {
-          summary: cachedSummary,
-          cached: true
-        };
+        const executionTime = Date.now() - startTime;
+        
+        return createSuccessResponse(
+          `Successfully retrieved cached project summary for ${projectPath}`,
+          {
+            summary: cachedSummary,
+            cached: true
+          },
+          executionTime
+        ) as GenerateProjectSummaryResponse;
       }
     }
     
@@ -328,29 +330,67 @@ export class AnalysisMcpTools {
       await writeFile(params.output_path, JSON.stringify(summary, null, 2), 'utf8');
     }
 
-    return {
-      summary,
-      cached: false
-    };
+    const executionTime = Date.now() - startTime;
+    
+    return createSuccessResponse(
+      `Successfully generated project summary for ${projectName}`,
+      {
+        summary,
+        cached: false
+      },
+      executionTime
+    ) as GenerateProjectSummaryResponse;
   }
 
-  private async analyzeFileSymbols(args: any): Promise<any> {
-    const params = AnalyzeFileSymbolsSchema.parse(args);
+  private async analyzeFileSymbols(args: any): Promise<AnalyzeFileSymbolsResponse> {
+    const startTime = Date.now();
+    
+    // Map snake_case to camelCase for compatibility
+    const normalizedArgs = {
+      filePath: args.filePath || args.file_path,
+      symbolTypes: args.symbolTypes || args.symbol_types
+    };
+    
+    const params = AnalyzeFileSymbolsSchema.parse({
+      file_path: normalizedArgs.filePath,
+      symbol_types: normalizedArgs.symbolTypes
+    });
     
     const filePath = path.resolve(params.file_path);
     const content = await readFile(filePath, 'utf8');
     const symbols = this.extractSymbols(content, params.symbol_types);
 
-    return {
-      symbols: {
-        file_path: filePath,
-        symbols
-      }
-    };
+    const executionTime = Date.now() - startTime;
+    
+    return createSuccessResponse(
+      `Successfully analyzed symbols in ${filePath}`,
+      {
+        symbols: {
+          file_path: filePath,
+          symbols
+        }
+      },
+      executionTime
+    ) as AnalyzeFileSymbolsResponse;
   }
 
-  private async listFiles(args: any): Promise<any> {
-    const params = ListFilesSchema.parse(args);
+  private async listFiles(args: any): Promise<ListFilesResponse> {
+    const startTime = Date.now();
+    
+    // Map snake_case to camelCase for compatibility
+    const normalizedArgs = {
+      directory: args.directory,
+      recursive: args.recursive,
+      includePatterns: args.includePatterns || args.include_patterns,
+      excludePatterns: args.excludePatterns || args.exclude_patterns
+    };
+    
+    const params = ListFilesSchema.parse({
+      directory: normalizedArgs.directory,
+      recursive: normalizedArgs.recursive,
+      include_patterns: normalizedArgs.includePatterns,
+      exclude_patterns: normalizedArgs.excludePatterns
+    });
     
     const dirPath = path.resolve(params.directory);
     const options: ListFilesOptions = {
@@ -364,18 +404,39 @@ export class AnalysisMcpTools {
     // Convert FileInfo[] to simple string paths for compatibility
     const files = fileInfos.map(info => info.path);
 
-    return {
-      files,
-      analysis_data: {
-        fileInfos,
-        count: files.length,
-        directory: dirPath
-      }
-    };
+    const executionTime = Date.now() - startTime;
+    
+    return createSuccessResponse(
+      `Successfully listed ${files.length} files in ${dirPath}`,
+      {
+        files,
+        analysis_data: {
+          fileInfos,
+          count: files.length,
+          directory: dirPath
+        }
+      },
+      executionTime
+    ) as ListFilesResponse;
   }
 
-  private async findFiles(args: any): Promise<any> {
-    const params = FindFilesSchema.parse(args);
+  private async findFiles(args: any): Promise<FindFilesResponse> {
+    const startTime = Date.now();
+    
+    // Map snake_case to camelCase for compatibility
+    const normalizedArgs = {
+      pattern: args.pattern,
+      directory: args.directory,
+      caseSensitive: args.caseSensitive || args.case_sensitive,
+      includeContent: args.includeContent || args.include_content
+    };
+    
+    const params = FindFilesSchema.parse({
+      pattern: normalizedArgs.pattern,
+      directory: normalizedArgs.directory,
+      case_sensitive: normalizedArgs.caseSensitive,
+      include_content: normalizedArgs.includeContent
+    });
     
     const searchDir = path.resolve(params.directory);
     const options: FindFilesOptions = {
@@ -402,18 +463,41 @@ export class AnalysisMcpTools {
       results.push(result);
     }
 
-    return {
-      files: matches,
-      analysis_data: {
-        matches: results,
-        count: results.length,
-        pattern: params.pattern
-      }
-    };
+    const executionTime = Date.now() - startTime;
+    
+    return createSuccessResponse(
+      `Successfully found ${matches.length} files matching pattern '${params.pattern}'`,
+      {
+        files: matches,
+        analysis_data: {
+          matches: results,
+          count: results.length,
+          pattern: params.pattern
+        }
+      },
+      executionTime
+    ) as FindFilesResponse;
   }
 
-  private async easyReplace(args: any): Promise<any> {
-    const params = EasyReplaceSchema.parse(args);
+  private async easyReplace(args: any): Promise<EasyReplaceResponse> {
+    const startTime = Date.now();
+    
+    // Map snake_case to camelCase for compatibility
+    const normalizedArgs = {
+      filePath: args.filePath || args.file_path,
+      oldText: args.oldText || args.old_text,
+      newText: args.newText || args.new_text,
+      fuzzyMatch: args.fuzzyMatch || args.fuzzy_match,
+      backup: args.backup
+    };
+    
+    const params = EasyReplaceSchema.parse({
+      file_path: normalizedArgs.filePath,
+      old_text: normalizedArgs.oldText,
+      new_text: normalizedArgs.newText,
+      fuzzy_match: normalizedArgs.fuzzyMatch,
+      backup: normalizedArgs.backup
+    });
     
     // First copy the file to use in replacement options
     const filePath = path.resolve(params.file_path);
@@ -451,17 +535,36 @@ export class AnalysisMcpTools {
       await writeFile(filePath, newContent, 'utf8');
     }
 
-    return {
-      replaced_count: replacementCount,
-      analysis_data: {
-        file_path: filePath,
-        backup_created: params.backup
-      }
-    };
+    const executionTime = Date.now() - startTime;
+    
+    return createSuccessResponse(
+      `Successfully replaced ${replacementCount} occurrences in ${filePath}`,
+      {
+        replaced_count: replacementCount,
+        analysis_data: {
+          file_path: filePath,
+          backup_created: params.backup
+        }
+      },
+      executionTime
+    ) as EasyReplaceResponse;
   }
 
-  private async cleanupOrphanedProjects(args: any): Promise<any> {
-    const params = CleanupOrphanedProjectsSchema.parse(args);
+  private async cleanupOrphanedProjects(args: any): Promise<CleanupOrphanedProjectsResponse> {
+    const startTime = Date.now();
+    
+    // Map snake_case to camelCase for compatibility
+    const normalizedArgs = {
+      basePath: args.basePath || args.base_path,
+      daysThreshold: args.daysThreshold || args.days_threshold,
+      dryRun: args.dryRun || args.dry_run
+    };
+    
+    const params = CleanupOrphanedProjectsSchema.parse({
+      base_path: normalizedArgs.basePath,
+      days_threshold: normalizedArgs.daysThreshold,
+      dry_run: normalizedArgs.dryRun
+    });
     
     const basePath = path.resolve(params.base_path);
     const threshold = new Date(Date.now() - params.days_threshold * 24 * 60 * 60 * 1000);
@@ -476,14 +579,20 @@ export class AnalysisMcpTools {
       }
     }
 
-    return {
-      cleanup_results: {
-        orphaned_projects: orphanedProjects,
-        count: orphanedProjects.length,
-        dry_run: params.dry_run,
-        threshold_date: threshold.toISOString()
-      }
-    };
+    const executionTime = Date.now() - startTime;
+    
+    return createSuccessResponse(
+      `Successfully identified ${orphanedProjects.length} orphaned projects`,
+      {
+        cleanup_results: {
+          orphaned_projects: orphanedProjects,
+          count: orphanedProjects.length,
+          dry_run: params.dry_run,
+          threshold_date: threshold.toISOString()
+        }
+      },
+      executionTime
+    ) as CleanupOrphanedProjectsResponse;
   }
 
   // Helper methods

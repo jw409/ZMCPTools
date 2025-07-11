@@ -3,7 +3,7 @@
  * Uses the core KnowledgeGraphService and VectorSearchService
  */
 
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { McpTool } from '../schemas/tools/index.js';
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { DatabaseManager } from '../database/index.js';
@@ -45,79 +45,99 @@ export class KnowledgeGraphMcpTools {
   /**
    * Get all knowledge graph MCP tools
    */
-  getTools() {
+  getTools(): McpTool[] {
     return [
       {
         name: 'store_knowledge_memory',
         description: 'Store a knowledge graph memory with entity creation',
         inputSchema: zodToJsonSchema(StoreKnowledgeMemorySchema),
-        outputSchema: zodToJsonSchema(StoreKnowledgeMemoryResponseSchema)
+        outputSchema: zodToJsonSchema(StoreKnowledgeMemoryResponseSchema),
+        handler: this.storeKnowledgeMemory.bind(this)
       },
       {
         name: 'create_knowledge_relationship',
         description: 'Create a relationship between two entities in the knowledge graph',
         inputSchema: zodToJsonSchema(CreateRelationshipSchema),
-        outputSchema: zodToJsonSchema(CreateKnowledgeRelationshipResponseSchema)
+        outputSchema: zodToJsonSchema(CreateKnowledgeRelationshipResponseSchema),
+        handler: this.createKnowledgeRelationship.bind(this)
       },
       {
         name: 'search_knowledge_graph',
         description: 'Search the knowledge graph using semantic or basic search',
         inputSchema: zodToJsonSchema(SearchKnowledgeGraphSchema),
-        outputSchema: zodToJsonSchema(SearchKnowledgeGraphResponseSchema)
+        outputSchema: zodToJsonSchema(SearchKnowledgeGraphResponseSchema),
+        handler: this.searchKnowledgeGraph.bind(this)
       },
       {
         name: 'find_related_entities',
         description: 'Find related entities through relationship traversal',
         inputSchema: zodToJsonSchema(FindRelatedEntitiesSchema),
-        outputSchema: zodToJsonSchema(FindRelatedEntitiesResponseSchema)
+        outputSchema: zodToJsonSchema(FindRelatedEntitiesResponseSchema),
+        handler: this.findRelatedEntities.bind(this)
       }
     ];
   }
 
-  /**
-   * Handle MCP tool calls for knowledge graph functionality
-   */
-  async handleToolCall(name: string, args: any): Promise<any> {
-    try {
-      switch (name) {
-        case 'store_knowledge_memory':
-          return await this.storeKnowledgeMemory(args);
-        
-        case 'create_knowledge_relationship':
-          return await this.createKnowledgeRelationship(args);
-        
-        case 'search_knowledge_graph':
-          return await this.searchKnowledgeGraph(args);
-        
-        case 'find_related_entities':
-          return await this.findRelatedEntities(args);
-        
-        default:
-          throw new Error(`Unknown knowledge graph tool: ${name}`);
-      }
-    } catch (error) {
-      logger.error(`Failed to execute ${name}`, error);
-      throw error;
-    }
-  }
 
   private async storeKnowledgeMemory(args: any): Promise<StoreKnowledgeMemoryResponse> {
-    const params = StoreKnowledgeMemorySchema.parse(args);
+    // Map snake_case to camelCase for compatibility with MCP client
+    const mappedArgs: StoreKnowledgeMemoryInput = {
+      repository_path: args.repository_path || args.repositoryPath,
+      agent_id: args.agent_id || args.agentId,
+      entity_type: args.entity_type || args.entityType,
+      entity_name: args.entity_name || args.entityName,
+      entity_description: args.entity_description || args.entityDescription,
+      importance_score: args.importance_score || args.importanceScore,
+      confidence_score: args.confidence_score || args.confidenceScore,
+      properties: args.properties
+    };
+    const params = StoreKnowledgeMemorySchema.parse(mappedArgs);
     return await storeKnowledgeMemory(this.db, params);
   }
 
   private async createKnowledgeRelationship(args: any): Promise<CreateKnowledgeRelationshipResponse> {
-    const params = CreateRelationshipSchema.parse(args);
+    // Map snake_case to camelCase for compatibility with MCP client
+    const mappedArgs: CreateRelationshipInput = {
+      repository_path: args.repository_path || args.repositoryPath,
+      from_entity_id: args.from_entity_id || args.fromEntityId,
+      to_entity_id: args.to_entity_id || args.toEntityId,
+      relationship_type: args.relationship_type || args.relationshipType,
+      strength: args.strength,
+      confidence: args.confidence,
+      context: args.context,
+      discovered_by: args.discovered_by || args.discoveredBy,
+      properties: args.properties
+    };
+    const params = CreateRelationshipSchema.parse(mappedArgs);
     return await createKnowledgeRelationship(this.db, params);
   }
 
   private async searchKnowledgeGraph(args: any): Promise<SearchKnowledgeGraphResponse> {
-    const params = SearchKnowledgeGraphSchema.parse(args);
+    // Map snake_case to camelCase for compatibility with MCP client
+    const mappedArgs: SearchKnowledgeGraphInput = {
+      repository_path: args.repository_path || args.repositoryPath,
+      query: args.query,
+      entity_types: args.entity_types || args.entityTypes,
+      relationship_types: args.relationship_types || args.relationshipTypes,
+      use_semantic_search: args.use_semantic_search !== undefined ? args.use_semantic_search : args.useSemanticSearch,
+      include_relationships: args.include_relationships !== undefined ? args.include_relationships : args.includeRelationships,
+      limit: args.limit,
+      threshold: args.threshold
+    };
+    const params = SearchKnowledgeGraphSchema.parse(mappedArgs);
     return await searchKnowledgeGraph(this.db, params);
   }
 
   private async findRelatedEntities(args: any): Promise<FindRelatedEntitiesResponse> {
-    const params = FindRelatedEntitiesSchema.parse(args);
+    // Map snake_case to camelCase for compatibility with MCP client
+    const mappedArgs: FindRelatedEntitiesInput = {
+      repository_path: args.repository_path || args.repositoryPath,
+      entity_id: args.entity_id || args.entityId,
+      relationship_types: args.relationship_types || args.relationshipTypes,
+      max_distance: args.max_distance || args.maxDistance,
+      min_strength: args.min_strength || args.minStrength
+    };
+    const params = FindRelatedEntitiesSchema.parse(mappedArgs);
     return await findRelatedEntities(this.db, params);
   }
 }

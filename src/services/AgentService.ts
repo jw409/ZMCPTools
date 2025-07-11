@@ -3,7 +3,7 @@ import { AgentRepository } from '../repositories/AgentRepository.js';
 import { CommunicationRepository } from '../repositories/CommunicationRepository.js';
 import type { AgentSession, NewAgentSession, AgentSessionUpdate, AgentStatus, AgentType, ToolPermissions } from '../schemas/index.js';
 import { ClaudeSpawner } from '../process/ClaudeSpawner.js';
-import type { ClaudeSpawnConfig } from '../process/ClaudeSpawner.js';
+import type { ClaudeSpawnConfig } from '../process/ClaudeProcess.js';
 import { Logger } from '../utils/logger.js';
 import { AgentPermissionManager } from '../utils/agentPermissions.js';
 import { PathUtils } from '../utils/pathUtils.js';
@@ -413,6 +413,19 @@ export class AgentService {
       }
     }
 
+    // Set up session ID callback if not already provided
+    const onSessionIdExtracted = claudeConfig?.onSessionIdExtracted || (async (sessionId: string) => {
+      try {
+        await this.updateAgentSessionId(agent.id, sessionId);
+        this.logger.info(`Session ID extracted and stored for agent ${agent.id}`, { sessionId });
+      } catch (error) {
+        this.logger.warn(`Failed to store session ID for agent ${agent.id}`, {
+          sessionId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    });
+
     const config: ClaudeSpawnConfig = {
       workingDirectory,
       prompt,
@@ -420,6 +433,9 @@ export class AgentService {
       capabilities: agent.capabilities,
       allowedTools: allowedTools,
       disallowedTools: disallowedTools,
+      agentType: agent.agentType,
+      roomId: agent.roomId,
+      onSessionIdExtracted, // Add session ID callback
       environmentVars: {
         AGENT_ID: agent.id,
         AGENT_NAME: agent.agentName,
@@ -503,7 +519,7 @@ Use this tool systematically for complex challenges in your domain.
 
 🎯 KNOWLEDGE GRAPH INTEGRATION:
 Before starting work, search for relevant knowledge and patterns:
-- search_memory() to learn from previous similar tasks
+- search_knowledge_graph() to learn from previous similar tasks
 - Look for patterns in successful implementations in your domain
 - Use knowledge graph insights to inform your sequential thinking process
 
@@ -532,8 +548,8 @@ COORDINATION PROTOCOL:`;
     } else {
       prompt += `
 - No room assigned - use memory-based coordination
-- Use store_memory() as primary coordination method for insights
-- Use search_memory() to learn from other agents' work
+- Use store_knowledge_memory() as primary coordination method for insights
+- Use search_knowledge_graph() to learn from other agents' work
 - If you need real-time coordination, use join_room() to create/join rooms
 - Focus on task completion with memory-based coordination`;
     }
@@ -542,8 +558,8 @@ COORDINATION PROTOCOL:`;
 
 COORDINATION METHODS AVAILABLE:
 - sequential_thinking(): Step-by-step problem decomposition
-- store_memory(): Share insights, progress, and learnings with other agents
-- search_memory(): Learn from previous work and knowledge graph
+- store_knowledge_memory(): Share insights, progress, and learnings with other agents
+- search_knowledge_graph(): Learn from previous work and knowledge graph
 - join_room(): Create or join coordination rooms when real-time communication needed
 - send_message(): Communicate with other agents in rooms
 
@@ -597,7 +613,7 @@ Use this tool systematically throughout your orchestration process:
 
 🎯 KNOWLEDGE GRAPH INTEGRATION:
 Before planning, always search for relevant knowledge and patterns:
-- search_memory() to learn from previous similar orchestration
+- search_knowledge_graph() to learn from previous similar orchestration
 - Look for patterns in agent coordination, task breakdown, and execution strategies
 - Identify reusable components and successful approaches from past work
 - Use knowledge graph insights to inform your sequential thinking process
@@ -624,8 +640,8 @@ ARCHITECT COORDINATION PROTOCOL:`;
     } else {
       prompt += `
 - No room assigned - use memory-based coordination
-- Use store_memory() as primary coordination method for insights
-- Use search_memory() to learn from previous orchestration work
+- Use store_knowledge_memory() as primary coordination method for insights
+- Use search_knowledge_graph() to learn from previous orchestration work
 - Create rooms when you need real-time coordination with multiple agents
 - Focus on orchestration completion with memory-based coordination`;
     }
@@ -638,8 +654,8 @@ ARCHITECT ORCHESTRATION TOOLS:
 - spawn_agent(): Create specialized agents with specific task assignments
 - join_room(): Join or create coordination rooms
 - send_message(): Communicate with agents in rooms
-- store_memory(): Share insights, decisions, and patterns
-- search_memory(): Learn from previous orchestration work and knowledge graph
+- store_knowledge_memory(): Share insights, decisions, and patterns
+- search_knowledge_graph(): Learn from previous orchestration work and knowledge graph
 - list_agents(): Check agent status and coordination needs
 
 CRITICAL ARCHITECT GUIDELINES:
@@ -961,5 +977,346 @@ Start immediately with sequential_thinking() to analyze the objective complexity
       timestamp: new Date().toISOString(),
       toolPermissions: agent.toolPermissions
     };
+  }
+
+  /**
+   * Broadcast a message to multiple agents with auto-resume functionality
+   */
+  async broadcastMessageToAgents(
+    repositoryPath: string,
+    agentIds: string[],
+    message: string,
+    autoResume: boolean = true,
+    priority: 'low' | 'normal' | 'high' | 'urgent' = 'normal',
+    messageType: 'coordination' | 'instruction' | 'status' | 'notification' = 'coordination'
+  ): Promise<{
+    totalAgents: number;
+    deliveredCount: number;
+    resumedCount: number;
+    failedCount: number;
+    deliveryResults: Array<{
+      agentId: string;
+      delivered: boolean;
+      resumed: boolean;
+      error?: string;
+      roomName?: string;
+    }>;
+  }> {
+    this.logger.info(`Broadcasting message to ${agentIds.length} agents`, {
+      repositoryPath,
+      agentIds,
+      messagePreview: message.substring(0, 100),
+      autoResume,
+      priority,
+      messageType
+    });
+
+    const results = {
+      totalAgents: agentIds.length,
+      deliveredCount: 0,
+      resumedCount: 0,
+      failedCount: 0,
+      deliveryResults: [] as Array<{
+        agentId: string;
+        delivered: boolean;
+        resumed: boolean;
+        error?: string;
+        roomName?: string;
+      }>
+    };
+
+    for (const agentId of agentIds) {
+      const result = {
+        agentId,
+        delivered: false,
+        resumed: false,
+        error: undefined as string | undefined,
+        roomName: undefined as string | undefined
+      };
+
+      try {
+        // Get agent information
+        const agent = await this.agentRepo.findById(agentId);
+        if (!agent) {
+          result.error = `Agent ${agentId} not found`;
+          result.delivered = false;
+          results.failedCount++;
+          results.deliveryResults.push(result);
+          continue;
+        }
+
+        // Check if agent needs to be resumed
+        let wasResumed = false;
+        if (autoResume && !this.isAgentActivelyRunning(agent)) {
+          try {
+            await this.continueAgentSession(agentId, message, undefined, true);
+            wasResumed = true;
+            result.resumed = true;
+            results.resumedCount++;
+            this.logger.info(`Agent ${agentId} resumed for message delivery`);
+          } catch (resumeError) {
+            this.logger.warn(`Failed to resume agent ${agentId}`, { 
+              error: resumeError instanceof Error ? resumeError.message : String(resumeError) 
+            });
+            result.error = `Failed to resume agent: ${resumeError instanceof Error ? resumeError.message : String(resumeError)}`;
+            result.delivered = false;
+            results.failedCount++;
+            results.deliveryResults.push(result);
+            continue;
+          }
+        }
+
+        // Deliver message to agent
+        try {
+          if (agent.roomId) {
+            // Agent has a room - send message to room
+            await this.communicationRepo.sendMessage({
+              id: `msg-${Date.now()}-${Math.random().toString(36).substring(2)}`,
+              roomId: agent.roomId,
+              agentName: 'System Broadcast',
+              message: this.formatBroadcastMessage(message, priority, messageType),
+              messageType: 'system'
+            });
+            result.roomName = agent.roomId;
+            result.delivered = true;
+            results.deliveredCount++;
+          } else {
+            // Agent has no room - update additional instructions
+            await this.updateAgentInstructions(agentId, message);
+            result.delivered = true;
+            results.deliveredCount++;
+          }
+
+          this.logger.info(`Message delivered to agent ${agentId}`, {
+            agentName: agent.agentName,
+            roomId: agent.roomId,
+            wasResumed,
+            deliveryMethod: agent.roomId ? 'room_message' : 'instructions_update'
+          });
+
+        } catch (deliveryError) {
+          this.logger.error(`Failed to deliver message to agent ${agentId}`, {
+            error: deliveryError instanceof Error ? deliveryError.message : String(deliveryError)
+          });
+          result.error = `Message delivery failed: ${deliveryError instanceof Error ? deliveryError.message : String(deliveryError)}`;
+          result.delivered = false;
+          results.failedCount++;
+        }
+
+      } catch (error) {
+        this.logger.error(`Unexpected error processing agent ${agentId}`, {
+          error: error instanceof Error ? error.message : String(error)
+        });
+        result.error = `Unexpected error: ${error instanceof Error ? error.message : String(error)}`;
+        result.delivered = false;
+        results.failedCount++;
+      }
+
+      results.deliveryResults.push(result);
+    }
+
+    this.logger.info(`Broadcast message operation completed`, {
+      totalAgents: results.totalAgents,
+      deliveredCount: results.deliveredCount,
+      resumedCount: results.resumedCount,
+      failedCount: results.failedCount
+    });
+
+    return results;
+  }
+
+  /**
+   * Continue an agent session using stored conversation session ID
+   */
+  async continueAgentSession(
+    agentId: string,
+    additionalInstructions?: string,
+    newTaskDescription?: string,
+    preserveContext: boolean = true,
+    updateMetadata?: Record<string, any>
+  ): Promise<AgentSession> {
+    this.logger.info(`Continuing agent session for ${agentId}`, {
+      hasAdditionalInstructions: !!additionalInstructions,
+      hasNewTask: !!newTaskDescription,
+      preserveContext,
+      hasMetadataUpdates: !!updateMetadata
+    });
+
+    // Get agent information
+    const agent = await this.agentRepo.findById(agentId);
+    if (!agent) {
+      throw new Error(`Agent ${agentId} not found`);
+    }
+
+    // Check if agent has a stored session ID
+    if (!agent.convoSessionId) {
+      throw new Error(`Agent ${agentId} has no stored conversation session ID`);
+    }
+
+    // Store previous status
+    const previousStatus = agent.status;
+
+    // Update agent metadata if provided
+    if (updateMetadata) {
+      const updatedMetadata = { ...agent.agentMetadata, ...updateMetadata };
+      await this.agentRepo.updateMetadata(agentId, updatedMetadata);
+    }
+
+    // Update additional instructions if provided
+    if (additionalInstructions) {
+      await this.updateAgentInstructions(agentId, additionalInstructions);
+    }
+
+    // Determine task description for the resumed session
+    const taskDescription = newTaskDescription || 
+      (agent.agentMetadata?.taskDescription as string) || 
+      'Continue with previous task';
+
+    // Set up session ID callback to update the agent with any new session ID
+    const onSessionIdExtracted = async (sessionId: string) => {
+      try {
+        await this.updateAgentSessionId(agentId, sessionId);
+        this.logger.info(`Updated session ID for resumed agent ${agentId}`, { sessionId });
+      } catch (error) {
+        this.logger.warn(`Failed to update session ID for agent ${agentId}`, {
+          sessionId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    };
+
+    // Create Claude configuration for resumption
+    const claudeConfig: Partial<ClaudeSpawnConfig> = {
+      sessionId: agent.convoSessionId, // Resume with stored session ID
+      additionalInstructions,
+      onSessionIdExtracted
+    };
+
+    // Spawn the Claude process with resumed session
+    try {
+      const claudeProcess = await this.spawnClaudeProcess(agent, taskDescription, claudeConfig);
+      
+      // Update agent status and PID
+      await this.agentRepo.updateStatus(agentId, 'active');
+      
+      this.db.transaction(() => {
+        const updateStmt = this.db.database.prepare(`
+          UPDATE agent_sessions 
+          SET claudePid = ?, lastHeartbeat = datetime('now')
+          WHERE id = ?
+        `);
+        updateStmt.run(claudeProcess.pid, agentId);
+      });
+
+      // Get updated agent
+      const updatedAgent = await this.agentRepo.findById(agentId);
+      if (!updatedAgent) {
+        throw new Error(`Agent ${agentId} not found after session continuation`);
+      }
+
+      // Emit agent resumed event
+      await eventBus.emit('agent_resumed', {
+        agentId,
+        previousStatus,
+        newStatus: 'active',
+        sessionId: agent.convoSessionId,
+        timestamp: new Date(),
+        repositoryPath: agent.repositoryPath
+      });
+
+      this.logger.info(`Agent session continued successfully`, {
+        agentId,
+        agentName: agent.agentName,
+        previousStatus,
+        newStatus: 'active',
+        sessionId: agent.convoSessionId,
+        claudePid: claudeProcess.pid
+      });
+
+      return updatedAgent;
+
+    } catch (error) {
+      this.logger.error(`Failed to continue agent session for ${agentId}`, {
+        error: error instanceof Error ? error.message : String(error),
+        sessionId: agent.convoSessionId
+      });
+      
+      // Update agent status to indicate failure
+      await this.agentRepo.updateStatus(agentId, 'failed');
+      throw new Error(`Failed to continue agent session: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Check if an agent is actively running
+   */
+  private isAgentActivelyRunning(agent: AgentSession): boolean {
+    // Agent is actively running if:
+    // 1. Status is 'active' or 'initializing'
+    // 2. Has a claudePid and the process is still running
+    if (agent.status === 'active' || agent.status === 'initializing') {
+      if (agent.claudePid) {
+        const process = this.spawner.getProcess(agent.claudePid);
+        return process ? !process.hasExited() : false;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Update agent additional instructions
+   */
+  async updateAgentInstructions(agentId: string, instructions: string): Promise<void> {
+    this.logger.info(`Updating instructions for agent ${agentId}`);
+    
+    this.db.transaction(() => {
+      const updateStmt = this.db.database.prepare(`
+        UPDATE agent_sessions 
+        SET additionalInstructions = ?, lastHeartbeat = datetime('now')
+        WHERE id = ?
+      `);
+      updateStmt.run(instructions, agentId);
+    });
+  }
+
+  /**
+   * Update agent conversation session ID
+   */
+  async updateAgentSessionId(agentId: string, sessionId: string): Promise<void> {
+    this.logger.info(`Updating session ID for agent ${agentId}`, { sessionId });
+    
+    this.db.transaction(() => {
+      const updateStmt = this.db.database.prepare(`
+        UPDATE agent_sessions 
+        SET convoSessionId = ?, lastHeartbeat = datetime('now')
+        WHERE id = ?
+      `);
+      updateStmt.run(sessionId, agentId);
+    });
+  }
+
+  /**
+   * Format broadcast message with priority and type
+   */
+  private formatBroadcastMessage(
+    message: string,
+    priority: 'low' | 'normal' | 'high' | 'urgent',
+    messageType: 'coordination' | 'instruction' | 'status' | 'notification'
+  ): string {
+    const priorityEmoji = {
+      low: '🔵',
+      normal: '⚪',
+      high: '🟡',
+      urgent: '🔴'
+    };
+
+    const typeEmoji = {
+      coordination: '🤝',
+      instruction: '📋',
+      status: '📊',
+      notification: '📢'
+    };
+
+    return `${priorityEmoji[priority]} ${typeEmoji[messageType]} **${messageType.toUpperCase()}** (${priority} priority)\n\n${message}`;
   }
 }

@@ -648,11 +648,11 @@ ORCHESTRATION PROCESS:
 
 CRITICAL ORCHESTRATION TOOLS:
 - sequential_thinking() - Complex problem decomposition
-- search_memory() - Learn from previous orchestration patterns
+- search_knowledge_graph() - Learn from previous orchestration patterns
 - create_task() - Structure work into manageable pieces
 - spawn_agent() - Create specialized agents
 - join_room() - Coordinate multi-agent communication
-- store_memory() - Document insights and patterns
+- store_knowledge_memory() - Document insights and patterns
 
 Start with sequential_thinking() to analyze the objective and develop your orchestration strategy.`
     });
@@ -694,7 +694,7 @@ KNOWLEDGE GRAPH INTEGRATION PROCESS:
 
 INTEGRATION METHODOLOGY:
 1. **Search Strategy**:
-   - Use search_memory() to find relevant previous work
+   - Use search_knowledge_graph() to find relevant previous work
    - Look for patterns in similar tasks and successful approaches
    - Identify reusable components and established best practices
    
@@ -709,9 +709,9 @@ INTEGRATION METHODOLOGY:
    - Document new insights for future knowledge graph enhancement
 
 CRITICAL KNOWLEDGE TOOLS:
-- search_memory() - Query knowledge graph for relevant insights
+- search_knowledge_graph() - Query knowledge graph for relevant insights
 - sequential_thinking() - Systematically integrate complex information
-- store_memory() - Capture new insights and patterns
+- store_knowledge_memory() - Capture new insights and patterns
 - pattern recognition - Identify successful approaches and pitfalls
 
 Focus on leveraging collective knowledge while adapting to current context and requirements.`
@@ -771,8 +771,8 @@ BREAKDOWN PROCESS:
 TASK BREAKDOWN TOOLS:
 - sequential_thinking() - Systematic decomposition analysis
 - create_task() - Create structured task definitions
-- search_memory() - Learn from previous breakdown patterns
-- store_memory() - Document successful breakdown strategies
+- search_knowledge_graph() - Learn from previous breakdown patterns
+- store_knowledge_memory() - Document successful breakdown strategies
 
 Focus on creating clear, actionable tasks with appropriate dependencies and agent assignments.`
     });
@@ -830,9 +830,9 @@ PLANNING METHODOLOGY:
 
 ARCHITECT PLANNING TOOLS:
 - sequential_thinking() - Strategic planning and analysis
-- search_memory() - Learn from previous planning experiences
+- search_knowledge_graph() - Learn from previous planning experiences
 - create_task() - Structure planning into actionable items
-- store_memory() - Document planning insights and decisions
+- store_knowledge_memory() - Document planning insights and decisions
 
 Focus on creating comprehensive, adaptive plans that account for complexity and uncertainty.`
     });

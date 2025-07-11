@@ -1,4 +1,3 @@
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { DatabaseManager } from '../database/index.js';
@@ -7,25 +6,20 @@ import { WebScrapingService } from '../services/WebScrapingService.js';
 import { AgentMonitoringService } from '../services/AgentMonitoringService.js';
 import { ProgressTracker } from '../services/ProgressTracker.js';
 import { ClaudeSpawner } from '../process/ClaudeSpawner.js';
+import { StructuredOrchestrator, type StructuredOrchestrationRequest } from '../services/index.js';
 import type { TaskType, AgentStatus, MessageType, EntityType } from '../schemas/index.js';
+import type { McpTool } from '../schemas/tools/index.js';
 
 // Import centralized request schemas
 import {
   OrchestrationObjectiveSchema,
   SpawnAgentSchema,
   CreateTaskSchema,
-  JoinRoomSchema,
-  SendMessageSchema,
-  WaitForMessagesSchema,
-  StoreMemorySchema,
-  SearchMemorySchema,
   ListAgentsSchema,
   TerminateAgentSchema,
-  CloseRoomSchema,
-  DeleteRoomSchema,
-  ListRoomsSchema,
-  ListRoomMessagesSchema,
-  MonitorAgentsSchema
+  MonitorAgentsSchema,
+  StructuredOrchestrationSchema,
+  ContinueAgentSessionSchema
 } from '../schemas/tools/agentOrchestration.js';
 
 // Import centralized response schemas
@@ -41,20 +35,12 @@ import {
   OrchestrationObjectiveResponseSchema,
   SpawnAgentResponseSchema,
   CreateTaskResponseSchema,
-  JoinRoomResponseSchema,
-  SendMessageResponseSchema,
-  WaitForMessagesResponseSchema,
-  StoreMemoryResponseSchema,
-  SearchMemoryResponseSchema,
   ListAgentsResponseSchema,
   TerminateAgentResponseSchema,
-  CloseRoomResponseSchema,
-  DeleteRoomResponseSchema,
-  ListRoomsResponseSchema,
-  ListRoomMessagesResponseSchema,
-  MonitorAgentsResponseSchema
+  MonitorAgentsResponseSchema,
+  StructuredOrchestrationResponseSchema,
+  ContinueAgentSessionResponseSchema
 } from '../schemas/tools/agentOrchestration.js';
-import type { RegisteredTool } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 // Legacy types for backward compatibility
 export const OrchestrationResultSchema = z.object({
@@ -83,6 +69,7 @@ export class AgentOrchestrationTools {
   private webScrapingService: WebScrapingService;
   private monitoringService: AgentMonitoringService;
   private progressTracker: ProgressTracker;
+  private structuredOrchestrator: StructuredOrchestrator;
 
   constructor(private db: DatabaseManager, repositoryPath: string) {
     this.agentService = new AgentService(db);
@@ -96,6 +83,7 @@ export class AgentOrchestrationTools {
     );
     this.monitoringService = new AgentMonitoringService(db, repositoryPath);
     this.progressTracker = new ProgressTracker(db);
+    this.structuredOrchestrator = new StructuredOrchestrator(db, repositoryPath);
   }
 
   private async initializeKnowledgeGraphService(db: DatabaseManager): Promise<void> {
@@ -115,343 +103,84 @@ export class AgentOrchestrationTools {
 
   /**
    * Get MCP tools for agent orchestration
-   * Returns properly structured Tool objects with MCP schema compliance
+   * Returns properly structured McpTool objects with handler bindings
    */
-  getTools() {
+  getTools(): McpTool[] {
     return [
       {
         name: 'orchestrate_objective',
         description: 'Spawn architect agent to coordinate multi-agent objective completion',
         inputSchema: zodToJsonSchema(OrchestrationObjectiveSchema),
         outputSchema: zodToJsonSchema(OrchestrationObjectiveResponseSchema),
+        handler: this.orchestrateObjective.bind(this)
+      },
+      {
+        name: 'orchestrate_objective_structured',
+        description: 'Execute structured phased orchestration with intelligent model selection (Research → Plan → Execute → Monitor → Cleanup)',
+        inputSchema: zodToJsonSchema(StructuredOrchestrationSchema),
+        outputSchema: zodToJsonSchema(StructuredOrchestrationResponseSchema),
+        handler: this.orchestrateObjectiveStructured.bind(this)
       },
       {
         name: 'spawn_agent',
         description: 'Spawn fully autonomous Claude agent with complete tool access',
         inputSchema: zodToJsonSchema(SpawnAgentSchema),
-        outputSchema: zodToJsonSchema(SpawnAgentResponseSchema)
+        outputSchema: zodToJsonSchema(SpawnAgentResponseSchema),
+        handler: this.spawnAgent.bind(this)
       },
       {
         name: 'create_task',
         description: 'Create and assign task to agents with enhanced capabilities',
         inputSchema: zodToJsonSchema(CreateTaskSchema),
-        outputSchema: zodToJsonSchema(CreateTaskResponseSchema)
-      },
-      {
-        name: 'join_room',
-        description: 'Join communication room for coordination',
-        inputSchema: zodToJsonSchema(JoinRoomSchema),
-        outputSchema: zodToJsonSchema(JoinRoomResponseSchema)
-      },
-      {
-        name: 'send_message',
-        description: 'Send message to coordination room',
-        inputSchema: zodToJsonSchema(SendMessageSchema),
-        outputSchema: zodToJsonSchema(SendMessageResponseSchema)
-      },
-      {
-        name: 'wait_for_messages',
-        description: 'Wait for messages in a room',
-        inputSchema: zodToJsonSchema(WaitForMessagesSchema),
-        outputSchema: zodToJsonSchema(WaitForMessagesResponseSchema)
-      },
-      {
-        name: 'store_memory',
-        description: 'Store insights and learnings in shared memory',
-        inputSchema: zodToJsonSchema(StoreMemorySchema),
-        outputSchema: zodToJsonSchema(StoreMemoryResponseSchema)
-      },
-      {
-        name: 'search_memory',
-        description: 'Search shared memory for insights',
-        inputSchema: zodToJsonSchema(SearchMemorySchema),
-        outputSchema: zodToJsonSchema(SearchMemoryResponseSchema)
+        outputSchema: zodToJsonSchema(CreateTaskResponseSchema),
+        handler: this.createTask.bind(this)
       },
       {
         name: 'list_agents',
         description: 'Get list of active agents',
         inputSchema: zodToJsonSchema(ListAgentsSchema),
-        outputSchema: zodToJsonSchema(ListAgentsResponseSchema)
+        outputSchema: zodToJsonSchema(ListAgentsResponseSchema),
+        handler: this.listAgents.bind(this)
       },
       {
         name: 'terminate_agent',
         description: 'Terminate one or more agents',
         inputSchema: zodToJsonSchema(TerminateAgentSchema),
-        outputSchema: zodToJsonSchema(TerminateAgentResponseSchema)
-      },
-      {
-        name: 'close_room',
-        description: 'Close a communication room (soft delete - marks as closed but keeps data)',
-        inputSchema: zodToJsonSchema(CloseRoomSchema),
-        outputSchema: zodToJsonSchema(CloseRoomResponseSchema)
-      },
-      {
-        name: 'delete_room',
-        description: 'Permanently delete a communication room and all its messages',
-        inputSchema: zodToJsonSchema(DeleteRoomSchema),
-        outputSchema: zodToJsonSchema(DeleteRoomResponseSchema)
-      },
-      {
-        name: 'list_rooms',
-        description: 'List communication rooms with filtering and pagination',
-        inputSchema: zodToJsonSchema(ListRoomsSchema),
-        outputSchema: zodToJsonSchema(ListRoomsResponseSchema)
-      },
-      {
-        name: 'list_room_messages',
-        description: 'List messages from a specific room with pagination',
-        inputSchema: zodToJsonSchema(ListRoomMessagesSchema),
-        outputSchema: zodToJsonSchema(ListRoomMessagesResponseSchema)
+        outputSchema: zodToJsonSchema(TerminateAgentResponseSchema),
+        handler: this.terminateAgent.bind(this)
       },
       {
         name: 'monitor_agents',
         description: 'Monitor agents with real-time updates using EventBus system',
         inputSchema: zodToJsonSchema(MonitorAgentsSchema),
-        outputSchema: zodToJsonSchema(MonitorAgentsResponseSchema)
+        outputSchema: zodToJsonSchema(MonitorAgentsResponseSchema),
+        handler: this.monitorAgents.bind(this)
+      },
+      {
+        name: 'continue_agent_session',
+        description: 'Continue an agent session using stored conversation session ID with additional instructions',
+        inputSchema: zodToJsonSchema(ContinueAgentSessionSchema),
+        outputSchema: zodToJsonSchema(ContinueAgentSessionResponseSchema),
+        handler: this.continueAgentSession.bind(this)
       }
     ];
   }
 
-  /**
-   * Handle MCP tool calls for agent orchestration
-   * Routes tool calls to appropriate methods and ensures proper response format
-   */
-  async handleToolCall(name: string, args: any): Promise<AgentOrchestrationResponse> {
-    const startTime = performance.now();
-    
-    try {
-      let result: any;
-      
-      switch (name) {
-        case 'orchestrate_objective':
-          const orchestrationArgs = OrchestrationObjectiveSchema.parse(args);
-          result = await this.orchestrateObjective(
-            orchestrationArgs.title,
-            orchestrationArgs.objective,
-            orchestrationArgs.repositoryPath,
-            orchestrationArgs.foundationSessionId
-          );
-          break;
-          
-        case 'spawn_agent':
-          const spawnArgs = SpawnAgentSchema.parse(args);
-          result = await this.spawnAgent({
-            agentType: spawnArgs.agentType,
-            repositoryPath: spawnArgs.repositoryPath,
-            taskDescription: spawnArgs.taskDescription,
-            capabilities: spawnArgs.capabilities,
-            dependsOn: spawnArgs.dependsOn,
-            metadata: spawnArgs.metadata
-          });
-          break;
-          
-        case 'create_task':
-          const taskArgs = CreateTaskSchema.parse(args);
-          result = await this.createTask(
-            taskArgs.repositoryPath,
-            taskArgs.taskType,
-            taskArgs.title,
-            taskArgs.description,
-            taskArgs.requirements,
-            taskArgs.dependencies
-          );
-          break;
-          
-        case 'join_room':
-          const joinArgs = JoinRoomSchema.parse(args);
-          result = await this.joinRoom(joinArgs.roomName, joinArgs.agentName);
-          break;
-          
-        case 'send_message':
-          const messageArgs = SendMessageSchema.parse(args);
-          result = await this.sendMessage(
-            messageArgs.roomName,
-            messageArgs.agentName,
-            messageArgs.message,
-            messageArgs.mentions
-          );
-          break;
-          
-        case 'wait_for_messages':
-          const waitArgs = WaitForMessagesSchema.parse(args);
-          result = await this.waitForMessages(
-            waitArgs.roomName,
-            waitArgs.timeout,
-            waitArgs.sinceTimestamp ? new Date(waitArgs.sinceTimestamp) : undefined
-          );
-          break;
-          
-        case 'store_memory':
-          const storeArgs = StoreMemorySchema.parse(args);
-          result = await this.storeMemory(
-            storeArgs.repositoryPath,
-            storeArgs.agentId,
-            storeArgs.entryType,
-            storeArgs.title,
-            storeArgs.content,
-            storeArgs.tags
-          );
-          break;
-          
-        case 'search_memory':
-          const searchArgs = SearchMemorySchema.parse(args);
-          result = await this.searchMemory(
-            searchArgs.repositoryPath,
-            searchArgs.queryText,
-            searchArgs.agentId,
-            searchArgs.limit
-          );
-          break;
-          
-        case 'list_agents':
-          const listArgs = ListAgentsSchema.parse(args);
-          result = await this.listAgents(
-            listArgs.repositoryPath,
-            listArgs.status,
-            listArgs.limit,
-            listArgs.offset
-          );
-          break;
-          
-        case 'terminate_agent':
-          const terminateArgs = TerminateAgentSchema.parse(args);
-          result = await this.terminateAgent(terminateArgs.agentIds);
-          break;
-          
-        case 'close_room':
-          const closeArgs = CloseRoomSchema.parse(args);
-          result = await this.closeRoom(closeArgs.roomName, closeArgs.terminateAgents);
-          break;
-          
-        case 'delete_room':
-          const deleteArgs = DeleteRoomSchema.parse(args);
-          result = await this.deleteRoom(deleteArgs.roomName, deleteArgs.forceDelete);
-          break;
-          
-        case 'list_rooms':
-          const listRoomsArgs = ListRoomsSchema.parse(args);
-          result = await this.listRooms(
-            listRoomsArgs.repositoryPath,
-            listRoomsArgs.status,
-            listRoomsArgs.limit,
-            listRoomsArgs.offset
-          );
-          break;
-          
-        case 'list_room_messages':
-          const listMessagesArgs = ListRoomMessagesSchema.parse(args);
-          result = await this.listRoomMessages(
-            listMessagesArgs.roomName,
-            listMessagesArgs.limit,
-            listMessagesArgs.offset,
-            listMessagesArgs.sinceTimestamp
-          );
-          break;
-          
-        case 'monitor_agents':
-          const monitorArgs = MonitorAgentsSchema.parse(args);
-          result = await this.monitorAgents(
-            monitorArgs.agentId,
-            monitorArgs.orchestrationId,
-            monitorArgs.roomName,
-            monitorArgs.repositoryPath,
-            monitorArgs.monitoringMode,
-            monitorArgs.updateInterval,
-            monitorArgs.maxDuration,
-            monitorArgs.detailLevel
-          );
-          break;
-          
-        default:
-          throw new Error(`Unknown agent orchestration tool: ${name}`);
-      }
-      
-      const executionTime = performance.now() - startTime;
-      
-      // Transform legacy OrchestrationResult to MCP format
-      if (result && typeof result === 'object' && 'success' in result) {
-        return createSuccessResponse(
-          result.message || `${name} completed successfully`,
-          this.transformResultData(result, name),
-          executionTime
-        ) as AgentOrchestrationResponse;
-      } else {
-        return createSuccessResponse(
-          `${name} completed successfully`,
-          this.transformResultData(result, name),
-          executionTime
-        ) as AgentOrchestrationResponse;
-      }
-    } catch (error) {
-      const executionTime = performance.now() - startTime;
-      return createErrorResponse(
-        `${name} failed to execute`,
-        error instanceof Error ? error.message : 'Unknown error occurred',
-        'AGENT_ORCHESTRATION_ERROR'
-      ) as AgentOrchestrationResponse;
-    }
-  }
 
-  /**
-   * Transform legacy result data to match AgentOrchestrationResponse schema
-   */
-  private transformResultData(result: any, toolName: string): any {
-    if (!result || typeof result !== 'object') {
-      return { monitoring_data: result };
-    }
-    
-    const data: any = {};
-    
-    // Map common fields based on the result structure
-    if (result.data) {
-      // Handle nested data structure
-      const resultData = result.data;
-      
-      if (resultData.agentId) data.agent_id = resultData.agentId;
-      if (resultData.taskId) data.task_id = resultData.taskId;
-      if (resultData.roomName) data.room_name = resultData.roomName;
-      if (resultData.orchestrationId) data.orchestration_id = resultData.orchestrationId;
-      if (resultData.architectAgentId) data.agent_id = resultData.architectAgentId;
-      if (resultData.masterTaskId) data.task_id = resultData.masterTaskId;
-      
-      // Handle arrays
-      if (resultData.agents) data.agents = resultData.agents;
-      if (resultData.messages) data.messages = resultData.messages;
-      if (resultData.rooms) data.rooms = resultData.rooms;
-      if (resultData.insights) data.memory_entries = resultData.insights;
-      
-      // Handle monitoring data
-      if (resultData.monitoringType || resultData.finalStatus) {
-        data.monitoring_data = resultData;
-      }
-      
-      // Handle coordination patterns
-      if (resultData.patterns || resultData.analytics) {
-        data.patterns = resultData;
-      }
-      
-      // Include any additional data
-      Object.keys(resultData).forEach(key => {
-        const mappedFields = ['agentId', 'taskId', 'roomName', 'orchestrationId', 'architectAgentId', 'masterTaskId', 'agents', 'messages', 'rooms', 'insights'];
-        if (!mappedFields.includes(key) && !data.hasOwnProperty(key)) {
-          if (!data.patterns) data.patterns = {};
-          data.patterns[key] = resultData[key];
-        }
-      });
-    }
-    
-    return data;
-  }
 
   /**
    * Spawn architect agent to coordinate multi-agent objective completion
    */
-  async orchestrateObjective(
-    title: string,
-    objective: string,
-    repositoryPath: string,
-    foundationSessionId?: string
-  ): Promise<OrchestrationResult> {
+  async orchestrateObjective(args: any): Promise<OrchestrationResult> {
+    // Map snake_case to camelCase for compatibility
+    const normalizedArgs = {
+      title: args.title,
+      objective: args.objective,
+      repositoryPath: args.repositoryPath || args.repository_path,
+      foundationSessionId: args.foundationSessionId || args.foundation_session_id
+    };
+    
+    const { title, objective, repositoryPath, foundationSessionId } = normalizedArgs;
     try {
       // 1. Create coordination room (orchestration always needs room)
       const roomName = `objective_${Date.now()}`;
@@ -564,9 +293,84 @@ export class AgentOrchestrationTools {
   }
 
   /**
+   * Execute structured phased orchestration with intelligent model selection
+   */
+  async orchestrateObjectiveStructured(args: any): Promise<OrchestrationResult> {
+    // Map snake_case to camelCase for compatibility
+    const normalizedArgs = {
+      title: args.title,
+      objective: args.objective,
+      repositoryPath: args.repositoryPath || args.repository_path,
+      foundationSessionId: args.foundationSessionId || args.foundation_session_id,
+      maxDuration: args.maxDuration || args.max_duration,
+      enableProgressTracking: args.enableProgressTracking || args.enable_progress_tracking,
+      customPhaseConfig: args.customPhaseConfig || args.custom_phase_config
+    };
+    
+    try {
+      const request: StructuredOrchestrationRequest = {
+        title: normalizedArgs.title,
+        objective: normalizedArgs.objective,
+        repositoryPath: normalizedArgs.repositoryPath,
+        foundationSessionId: normalizedArgs.foundationSessionId,
+        maxDuration: normalizedArgs.maxDuration,
+        enableProgressTracking: normalizedArgs.enableProgressTracking,
+        customPhaseConfig: normalizedArgs.customPhaseConfig
+      };
+
+      const result = await this.structuredOrchestrator.orchestrateObjectiveStructured(request);
+
+      return {
+        success: result.success,
+        message: result.message,
+        data: {
+          orchestrationId: result.orchestrationId,
+          complexityLevel: result.progress.phases ? 'analyzed' : 'unknown',
+          currentPhase: result.progress.currentPhase,
+          progress: result.progress.progress,
+          spawnedAgents: result.progress.spawnedAgents,
+          createdTasks: result.progress.createdTasks,
+          roomName: result.progress.roomName,
+          masterTaskId: result.progress.masterTaskId,
+          finalResults: result.finalResults,
+          structuredMode: true
+        }
+      };
+
+    } catch (error) {
+      return {
+        success: false,
+        message: `Failed to execute structured orchestration: ${error}`,
+        data: { error: String(error) }
+      };
+    }
+  }
+
+  /**
    * Spawn fully autonomous Claude agent with complete tool access
    */
-  async spawnAgent(options: SpawnAgentOptions): Promise<OrchestrationResult> {
+  async spawnAgent(args: any): Promise<OrchestrationResult> {
+    // Debug logging to see what parameters are actually received
+    process.stderr.write(`🔍 spawnAgent received args: ${JSON.stringify(args, null, 2)}\n`);
+    
+    // Map snake_case to camelCase for compatibility
+    const normalizedArgs = {
+      agentType: args.agentType || args.agent_type,
+      repositoryPath: args.repositoryPath || args.repository_path,
+      taskDescription: args.taskDescription || args.task_description,
+      capabilities: args.capabilities,
+      dependsOn: args.dependsOn || args.depends_on,
+      metadata: args.metadata
+    };
+    
+    const options = {
+      agentType: normalizedArgs.agentType,
+      repositoryPath: normalizedArgs.repositoryPath,
+      taskDescription: normalizedArgs.taskDescription,
+      capabilities: normalizedArgs.capabilities,
+      dependsOn: normalizedArgs.dependsOn,
+      metadata: normalizedArgs.metadata
+    };
     try {
       // Add detailed logging to track what architects are passing
       const logger = new (await import('../utils/logger.js')).Logger('AgentOrchestration');
@@ -661,7 +465,8 @@ export class AgentOrchestrationTools {
           agentId: agent.id,
           agentType,
           pid: agent.claudePid,
-          capabilities
+          capabilities,
+          repositoryPath: agent.repositoryPath
         }
       };
 
@@ -677,14 +482,18 @@ export class AgentOrchestrationTools {
   /**
    * Create and assign task to agents with enhanced capabilities
    */
-  async createTask(
-    repositoryPath: string,
-    taskType: TaskType,
-    title: string,
-    description: string,
-    requirements?: Record<string, any>,
-    dependencies?: string[]
-  ): Promise<OrchestrationResult> {
+  async createTask(args: any): Promise<OrchestrationResult> {
+    // Map snake_case to camelCase for compatibility
+    const normalizedArgs = {
+      repositoryPath: args.repositoryPath || args.repository_path,
+      taskType: args.taskType || args.task_type,
+      title: args.title,
+      description: args.description,
+      requirements: args.requirements,
+      dependencies: args.dependencies
+    };
+    
+    const { repositoryPath, taskType, title, description, requirements, dependencies } = normalizedArgs;
     try {
       // Create the task with enhanced features
       const task = await this.taskService.createTask({
@@ -757,221 +566,21 @@ export class AgentOrchestrationTools {
     }
   }
 
-  /**
-   * Join communication room for coordination
-   */
-  async joinRoom(roomName: string, agentName: string): Promise<OrchestrationResult> {
-    try {
-      // Check if room exists
-      const room = await this.communicationService.getRoom(roomName);
-      if (!room) {
-        return {
-          success: false,
-          message: `Room ${roomName} not found`,
-          data: { roomName }
-        };
-      }
 
-      // Join the room
-      await this.communicationService.joinRoom(roomName, agentName);
-
-      // Get recent messages for context
-      const recentMessages = await this.communicationService.getRecentMessages(roomName, 10);
-      const participants = await this.communicationService.getRoomParticipants(roomName);
-
-      return {
-        success: true,
-        message: `Successfully joined room ${roomName}`,
-        data: {
-          roomId: room.id,
-          roomName,
-          agentName,
-          participantCount: participants.length,
-          recentMessageCount: recentMessages.length,
-          recentMessages: recentMessages.slice(0, 5) // Return last 5 for context
-        }
-      };
-
-    } catch (error) {
-      return {
-        success: false,
-        message: `Failed to join room: ${error}`,
-        data: { error: String(error) }
-      };
-    }
-  }
-
-  /**
-   * Send message to coordination room
-   */
-  async sendMessage(
-    roomName: string,
-    agentName: string,
-    message: string,
-    mentions?: string[]
-  ): Promise<OrchestrationResult> {
-    try {
-      const sentMessage = await this.communicationService.sendMessage({
-        roomName,
-        agentName,
-        message,
-        mentions,
-        messageType: 'standard' as MessageType
-      });
-
-      return {
-        success: true,
-        message: 'Message sent successfully',
-        data: {
-          messageId: sentMessage.id,
-          roomName,
-          agentName,
-          mentions: mentions || []
-        }
-      };
-
-    } catch (error) {
-      return {
-        success: false,
-        message: `Failed to send message: ${error}`,
-        data: { error: String(error) }
-      };
-    }
-  }
-
-  /**
-   * Wait for messages in a room
-   */
-  async waitForMessages(
-    roomName: string,
-    timeout = 30000,
-    sinceTimestamp?: Date
-  ): Promise<OrchestrationResult> {
-    try {
-      const messages = await this.communicationService.waitForMessages(
-        roomName,
-        sinceTimestamp,
-        timeout
-      );
-
-      return {
-        success: true,
-        message: `Retrieved ${messages.length} messages`,
-        data: {
-          messages,
-          count: messages.length,
-          roomName
-        }
-      };
-
-    } catch (error) {
-      return {
-        success: false,
-        message: `Failed to wait for messages: ${error}`,
-        data: { error: String(error) }
-      };
-    }
-  }
-
-  /**
-   * Store insights and learnings in shared memory
-   */
-  async storeMemory(
-    repositoryPath: string,
-    agentId: string,
-    entryType: EntityType,
-    title: string,
-    content: string,
-    tags?: string[]
-  ): Promise<OrchestrationResult> {
-    try {
-      let memory;
-
-      try {
-        memory = await this.knowledgeGraphService.createEntity({
-          id: `memory-${Date.now()}`,
-          repositoryPath,
-          entityType: entryType,
-          name: title,
-          description: content,
-          properties: { tags: tags || [] },
-          discoveredBy: agentId,
-          discoveredDuring: 'agent-work',
-          importanceScore: 0.7,
-          confidenceScore: 0.8,
-          relevanceScore: 0.8
-        });
-      } catch (error) {
-        console.warn('Failed to store memory in knowledge graph:', error);
-        throw new Error(`Failed to store ${entryType}: ${error}`);
-      }
-
-      return {
-        success: true,
-        message: `${entryType} stored successfully`,
-        data: {
-          memoryId: memory.id,
-          entryType,
-          title,
-          agentId
-        }
-      };
-
-    } catch (error) {
-      return {
-        success: false,
-        message: `Failed to store memory: ${error}`,
-        data: { error: String(error) }
-      };
-    }
-  }
-
-  /**
-   * Search shared memory for insights
-   */
-  async searchMemory(
-    repositoryPath: string,
-    queryText: string,
-    agentId?: string,
-    limit = 10
-  ): Promise<OrchestrationResult> {
-    try {
-      const insights = await this.knowledgeGraphService.findEntitiesBySemanticSearch(
-        repositoryPath,
-        queryText,
-        undefined, // entityTypes - search all types
-        limit,
-        0.7 // threshold
-      );
-      
-      // Filter by agent if specified
-      const filteredInsights = agentId 
-        ? insights.filter(entity => entity.discoveredBy === agentId)
-        : insights;
-
-      return {
-        success: true,
-        message: `Found ${filteredInsights.length} relevant memories`,
-        data: {
-          insights: filteredInsights,
-          count: filteredInsights.length,
-          query: queryText
-        }
-      };
-
-    } catch (error) {
-      return {
-        success: false,
-        message: `Failed to search memory: ${error}`,
-        data: { error: String(error) }
-      };
-    }
-  }
 
   /**
    * Get list of active agents
    */
-  async listAgents(repositoryPath: string, status?: AgentStatus, limit: number = 5, offset: number = 0): Promise<OrchestrationResult> {
+  async listAgents(args: any): Promise<OrchestrationResult> {
+    // Map snake_case to camelCase for compatibility
+    const normalizedArgs = {
+      repositoryPath: args.repositoryPath || args.repository_path,
+      status: args.status,
+      limit: args.limit || 5,
+      offset: args.offset || 0
+    };
+    
+    const { repositoryPath, status, limit, offset } = normalizedArgs;
     try {
       const agents = await this.agentService.listAgents(repositoryPath, status, limit, offset);
 
@@ -1003,7 +612,13 @@ export class AgentOrchestrationTools {
   /**
    * Terminate one or more agents
    */
-  async terminateAgent(agentIds: string[]): Promise<OrchestrationResult> {
+  async terminateAgent(args: any): Promise<OrchestrationResult> {
+    // Map snake_case to camelCase for compatibility
+    const normalizedArgs = {
+      agentIds: args.agentIds || args.agent_ids
+    };
+    
+    const { agentIds } = normalizedArgs;
     try {
       const ids = agentIds;
       const results: Array<{ agentId: string; success: boolean; error?: string }> = [];
@@ -1083,7 +698,7 @@ Use this tool systematically throughout your orchestration process:
 
 🎯 KNOWLEDGE GRAPH INTEGRATION:
 Before planning, always search for relevant knowledge and patterns:
-- search_memory() to learn from previous similar objectives
+- search_knowledge_graph() to learn from previous similar objectives
 - Look for patterns in agent coordination, task breakdown, and execution strategies
 - Identify reusable components and successful approaches from past work
 - Use knowledge graph insights to inform your sequential thinking process
@@ -1104,8 +719,8 @@ ORCHESTRATION PHASES:
    
 2. **KNOWLEDGE GRAPH DISCOVERY**
    - Join coordination room: join_room("${roomName}", "architect")
-   - Search shared memory for relevant patterns: search_memory()
-   - Query previous orchestration experiences: search_memory("orchestration patterns")
+   - Search knowledge graph for relevant patterns: search_knowledge_graph()
+   - Query previous orchestration experiences: search_knowledge_graph("orchestration patterns")
    - Analyze repository structure thoroughly
    - Identify reusable components and successful approaches
    
@@ -1115,7 +730,7 @@ ORCHESTRATION PHASES:
    - Create hierarchical task structure with dependencies
    - Define agent specialization requirements
    - Plan execution sequencing and coordination
-   - Store complete plan in shared memory: store_memory()
+   - Store complete plan in knowledge graph: store_knowledge_memory()
    
 4. **COORDINATED AGENT EXECUTION**
    - spawn_agent() specialist agents with specific task assignments
@@ -1143,8 +758,8 @@ AVAILABLE ORCHESTRATION TOOLS:
 - join_room() - Join coordination rooms
 - send_message() - Communicate with agents
 - wait_for_messages() - Monitor conversations
-- store_memory() - Share insights, decisions, and patterns
-- search_memory() - Learn from previous work and knowledge graph
+- store_knowledge_memory() - Share insights, decisions, and patterns
+- search_knowledge_graph() - Learn from previous work and knowledge graph
 - list_agents() - Check agent status and coordination needs
 
 CRITICAL SEQUENTIAL THINKING USAGE:
@@ -1195,7 +810,7 @@ You have access to ALL tools:
 - Git operations
 - Database queries
 - Agent coordination tools (spawn_agent, join_room, send_message, etc.)
-- Shared memory and communication (store_memory, search_memory, etc.)
+- Knowledge graph and communication (store_knowledge_memory, search_knowledge_graph, etc.)
 - Task management tools (create_task, list_tasks, update_task, etc.)
 - Sequential thinking tool (sequential_thinking) for complex problem solving
 
@@ -1212,7 +827,7 @@ Use this tool systematically for complex challenges:
 
 🎯 KNOWLEDGE GRAPH INTEGRATION:
 Before starting work, search for relevant knowledge and patterns:
-- search_memory() to learn from previous similar tasks
+- search_knowledge_graph() to learn from previous similar tasks
 - Look for patterns in successful implementations
 - Identify reusable components and established approaches
 - Use knowledge graph insights to inform your sequential thinking process
@@ -1240,8 +855,8 @@ COORDINATION TOOLS AVAILABLE:
 - create_task() - Break down complex work into sub-tasks
 - join_room() - Join project coordination rooms
 - send_message() - Communicate with other agents
-- store_memory() - Share knowledge, insights, and patterns
-- search_memory() - Learn from previous work and knowledge graph
+- store_knowledge_memory() - Share knowledge, insights, and patterns
+- search_knowledge_graph() - Learn from previous work and knowledge graph
 - spawn_agent() - Create helper agents if needed
 
 CRITICAL SEQUENTIAL THINKING USAGE:
@@ -1376,417 +991,6 @@ SPECIALIST AGENT:
     return { success: true, message: 'All dependencies satisfied' };
   }
 
-  /**
-   * Close a communication room (soft delete - marks as closed but keeps data)
-   */
-  async closeRoom(roomName: string, terminateAgents: boolean = true): Promise<OrchestrationResult> {
-    try {
-      // Get room info to find associated agents
-      const room = await this.communicationService.getRoom(roomName);
-      if (!room) {
-        return {
-          success: false,
-          message: `Room '${roomName}' not found`,
-          data: { roomName }
-        };
-      }
-
-      let terminatedAgents: string[] = [];
-      
-      if (terminateAgents) {
-        // Find agents in this room and terminate them
-        const agents = await this.agentService.listAgents(room.repositoryPath);
-        const roomAgents = agents.filter(agent => 
-          agent.agentMetadata?.roomId === room.id || 
-          agent.agentMetadata?.roomName === roomName || 
-          agent.status === 'active' // Terminate active agents as safety measure
-        );
-        
-        if (roomAgents.length > 0) {
-          const agentIds = roomAgents.map(a => a.id);
-          const terminationResult = await this.terminateAgent(agentIds);
-          terminatedAgents = agentIds;
-        }
-      }
-
-      // Mark room as closed by updating metadata
-      await this.communicationService.updateRoomMetadata(roomName, {
-        ...room.roomMetadata,
-        status: 'closed',
-        closedAt: new Date().toISOString(),
-        terminatedAgents
-      });
-      
-      return {
-        success: true,
-        message: `Room '${roomName}' closed successfully${terminateAgents ? ` and ${terminatedAgents.length} agents terminated` : ''}`,
-        data: { 
-          roomName, 
-          terminatedAgents,
-          agentCount: terminatedAgents.length
-        }
-      };
-
-    } catch (error) {
-      return {
-        success: false,
-        message: `Failed to close room '${roomName}': ${error}`,
-        data: { error: String(error), roomName }
-      };
-    }
-  }
-
-  /**
-   * Permanently delete a communication room and all its messages
-   */
-  async deleteRoom(roomName: string, forceDelete: boolean = false): Promise<OrchestrationResult> {
-    try {
-      const room = await this.communicationService.getRoom(roomName);
-      if (!room) {
-        return {
-          success: false,
-          message: `Room '${roomName}' not found`,
-          data: { roomName }
-        };
-      }
-
-      // Check if room is closed or force delete
-      const isClosed = room.roomMetadata?.status === 'closed';
-      if (!isClosed && !forceDelete) {
-        return {
-          success: false,
-          message: `Room '${roomName}' must be closed before deletion. Use force_delete=true to override.`,
-          data: { roomName, suggestion: 'close_room_first' }
-        };
-      }
-
-      // Terminate any remaining agents
-      const agents = await this.agentService.listAgents(room.repositoryPath);
-      const roomAgents = agents.filter(agent => 
-        agent.agentMetadata?.roomId === room.id || 
-        agent.agentMetadata?.roomName === roomName
-      );
-      
-      if (roomAgents.length > 0) {
-        await this.terminateAgent(roomAgents.map(a => a.id));
-      }
-
-      // Delete the room
-      await this.communicationService.deleteRoom(roomName);
-      
-      return {
-        success: true,
-        message: `Room '${roomName}' permanently deleted`,
-        data: { 
-          roomName,
-          messagesDeleted: true,
-          agentsTerminated: roomAgents.length
-        }
-      };
-
-    } catch (error) {
-      return {
-        success: false,
-        message: `Failed to delete room '${roomName}': ${error}`,
-        data: { error: String(error), roomName }
-      };
-    }
-  }
-
-  /**
-   * List communication rooms with filtering and pagination
-   */
-  async listRooms(
-    repositoryPath: string, 
-    status?: 'active' | 'closed' | 'all',
-    limit: number = 20,
-    offset: number = 0
-  ): Promise<OrchestrationResult> {
-    try {
-      const allRooms = await this.communicationService.listRooms(repositoryPath);
-      
-      // Filter by status
-      let filteredRooms = allRooms;
-      if (status && status !== 'all') {
-        filteredRooms = allRooms.filter(room => {
-          const roomStatus = room.roomMetadata?.status || 'active';
-          return roomStatus === status;
-        });
-      }
-
-      // Apply pagination
-      const total = filteredRooms.length;
-      const paginatedRooms = filteredRooms.slice(offset, offset + limit);
-
-      return {
-        success: true,
-        message: `Found ${total} rooms${status ? ` with status '${status}'` : ''}`,
-        data: {
-          rooms: paginatedRooms.map(room => ({
-            id: room.id,
-            name: room.name,
-            description: room.description,
-            repositoryPath: room.repositoryPath,
-            isGeneral: room.isGeneral,
-            status: room.roomMetadata?.status || 'active',
-            createdAt: room.createdAt,
-            closedAt: room.roomMetadata?.closedAt,
-            metadata: room.roomMetadata
-          })),
-          pagination: {
-            total,
-            limit,
-            offset,
-            hasMore: offset + limit < total
-          }
-        }
-      };
-
-    } catch (error) {
-      return {
-        success: false,
-        message: `Failed to list rooms: ${error}`,
-        data: { error: String(error) }
-      };
-    }
-  }
-
-  /**
-   * List messages from a specific room with pagination
-   */
-  async listRoomMessages(
-    roomName: string,
-    limit: number = 50,
-    offset: number = 0,
-    sinceTimestamp?: string
-  ): Promise<OrchestrationResult> {
-    try {
-      const room = await this.communicationService.getRoom(roomName);
-      if (!room) {
-        return {
-          success: false,
-          message: `Room '${roomName}' not found`,
-          data: { roomName }
-        };
-      }
-
-      const since = sinceTimestamp ? new Date(sinceTimestamp) : undefined;
-      const messages = await this.communicationService.getMessages(roomName, limit + offset, since);
-      
-      // Apply offset manually since the service doesn't support it
-      const paginatedMessages = messages.slice(offset, offset + limit);
-
-      return {
-        success: true,
-        message: `Retrieved ${paginatedMessages.length} messages from room '${roomName}'`,
-        data: {
-          roomId: room.id,
-          roomName,
-          messages: paginatedMessages.map(msg => ({
-            id: msg.id,
-            agentName: msg.agentName,
-            message: msg.message,
-            mentions: msg.mentions,
-            messageType: msg.messageType,
-            timestamp: msg.timestamp
-          })),
-          pagination: {
-            total: messages.length,
-            limit,
-            offset,
-            hasMore: offset + limit < messages.length
-          }
-        }
-      };
-
-    } catch (error) {
-      return {
-        success: false,
-        message: `Failed to list messages: ${error}`,
-        data: { error: String(error) }
-      };
-    }
-  }
-
-  /**
-   * Create a room when agents realize they need coordination
-   */
-  async createRoomForAgent(
-    agentId: string,
-    repositoryPath: string,
-    reason: string,
-    participants: string[] = []
-  ): Promise<OrchestrationResult> {
-    try {
-      const agent = await this.agentService.getAgent(agentId);
-      if (!agent) {
-        return {
-          success: false,
-          message: `Agent ${agentId} not found`,
-          data: { agentId }
-        };
-      }
-
-      // Use the CommunicationService's createRoomForAgent method
-      const result = await this.communicationService.createRoomForAgent(
-        agent.agentName,
-        repositoryPath,
-        reason,
-        participants
-      );
-
-      // Update agent with new room ID
-      await this.agentService.updateAgentStatus(agentId, {
-        status: agent.status,
-        metadata: {
-          ...agent.agentMetadata,
-          roomId: result.roomName,
-          roomCreatedAt: new Date().toISOString()
-        }
-      });
-
-      // Store coordination event in knowledge graph
-      try {
-        await this.knowledgeGraphService.createEntity({
-          id: `coord-room-${Date.now()}`,
-          repositoryPath,
-          entityType: 'task',
-          name: 'On-demand room creation',
-          description: `Created coordination room ${result.roomName} for reason: ${reason}`,
-          properties: {
-            roomName: result.roomName,
-            reason,
-            participants,
-            tags: ['on-demand-coordination', 'room-creation']
-          },
-          discoveredBy: agentId,
-          discoveredDuring: 'room-creation',
-          importanceScore: 0.6,
-          confidenceScore: 1.0,
-          relevanceScore: 0.7
-        });
-      } catch (error) {
-        console.warn('Failed to store coordination event in knowledge graph:', error);
-      }
-
-      return {
-        success: true,
-        message: `Coordination room '${result.roomName}' created successfully`,
-        data: {
-          roomName: result.roomName,
-          agentId,
-          reason,
-          participants,
-          initiatingAgent: agent.agentName
-        }
-      };
-
-    } catch (error) {
-      return {
-        success: false,
-        message: `Failed to create room for agent: ${error}`,
-        data: { error: String(error) }
-      };
-    }
-  }
-
-  /**
-   * Create a delayed room for coordination when agents realize they need it
-   */
-  async createDelayedRoom(
-    agentId: string,
-    repositoryPath: string,
-    reason: string,
-    participants: string[] = []
-  ): Promise<OrchestrationResult> {
-    try {
-      // Generate room name based on reason and timestamp
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const roomName = `coordination-${reason.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()}-${timestamp}`;
-      
-      // Create the room
-      const room = await this.communicationService.createRoom({
-        name: roomName,
-        description: `Coordination room created by ${agentId} for: ${reason}`,
-        repositoryPath,
-        metadata: { type: 'coordination', participants: [...participants, agentId] }
-      });
-      
-      // Join the requesting agent to the room
-      await this.communicationService.joinRoom(room.name, agentId);
-      
-      // Join other participants if they exist
-      for (const participantId of participants) {
-        try {
-          await this.communicationService.joinRoom(room.name, participantId);
-        } catch (error) {
-          // Log warning but don't fail the entire operation
-          console.warn(`Failed to add participant ${participantId} to room ${room.name}: ${error}`);
-        }
-      }
-      
-      // Send initial coordination message
-      await this.communicationService.sendMessage({
-        roomName: room.name,
-        agentName: agentId,
-        message: `Coordination room created. Reason: ${reason}`,
-        messageType: 'coordination'
-      });
-      
-      return {
-        success: true,
-        message: `Delayed coordination room created successfully`,
-        data: {
-          roomName: room.name,
-          reason,
-          participants: [...participants, agentId],
-          createdAt: new Date().toISOString()
-        }
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: `Failed to create delayed room: ${error instanceof Error ? error.message : String(error)}`
-      };
-    }
-  }
-
-  /**
-   * Analyze coordination patterns and suggest improvements
-   */
-  async analyzeCoordinationPatterns(repositoryPath: string): Promise<OrchestrationResult> {
-    try {
-      // Simple analysis of room usage patterns
-      const rooms = await this.communicationService.listRooms(repositoryPath);
-      const totalRooms = rooms.length;
-      const activeRooms = rooms.filter(room => room.roomMetadata?.status !== 'closed').length;
-      
-      // Basic recommendations based on room usage
-      const recommendations = [
-        'Consider using memory-based coordination for simple tasks',
-        'Use task status updates for sequential workflows',
-        'Reserve rooms for multi-agent collaboration',
-        'Clean up unused rooms regularly'
-      ];
-
-      return {
-        success: true,
-        message: `Coordination analysis complete for ${repositoryPath}`,
-        data: {
-          totalRooms,
-          activeRooms,
-          recommendations
-        }
-      };
-
-    } catch (error) {
-      return {
-        success: false,
-        message: `Failed to analyze coordination patterns: ${error}`,
-        data: { error: String(error) }
-      };
-    }
-  }
 
   /**
    * Get task analytics and insights
@@ -2124,20 +1328,31 @@ SPECIALIST AGENT:
   /**
    * Monitor agents with real-time updates using EventBus system
    */
-  async monitorAgents(
-    agentId?: string,
-    orchestrationId?: string,
-    roomName?: string,
-    repositoryPath?: string,
-    monitoringMode: 'status' | 'activity' | 'communication' | 'full' = 'status',
-    updateInterval: number = 2000,
-    maxDuration: number = 50000,
-    detailLevel: 'summary' | 'detailed' | 'verbose' = 'summary',
-    progressContext?: {
-      progressToken: string | number;
-      sendNotification: (notification: any) => Promise<void>;
-    }
-  ): Promise<OrchestrationResult> {
+  async monitorAgents(args: any): Promise<OrchestrationResult> {
+    // Map snake_case to camelCase for compatibility
+    const normalizedArgs = {
+      agentId: args.agentId || args.agent_id,
+      orchestrationId: args.orchestrationId || args.orchestration_id,
+      roomName: args.roomName || args.room_name,
+      repositoryPath: args.repositoryPath || args.repository_path,
+      monitoringMode: args.monitoringMode || args.monitoring_mode,
+      updateInterval: args.updateInterval || args.update_interval,
+      maxDuration: args.maxDuration || args.max_duration,
+      detailLevel: args.detailLevel || args.detail_level,
+      progressContext: args.progressContext || args.progress_context
+    };
+    
+    const {
+      agentId,
+      orchestrationId,
+      roomName,
+      repositoryPath,
+      monitoringMode = 'status',
+      updateInterval = 2000,
+      maxDuration = 50000,
+      detailLevel = 'summary',
+      progressContext
+    } = normalizedArgs;
     try {
       const resolvedPath = repositoryPath || process.cwd();
       const startTime = Date.now();
@@ -2453,6 +1668,86 @@ SPECIALIST AGENT:
         message: `Failed to monitor agents: ${error}`,
         data: { error: String(error) }
       };
+    }
+  }
+
+  /**
+   * Continue an agent session using stored conversation session ID
+   */
+  async continueAgentSession(args: any): Promise<any> {
+    // Map snake_case to camelCase for compatibility
+    const normalizedArgs = {
+      agentId: args.agentId || args.agent_id,
+      additionalInstructions: args.additionalInstructions || args.additional_instructions,
+      newTaskDescription: args.newTaskDescription || args.new_task_description,
+      preserveContext: args.preserveContext || args.preserve_context,
+      updateMetadata: args.updateMetadata || args.update_metadata
+    };
+    
+    const validatedArgs = ContinueAgentSessionSchema.parse({
+      agentId: normalizedArgs.agentId,
+      additionalInstructions: normalizedArgs.additionalInstructions,
+      newTaskDescription: normalizedArgs.newTaskDescription,
+      preserveContext: normalizedArgs.preserveContext,
+      updateMetadata: normalizedArgs.updateMetadata
+    });
+    const startTime = performance.now();
+    
+    try {
+      // Get the agent before continuation
+      const originalAgent = await this.agentService.getAgent(validatedArgs.agentId);
+      if (!originalAgent) {
+        return createErrorResponse(
+          'Agent not found',
+          `Agent ${validatedArgs.agentId} not found`,
+          'AGENT_NOT_FOUND'
+        );
+      }
+
+      const previousStatus = originalAgent.status;
+
+      // Continue the agent session
+      const updatedAgent = await this.agentService.continueAgentSession(
+        validatedArgs.agentId,
+        validatedArgs.additionalInstructions,
+        validatedArgs.newTaskDescription,
+        validatedArgs.preserveContext,
+        validatedArgs.updateMetadata
+      );
+
+      const executionTime = performance.now() - startTime;
+      
+      return createSuccessResponse(
+        `Agent session continued successfully: ${updatedAgent.agentName} is now ${updatedAgent.status}`,
+        {
+          agent_id: updatedAgent.id,
+          agent_name: updatedAgent.agentName,
+          agent_type: updatedAgent.agentType,
+          session_id: updatedAgent.convoSessionId || 'unknown',
+          previous_status: previousStatus,
+          new_status: updatedAgent.status,
+          context_preserved: validatedArgs.preserveContext ?? true,
+          task_updated: !!validatedArgs.newTaskDescription,
+          instructions_added: !!validatedArgs.additionalInstructions,
+          claude_pid: updatedAgent.claudePid,
+          room_id: updatedAgent.roomId,
+          resumption_details: {
+            original_task: originalAgent.agentMetadata?.taskDescription,
+            new_task: validatedArgs.newTaskDescription,
+            additional_instructions: validatedArgs.additionalInstructions,
+            metadata_updates: validatedArgs.updateMetadata
+          }
+        },
+        executionTime
+      );
+
+    } catch (error: any) {
+      const executionTime = performance.now() - startTime;
+      return createErrorResponse(
+        'Failed to continue agent session',
+        error instanceof Error ? error.message : 'Unknown error occurred',
+        'CONTINUE_AGENT_SESSION_ERROR'
+      );
     }
   }
 }

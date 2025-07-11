@@ -6,6 +6,7 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
+import type { McpTool } from '../schemas/tools/index.js';
 import { createHash } from 'crypto';
 import type { WebScrapingService } from '../services/WebScrapingService.js';
 import type { KnowledgeGraphService } from '../services/KnowledgeGraphService.js';
@@ -47,6 +48,69 @@ const validatePatternArray = (patterns: (string | ScrapingPattern)[]): boolean =
 };
 
 // Schemas imported from external file - see ../schemas/tools/webScraping.ts
+
+// Helper function to map snake_case parameters to camelCase
+function mapSnakeCaseToCamelCase(params: any): any {
+  if (!params || typeof params !== 'object') {
+    return params;
+  }
+  
+  const mapped: any = {};
+  
+  // Direct mapping for common snake_case -> camelCase patterns
+  const mappings: Record<string, string> = {
+    repository_path: 'repositoryPath',
+    source_type: 'sourceType',
+    max_pages: 'maxPages',
+    crawl_depth: 'crawlDepth',
+    follow_external: 'followExternal',
+    site_map_url: 'siteMapUrl',
+    job_id: 'jobId',
+    page_pattern: 'pagePattern',
+    page_ids: 'pageIds',
+    source_id: 'sourceId',
+    website_id: 'websiteId',
+    url_patterns: 'urlPatterns',
+    dry_run: 'dryRun',
+    include_stats: 'includeStats',
+    include_job_details: 'includeJobDetails',
+    stuck_threshold_minutes: 'stuckThresholdMinutes',
+    agent_id: 'agentId',
+    include_subdomains: 'includeSubdomains',
+    force_refresh: 'forceRefresh',
+    enable_sampling: 'enableSampling',
+    sampling_timeout: 'samplingTimeout',
+    allow_patterns: 'allowPatterns',
+    ignore_patterns: 'ignorePatterns',
+    allow_path_segments: 'allowPathSegments',
+    ignore_path_segments: 'ignorePathSegments',
+    allow_file_extensions: 'allowFileExtensions',
+    ignore_file_extensions: 'ignoreFileExtensions',
+    allow_url_contains: 'allowUrlContains',
+    ignore_url_contains: 'ignoreUrlContains',
+    allow_url_starts_with: 'allowUrlStartsWith',
+    ignore_url_starts_with: 'ignoreUrlStartsWith',
+    allow_version_patterns: 'allowVersionPatterns',
+    ignore_version_patterns: 'ignoreVersionPatterns',
+    allow_glob_patterns: 'allowGlobPatterns',
+    ignore_glob_patterns: 'ignoreGlobPatterns',
+    allow_regex_patterns: 'allowRegexPatterns',
+    ignore_regex_patterns: 'ignoreRegexPatterns'
+  };
+  
+  // Copy all properties, mapping snake_case to camelCase where needed
+  for (const [key, value] of Object.entries(params)) {
+    const mappedKey = mappings[key] || key;
+    mapped[mappedKey] = value;
+    
+    // Also keep the original snake_case key for backward compatibility
+    if (mappings[key]) {
+      mapped[key] = value;
+    }
+  }
+  
+  return mapped;
+}
 
 // Convert typed parameters to internal ScrapingPattern format
 function convertTypedParametersToPatterns(params: any): {
@@ -162,144 +226,83 @@ export class WebScrapingMcpTools {
   /**
    * Get all web scraping related MCP tools
    */
-  getTools() {
+  getTools(): McpTool[] {
     return [
       {
         name: 'scrape_documentation',
         description: 'Scrape documentation from a website using intelligent sub-agents. Jobs are queued and processed automatically by the background worker. Supports plain string selectors for content extraction.',
         inputSchema: zodToJsonSchema(ScrapeDocumentationSchema),
-        outputSchema: zodToJsonSchema(ScrapeDocumentationResponseSchema)
+        outputSchema: zodToJsonSchema(ScrapeDocumentationResponseSchema),
+        handler: this.scrapeDocumentation.bind(this),
       },
       {
         name: 'get_scraping_status',
         description: 'Get status of active and recent scraping jobs (worker runs automatically)',
         inputSchema: zodToJsonSchema(GetScrapingStatusSchema),
-        outputSchema: zodToJsonSchema(GetScrapingStatusResponseSchema)
+        outputSchema: zodToJsonSchema(GetScrapingStatusResponseSchema),
+        handler: this.getScrapingStatus.bind(this),
       },
       {
         name: 'cancel_scrape_job',
         description: 'Cancel an active or pending scraping job',
         inputSchema: zodToJsonSchema(CancelScrapeJobSchema),
-        outputSchema: zodToJsonSchema(CancelScrapeJobResponseSchema)
+        outputSchema: zodToJsonSchema(CancelScrapeJobResponseSchema),
+        handler: this.cancelScrapeJob.bind(this),
       },
       {
         name: 'force_unlock_job',
         description: 'Force unlock a stuck scraping job - useful for debugging and recovery',
         inputSchema: zodToJsonSchema(ForceUnlockJobSchema),
-        outputSchema: zodToJsonSchema(ForceUnlockJobResponseSchema)
+        outputSchema: zodToJsonSchema(ForceUnlockJobResponseSchema),
+        handler: this.forceUnlockJob.bind(this),
       },
       {
         name: 'force_unlock_stuck_jobs',
         description: 'Force unlock all stuck scraping jobs (jobs that haven\'t been updated recently)',
         inputSchema: zodToJsonSchema(ForceUnlockStuckJobsSchema),
-        outputSchema: zodToJsonSchema(ForceUnlockStuckJobsResponseSchema)
+        outputSchema: zodToJsonSchema(ForceUnlockStuckJobsResponseSchema),
+        handler: this.forceUnlockStuckJobs.bind(this),
       },
       // Manual worker control tools removed - worker now starts/stops automatically with MCP server
       {
         name: 'list_documentation_sources',
         description: 'List all configured documentation sources',
         inputSchema: zodToJsonSchema(ListDocumentationSourcesSchema),
-        outputSchema: zodToJsonSchema(ListDocumentationSourcesResponseSchema)
+        outputSchema: zodToJsonSchema(ListDocumentationSourcesResponseSchema),
+        handler: this.listDocumentationSources.bind(this),
       },
       {
         name: 'delete_pages_by_pattern',
         description: 'Delete website pages matching URL patterns (useful for cleaning up version URLs, static assets)',
         inputSchema: zodToJsonSchema(DeletePagesByPatternSchema),
-        outputSchema: zodToJsonSchema(DeletePagesByPatternResponseSchema)
+        outputSchema: zodToJsonSchema(DeletePagesByPatternResponseSchema),
+        handler: this.deletePagesByPattern.bind(this),
       },
       {
         name: 'delete_pages_by_ids',
         description: 'Delete specific pages by their IDs',
         inputSchema: zodToJsonSchema(DeletePagesByIdsSchema),
-        outputSchema: zodToJsonSchema(DeletePagesByIdsResponseSchema)
+        outputSchema: zodToJsonSchema(DeletePagesByIdsResponseSchema),
+        handler: this.deletePagesByIds.bind(this),
       },
       {
         name: 'delete_all_website_pages',
         description: 'Delete all pages for a website (useful for clean slate before re-scraping)',
         inputSchema: zodToJsonSchema(DeleteAllWebsitePagesSchema),
-        outputSchema: zodToJsonSchema(DeleteAllWebsitePagesResponseSchema)
+        outputSchema: zodToJsonSchema(DeleteAllWebsitePagesResponseSchema),
+        handler: this.deleteAllWebsitePages.bind(this),
       }
     ];
   }
 
-  /**
-   * Handle MCP tool calls for web scraping functionality
-   */
-  async handleToolCall(name: string, arguments_: any): Promise<WebScrapingResponse> {
-    const startTime = Date.now();
-    
-    try {
-      let result: WebScrapingResponse;
-      
-      switch (name) {
-        case 'scrape_documentation':
-          result = await this.scrapeDocumentation(arguments_);
-          break;
-        
-        case 'get_scraping_status':
-          result = await this.getScrapingStatus(arguments_);
-          break;
-        
-        case 'cancel_scrape_job':
-          result = await this.cancelScrapeJob(arguments_);
-          break;
-        
-        case 'force_unlock_job':
-          result = await this.forceUnlockJob(arguments_);
-          break;
-        
-        case 'force_unlock_stuck_jobs':
-          result = await this.forceUnlockStuckJobs(arguments_);
-          break;
-        
-        // Manual worker control cases removed - worker now starts/stops automatically
-        
-        case 'list_documentation_sources':
-          result = await this.listDocumentationSources(arguments_);
-          break;
-        
-        case 'delete_pages_by_pattern':
-          result = await this.deletePagesByPattern(arguments_);
-          break;
-        
-        case 'delete_pages_by_ids':
-          result = await this.deletePagesByIds(arguments_);
-          break;
-        
-        case 'delete_all_website_pages':
-          result = await this.deleteAllWebsitePages(arguments_);
-          break;
-        
-        default:
-          return createErrorResponse(
-            `Unknown web scraping tool: ${name}`,
-            `Tool '${name}' is not implemented in WebScrapingMcpTools`,
-            'UNKNOWN_TOOL'
-          );
-      }
-      
-      // Ensure execution time is set
-      if (!result.execution_time_ms) {
-        result.execution_time_ms = Date.now() - startTime;
-      }
-      
-      return result;
-      
-    } catch (error) {
-      const executionTime = Date.now() - startTime;
-      return createErrorResponse(
-        `Web scraping tool '${name}' failed`,
-        error instanceof Error ? error.message : 'Unknown error occurred',
-        'EXECUTION_ERROR'
-      );
-    }
-  }
 
   private async scrapeDocumentation(args: any): Promise<WebScrapingResponse> {
     const startTime = Date.now();
     
     try {
-      const params = ScrapeDocumentationSchema.parse(args);
+      // Map snake_case parameters to camelCase
+      const mappedArgs = mapSnakeCaseToCamelCase(args);
+      const params = ScrapeDocumentationSchema.parse(mappedArgs);
     
     // Optimize parameters using MCP sampling if enabled
     let optimizedParams = params;
@@ -529,7 +532,9 @@ export class WebScrapingMcpTools {
     const startTime = Date.now();
     
     try {
-      const params = GetScrapingStatusSchema.parse(args);
+      // Map snake_case parameters to camelCase
+      const mappedArgs = mapSnakeCaseToCamelCase(args);
+      const params = GetScrapingStatusSchema.parse(mappedArgs);
       
       const status = await this.webScrapingService.getScrapingStatus(params.source_id);
       const executionTime = Date.now() - startTime;
@@ -578,7 +583,9 @@ export class WebScrapingMcpTools {
     const startTime = Date.now();
     
     try {
-      const params = CancelScrapeJobSchema.parse(args);
+      // Map snake_case parameters to camelCase
+      const mappedArgs = mapSnakeCaseToCamelCase(args);
+      const params = CancelScrapeJobSchema.parse(mappedArgs);
       
       const result = await this.webScrapingService.cancelScrapeJob(params.job_id);
       const executionTime = Date.now() - startTime;
@@ -614,7 +621,9 @@ export class WebScrapingMcpTools {
     const startTime = Date.now();
     
     try {
-      const params = ForceUnlockJobSchema.parse(args);
+      // Map snake_case parameters to camelCase
+      const mappedArgs = mapSnakeCaseToCamelCase(args);
+      const params = ForceUnlockJobSchema.parse(mappedArgs);
       
       const result = await this.webScrapingService.forceUnlockJob(params.job_id, params.reason);
       const executionTime = Date.now() - startTime;
@@ -651,7 +660,9 @@ export class WebScrapingMcpTools {
     const startTime = Date.now();
     
     try {
-      const params = ForceUnlockStuckJobsSchema.parse(args);
+      // Map snake_case parameters to camelCase
+      const mappedArgs = mapSnakeCaseToCamelCase(args);
+      const params = ForceUnlockStuckJobsSchema.parse(mappedArgs);
       
       const result = await this.webScrapingService.forceUnlockStuckJobs(params.stuck_threshold_minutes);
       const executionTime = Date.now() - startTime;
@@ -691,7 +702,9 @@ export class WebScrapingMcpTools {
     const startTime = Date.now();
     
     try {
-      const params = ListDocumentationSourcesSchema.parse(args);
+      // Map snake_case parameters to camelCase
+      const mappedArgs = mapSnakeCaseToCamelCase(args);
+      const params = ListDocumentationSourcesSchema.parse(mappedArgs);
       
       // List all websites and their page counts if stats are requested
       const websites = await this.webScrapingService['websiteRepository'].listWebsites({ limit: 100 });
@@ -755,7 +768,9 @@ export class WebScrapingMcpTools {
     const startTime = Date.now();
     
     try {
-      const params = DeletePagesByPatternSchema.parse(args);
+      // Map snake_case parameters to camelCase
+      const mappedArgs = mapSnakeCaseToCamelCase(args);
+      const params = DeletePagesByPatternSchema.parse(mappedArgs);
       
       // Get all pages for this website
       const pages = await this.webScrapingService['websitePagesRepository'].listByWebsiteId(params.website_id, { limit: 10000 });
@@ -837,7 +852,9 @@ export class WebScrapingMcpTools {
     const startTime = Date.now();
     
     try {
-      const params = DeletePagesByIdsSchema.parse(args);
+      // Map snake_case parameters to camelCase
+      const mappedArgs = mapSnakeCaseToCamelCase(args);
+      const params = DeletePagesByIdsSchema.parse(mappedArgs);
       
       let deletedCount = 0;
       const results = [];
@@ -887,7 +904,9 @@ export class WebScrapingMcpTools {
     const startTime = Date.now();
     
     try {
-      const params = DeleteAllWebsitePagesSchema.parse(args);
+      // Map snake_case parameters to camelCase
+      const mappedArgs = mapSnakeCaseToCamelCase(args);
+      const params = DeleteAllWebsitePagesSchema.parse(mappedArgs);
       
       if (!params.confirm) {
         const executionTime = Date.now() - startTime;

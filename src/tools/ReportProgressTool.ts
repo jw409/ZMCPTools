@@ -9,7 +9,7 @@
 
 import { z } from "zod";
 import { zodToJsonSchema } from 'zod-to-json-schema';
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { McpTool } from '../schemas/tools/index.js';
 import { eventBus } from "../services/EventBus.js";
 import { AgentService } from "../services/AgentService.js";
 import { TaskService } from "../services/TaskService.js";
@@ -56,7 +56,7 @@ export class ReportProgressTool {
   /**
    * Get all progress reporting MCP tools
    */
-  getTools() {
+  getTools(): McpTool[] {
     return [
       {
         name: "report_progress",
@@ -64,47 +64,34 @@ export class ReportProgressTool {
           "Report progress updates for agent tasks and status changes",
         inputSchema: zodToJsonSchema(ReportProgressSchema),
         outputSchema: zodToJsonSchema(ProgressReportResponseSchema),
+        handler: this.reportProgress.bind(this),
       },
     ];
   }
 
-  /**
-   * Handle tool execution
-   */
-  async handleToolCall(
-    name: string,
-    args: any
-  ): Promise<ProgressReportResponse> {
-    try {
-      switch (name) {
-        case "report_progress":
-          return await this.reportProgress(args);
-        default:
-          return createErrorResponse(
-            `Unknown progress tool: ${name}`,
-            `Tool ${name} is not implemented`,
-            "UNKNOWN_TOOL"
-          );
-      }
-    } catch (error) {
-      return createErrorResponse(
-        `Progress tool error: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-        error instanceof Error ? error.message : String(error),
-        "EXECUTION_ERROR"
-      );
-    }
-  }
 
   /**
    * Report progress and emit appropriate events
    */
   async reportProgress(
-    options: ReportProgressOptions
+    args: any
   ): Promise<ProgressReportResponse> {
     const startTime = Date.now();
     try {
+      // Map snake_case to camelCase for compatibility
+      const normalizedArgs = {
+        agentId: args.agentId || args.agent_id,
+        repositoryPath: args.repositoryPath || args.repository_path,
+        progressType: args.progressType || args.progress_type,
+        message: args.message,
+        taskId: args.taskId || args.task_id,
+        progressPercentage: args.progressPercentage || args.progress_percentage,
+        results: args.results,
+        error: args.error,
+        roomId: args.roomId || args.room_id,
+        broadcastToRoom: args.broadcastToRoom !== undefined ? args.broadcastToRoom : (args.broadcast_to_room !== undefined ? args.broadcast_to_room : true),
+      };
+
       const {
         agentId,
         repositoryPath,
@@ -115,8 +102,8 @@ export class ReportProgressTool {
         results,
         error,
         roomId,
-        broadcastToRoom = true,
-      } = options;
+        broadcastToRoom,
+      } = ReportProgressSchema.parse(normalizedArgs);
 
       const resolvedPath = PathUtils.resolveRepositoryPath(
         repositoryPath,

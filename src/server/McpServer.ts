@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { randomUUID } from "node:crypto";
@@ -7,6 +7,12 @@ import http from "http";
 import net from "net";
 import { z } from "zod";
 import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema,
   ErrorCode,
   McpError,
   isInitializeRequest,
@@ -41,6 +47,7 @@ import {
   SpawnAgentOptionsSchema,
   type OrchestrationResult,
 } from "../tools/AgentOrchestrationTools.js";
+import { CommunicationTools } from "../tools/CommunicationTools.js";
 import { WebScrapingMcpTools } from "../tools/WebScrapingMcpTools.js";
 import { AnalysisMcpTools } from "../tools/AnalysisMcpTools.js";
 import {
@@ -76,6 +83,7 @@ import {
   SearchKnowledgeGraphSchema,
   FindRelatedEntitiesSchema,
 } from "../tools/knowledgeGraphTools.js";
+import type { McpTool, McpProgressContext } from "../schemas/tools/index.js";
 
 export interface McpServerOptions {
   name: string;
@@ -88,9 +96,10 @@ export interface McpServerOptions {
 }
 
 export class McpToolsServer {
-  private server: McpServer;
+  private mcpServer: Server;
   private db: DatabaseManager;
   private orchestrationTools: AgentOrchestrationTools;
+  private communicationTools: CommunicationTools;
   private browserTools: BrowserTools;
   private webScrapingMcpTools: WebScrapingMcpTools;
   private webScrapingService: WebScrapingService;
@@ -154,7 +163,7 @@ export class McpToolsServer {
     // Mark this as the main MCP process for database initialization
     process.env.MCP_MAIN_PROCESS = "true";
 
-    this.server = new McpServer(
+    this.mcpServer = new Server(
       {
         name: options.name,
         version: options.version,
@@ -199,6 +208,11 @@ export class McpToolsServer {
 
     // Initialize tools
     this.orchestrationTools = new AgentOrchestrationTools(
+      this.db,
+      this.repositoryPath
+    );
+    
+    this.communicationTools = new CommunicationTools(
       this.db,
       this.repositoryPath
     );
@@ -252,184 +266,168 @@ export class McpToolsServer {
   }
 
   private setupMcpHandlers(): void {
-    // Register all tools using registerTool
-    this.registerAllTools();
-    this.registerAllResources();
-    this.registerAllPrompts();
+    // Register all tools using setRequestHandler
+    this.setupToolHandlers();
+    this.setupResourceHandlers();
+    this.setupPromptHandlers();
   }
 
-  private registerAllTools(): void {
-    // Get all available tools and register them
-    const allTools = this.getAvailableTools();
-
-    allTools.forEach((tool) => {
-      this.server.registerTool(
-        tool.name,
-        {
-          title: tool.name,
+  private setupToolHandlers(): void {
+    // List tools handler
+    this.mcpServer.setRequestHandler(ListToolsRequestSchema, async () => {
+      const tools = this.getAvailableTools();
+      return {
+        tools: tools.map((tool) => ({
+          name: tool.name,
           description: tool.description,
-          inputSchema: tool.inputSchema.shape,
-          ...(tool.outputSchema && { outputSchema: tool.outputSchema.shape }),
-        },
-        async (args: any) => {
-          try {
-            const result = await this.routeToolCall(tool.name, args);
-
-            // Return proper CallToolResult format
-            return {
-              content: [
-                {
-                  type: "text" as const,
-                  text: JSON.stringify(result, null, 2),
-                },
-              ],
-              isError: false,
-            };
-          } catch (error) {
-            // Return error as CallToolResult instead of throwing
-            return {
-              content: [
-                {
-                  type: "text" as const,
-                  text: `Error: ${
-                    error instanceof Error ? error.message : "Unknown error"
-                  }`,
-                },
-              ],
-              isError: true,
-            };
-          }
-        }
-      );
+          inputSchema: tool.inputSchema,
+        })),
+      };
     });
-  }
 
-  private async routeToolCall(name: string, args: any): Promise<any> {
-    // Check browser tools first
-    const browserToolNames = this.browserTools.getTools().map((t) => t.name);
-    if (browserToolNames.includes(name)) {
-      return await this.browserTools.handleToolCall(name, args);
-    }
+    // Call tool handler
+    this.mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
+      const { name, arguments: args } = request.params;
+      const typedArgs: Record<string, any> = args || {};
+      
+      // Debug logging to see what the MCP client is sending
+      process.stderr.write(`🔍 MCP CallTool request: name="${name}", args=${JSON.stringify(typedArgs, null, 2)}\n`);
+      
+      const tools = this.getAvailableTools();
+      const tool = tools.find((t) => t.name === name);
 
-    // Check web scraping tools
-    const scrapingToolNames = this.webScrapingMcpTools
-      .getTools()
-      .map((t) => t.name);
-    if (scrapingToolNames.includes(name)) {
-      return await this.webScrapingMcpTools.handleToolCall(name, args);
-    }
-
-    // Check analysis tools
-    const analysisToolNames = this.analysisMcpTools
-      .getTools()
-      .map((t) => t.name);
-    if (analysisToolNames.includes(name)) {
-      return await this.analysisMcpTools.handleToolCall(name, args);
-    }
-
-    // Check knowledge graph tools
-    const knowledgeGraphToolNames = this.knowledgeGraphMcpTools
-      .getTools()
-      .map((t) => t.name);
-    if (knowledgeGraphToolNames.includes(name)) {
-      return await this.knowledgeGraphMcpTools.handleToolCall(name, args);
-    }
-
-    // Check TreeSummary tools
-    const treeSummaryToolNames = this.treeSummaryTools
-      .getTools()
-      .map((t) => t.name);
-    if (treeSummaryToolNames.includes(name)) {
-      return await this.treeSummaryTools.handleToolCall(name, args);
-    }
-
-    // Handle orchestration and progress tools
-    return await this.handleToolCall(name, args);
-  }
-
-  private registerAllResources(): void {
-    const resources = this.resourceManager.listResources();
-    resources.forEach((resource) => {
-      this.server.registerResource(
-        resource.name,
-        resource.uriTemplate,
-        {
-          description: resource.description,
-          mimeType: resource.mimeType,
-        },
-        async (uri: URL) => {
-          try {
-            const uriString = uri.toString();
-            process.stderr.write(
-              `🔍 Reading resource: ${resource.name} with uri: ${uriString}\n`
-            );
-            const result = await this.resourceManager.readResource(uriString);
-            
-            // Return the result directly as it already has the correct structure
-            // with uri, mimeType, and text fields
-            return {
-              contents: [result],
-            };
-          } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : "Unknown error";
-            return {
-              contents: [
-                {
-                  uri: uri.toString(),
-                  mimeType: "text/plain",
-                  text: `Error: ${errorMessage}`,
-                },
-              ],
-            };
-          }
-        }
-      );
-    });
-  }
-
-  private registerAllPrompts(): void {
-    const prompts = this.promptManager.listPrompts();
-    prompts.forEach((prompt) => {
-      // Convert arguments to proper Zod schema format
-      const argsSchema: Record<string, any> = {};
-      if (prompt.arguments) {
-        prompt.arguments.forEach(arg => {
-          // Create Zod string schema with description
-          let schema: z.ZodString | z.ZodOptional<z.ZodString> = z.string().describe(arg.description || '');
-          
-          // Make it optional if not required
-          if (arg.required === false) {
-            schema = schema.optional();
-          }
-          
-          argsSchema[arg.name] = schema;
-        });
+      if (!tool) {
+        throw new McpError(ErrorCode.MethodNotFound, `Tool "${name}" not found`);
       }
 
-      this.server.registerPrompt(
-        prompt.name,
-        {
-          description: prompt.description,
-          argsSchema: Object.keys(argsSchema).length > 0 ? argsSchema : undefined
-        },
-        async (args: any) => {
-          try {
-            const result = await this.promptManager.getPrompt(
-              prompt.name,
-              args
-            );
-            return result;
-          } catch (error) {
-            throw new Error(
-              error instanceof Error ? error.message : "Unknown error"
-            );
-          }
+      try {
+        // Extract progress token from request metadata for MCP compliance
+        const progressToken = typedArgs?._meta?.progressToken;
+        let progressContext: McpProgressContext | undefined = undefined;
+        
+        if (progressToken) {
+          progressContext = {
+            progressToken,
+            sendNotification: async (notification: any) => {
+              try {
+                // Use the server's notification method through the connection
+                if (this.mcpServer) {
+                  await this.mcpServer.notification(notification);
+                } else {
+                  process.stderr.write(`⚠️ MCP server not connected, cannot send progress notification\n`);
+                }
+              } catch (notificationError) {
+                process.stderr.write(`⚠️ Failed to send progress notification: ${notificationError}\n`);
+              }
+            }
+          };
         }
-      );
+
+        // Remove _meta from args before passing to handler to avoid confusion
+        const { _meta, ...cleanArgs } = args || {};
+        const handlerArgs = progressContext 
+          ? { ...cleanArgs, progressContext }
+          : cleanArgs;
+
+        const result = await tool.handler(handlerArgs);
+
+        // Return proper CallToolResult format
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+          isError: false,
+        };
+      } catch (error) {
+        // Return error as CallToolResult instead of throwing
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Error: ${
+                error instanceof Error ? error.message : "Unknown error"
+              }`,
+            },
+          ],
+          isError: true,
+        };
+      }
     });
   }
 
-  public getAvailableTools() {
+  private setupResourceHandlers(): void {
+    // List resources handler
+    this.mcpServer.setRequestHandler(ListResourcesRequestSchema, async () => {
+      const resources = this.resourceManager.listResources();
+      return {
+        resources: resources.map((resource) => ({
+          uri: resource.uriTemplate,
+          name: resource.name,
+          description: resource.description,
+          mimeType: resource.mimeType,
+        })),
+      };
+    });
+
+    // Read resource handler
+    this.mcpServer.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+      const { uri } = request.params;
+      try {
+        process.stderr.write(`🔍 Reading resource with uri: ${uri}\n`);
+        const result = await this.resourceManager.readResource(uri);
+        
+        // Return the result directly as it already has the correct structure
+        // with uri, mimeType, and text fields
+        return {
+          contents: [result],
+        };
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Unknown error";
+        return {
+          contents: [
+            {
+              uri: uri,
+              mimeType: "text/plain",
+              text: `Error: ${errorMessage}`,
+            },
+          ],
+        };
+      }
+    });
+  }
+
+  private setupPromptHandlers(): void {
+    // List prompts handler
+    this.mcpServer.setRequestHandler(ListPromptsRequestSchema, async () => {
+      const prompts = this.promptManager.listPrompts();
+      return {
+        prompts: prompts.map((prompt) => ({
+          name: prompt.name,
+          description: prompt.description,
+          arguments: prompt.arguments || [],
+        })),
+      };
+    });
+
+    // Get prompt handler
+    this.mcpServer.setRequestHandler(GetPromptRequestSchema, async (request) => {
+      const { name, arguments: args } = request.params;
+      try {
+        const result = await this.promptManager.getPrompt(name, args);
+        return result;
+      } catch (error) {
+        throw new McpError(
+          ErrorCode.MethodNotFound,
+          error instanceof Error ? error.message : "Unknown error"
+        );
+      }
+    });
+  }
+
+  public getAvailableTools(): McpTool[] {
     return [
       // Browser automation tools
       ...this.browserTools.getTools(),
@@ -441,172 +439,13 @@ export class McpToolsServer {
       ...this.knowledgeGraphMcpTools.getTools(),
       // TreeSummary tools
       ...this.treeSummaryTools.getTools(),
+      // Communication tools
+      ...this.communicationTools.getTools(),
       // Agent orchestration tools
       ...this.orchestrationTools.getTools(),
       // Progress reporting tool
       ...this.reportProgressTool.getTools(),
     ];
-  }
-
-  private async handleToolCall(
-    name: string,
-    args: any,
-    progressContext?: {
-      progressToken: string | number;
-      sendNotification: (notification: any) => Promise<void>;
-    }
-  ): Promise<any> {
-    // Handle orchestration and progress tools only
-    switch (name) {
-      case "orchestrate_objective":
-        return await this.orchestrationTools.orchestrateObjective(
-          args.title,
-          args.objective,
-          args.repository_path,
-          args.foundation_session_id
-        );
-
-      case "spawn_agent":
-        return await this.orchestrationTools.spawnAgent({
-          agentType: args.agent_type,
-          repositoryPath: args.repository_path,
-          taskDescription: args.task_description,
-          capabilities: args.capabilities,
-          dependsOn: args.depends_on,
-          metadata: args.metadata,
-        });
-
-      case "create_task":
-        return await this.orchestrationTools.createTask(
-          args.repository_path,
-          args.task_type,
-          args.title,
-          args.description,
-          args.requirements,
-          args.dependencies
-        );
-
-      case "join_room":
-        return await this.orchestrationTools.joinRoom(
-          args.room_name,
-          args.agent_name
-        );
-
-      case "send_message":
-        return await this.orchestrationTools.sendMessage(
-          args.room_name,
-          args.agent_name,
-          args.message,
-          args.mentions
-        );
-
-      case "wait_for_messages":
-        return await this.orchestrationTools.waitForMessages(
-          args.room_name,
-          args.timeout || 30000,
-          args.since_timestamp ? new Date(args.since_timestamp) : undefined
-        );
-
-      case "store_memory":
-        return await this.orchestrationTools.storeMemory(
-          args.repository_path,
-          args.agent_id,
-          args.entry_type,
-          args.title,
-          args.content,
-          args.tags
-        );
-
-      case "search_memory":
-        return await this.orchestrationTools.searchMemory(
-          args.repository_path,
-          args.query_text,
-          args.agent_id,
-          args.limit || 10
-        );
-
-      case "list_agents":
-        return await this.orchestrationTools.listAgents(
-          args.repository_path,
-          args.status,
-          args.limit || 5,
-          args.offset || 0
-        );
-
-      case "terminate_agent":
-        return await this.orchestrationTools.terminateAgent(args.agent_ids);
-
-      case "close_room":
-        return await this.orchestrationTools.closeRoom(
-          args.room_name,
-          args.terminate_agents ?? true
-        );
-
-      case "delete_room":
-        return await this.orchestrationTools.deleteRoom(
-          args.room_name,
-          args.force_delete ?? false
-        );
-
-      case "list_rooms":
-        return await this.orchestrationTools.listRooms(
-          args.repository_path,
-          args.status || "all",
-          args.limit || 20,
-          args.offset || 0
-        );
-
-      case "list_room_messages":
-        return await this.orchestrationTools.listRoomMessages(
-          args.room_name,
-          args.limit || 50,
-          args.offset || 0,
-          args.since_timestamp
-        );
-
-      case "create_delayed_room":
-        return await this.orchestrationTools.createDelayedRoom(
-          args.agent_id,
-          args.repository_path,
-          args.reason,
-          args.participants || []
-        );
-
-      case "analyze_coordination_patterns":
-        return await this.orchestrationTools.analyzeCoordinationPatterns(
-          args.repository_path
-        );
-
-      case "monitor_agents":
-        return await this.orchestrationTools.monitorAgents(
-          args.agent_id,
-          args.orchestration_id,
-          args.room_name,
-          args.repository_path,
-          args.monitoring_mode || "status",
-          args.update_interval || 2000,
-          args.max_duration || 50000,
-          args.detail_level || "summary",
-          progressContext
-        );
-
-      case "report_progress":
-        return await this.reportProgressTool.reportProgress({
-          agentId: args.agent_id,
-          repositoryPath: args.repository_path,
-          progressType: args.progress_type,
-          message: args.message,
-          taskId: args.task_id,
-          progressPercentage: args.progress_percentage,
-          results: args.results,
-          error: args.error,
-          roomId: args.room_id,
-          broadcastToRoom: args.broadcast_to_room ?? true,
-        });
-
-      default:
-        throw new Error(`Unknown tool: ${name}`);
-    }
   }
 
   async start(): Promise<void> {
@@ -630,7 +469,10 @@ export class McpToolsServer {
     }
 
     // Start the MCP server with appropriate transport
-    const transportType = this.options.transport || "http";
+    // Default to stdio for MCP standard compliance, but allow HTTP override
+    const transportType = this.options.transport || 
+      process.env.MCP_TRANSPORT || 
+      "stdio";
     if (transportType === "http") {
       await this.startHttpTransport();
     } else {
@@ -652,8 +494,13 @@ export class McpToolsServer {
         ? `📡 Listening for MCP requests on HTTP port ${
             this.options.httpPort || 4269
           }...\n`
-        : "📡 Listening for MCP requests on stdio...\n";
+        : "📡 Listening for MCP requests on stdio (MCP standard)...\n";
     process.stderr.write(transportMsg);
+    
+    // Inform about transport override options
+    if (transportType === "stdio" && !this.options.transport) {
+      process.stderr.write("💡 Use MCP_TRANSPORT=http environment variable or transport option to enable HTTP mode\n");
+    }
 
     // Start inactivity timer for HTTP transport
     if (transportType === "http") {
@@ -667,7 +514,7 @@ export class McpToolsServer {
    */
   private async startStdioTransport(): Promise<void> {
     const transport = new StdioServerTransport();
-    await this.server.connect(transport);
+    await this.mcpServer.connect(transport);
   }
 
   /**
@@ -1047,7 +894,7 @@ export class McpToolsServer {
                 };
 
                 // Connect the MCP server to this transport
-                await this.server.connect(transport);
+                await this.mcpServer.connect(transport);
               } else {
                 // Invalid request
                 const errorResponse = {
@@ -1197,7 +1044,7 @@ export class McpToolsServer {
     await this.lanceDBManager.shutdown();
     process.stderr.write("✅ LanceDB connection closed\n");
 
-    await this.server.close();
+    await this.mcpServer.close();
     process.stderr.write("✅ MCP Server stopped\n");
   }
 
@@ -1207,7 +1054,7 @@ export class McpToolsServer {
   async requestSampling(samplingRequest: any): Promise<CreateMessageResult> {
     try {
       // Make a sampling request to the client
-      const response = await this.server.server.request(
+      const response = await this.mcpServer.request(
         {
           method: "sampling/createMessage",
           params: samplingRequest.params,

@@ -30,39 +30,7 @@ export const CreateTaskSchema = z.object({
   dependencies: z.array(z.string()).optional().describe('Optional array of task IDs that this task depends on. The task will only be eligible for assignment after all dependencies are completed.')
 });
 
-export const JoinRoomSchema = z.object({
-  roomName: z.string().describe('Name of the communication room to join. This should be an existing room created for coordination between agents.'),
-  agentName: z.string().describe('Name or identifier of the agent joining the room. This will be used to identify the agent in room communications.')
-});
 
-export const SendMessageSchema = z.object({
-  roomName: z.string().describe('Name of the communication room where the message will be sent. The room must exist and the agent should be a member.'),
-  agentName: z.string().describe('Name or identifier of the agent sending the message. This will be displayed as the message sender.'),
-  message: z.string().describe('The message content to send to the room. Can include coordination instructions, status updates, questions, or other communication.'),
-  mentions: z.array(z.string()).optional().describe('Optional array of agent names to mention in the message. Mentioned agents may receive special notifications or attention.')
-});
-
-export const WaitForMessagesSchema = z.object({
-  roomName: z.string().describe('Name of the communication room to monitor for new messages. The agent should be a member of this room.'),
-  timeout: z.number().default(30000).describe('Maximum time to wait for messages in milliseconds. Defaults to 30 seconds (30000ms). After this time, the function will return with whatever messages were received.'),
-  sinceTimestamp: z.string().optional().describe('Optional ISO timestamp string to only retrieve messages sent after this time. If not provided, will wait for any new messages from the current time.')
-});
-
-export const StoreMemorySchema = z.object({
-  repositoryPath: z.string().describe('Absolute path to the repository where the memory will be stored. This determines the scope and context of the shared memory.'),
-  agentId: z.string().describe('ID of the agent creating the memory entry. This tracks which agent contributed the knowledge or insight.'),
-  entryType: entityTypeSchema.describe('Type of memory entry being stored (e.g., "insight", "pattern", "decision", "lesson"). This helps categorize and retrieve relevant memories.'),
-  title: z.string().describe('Short, descriptive title for the memory entry that summarizes the key insight or knowledge.'),
-  content: z.string().describe('Detailed content of the memory entry. Should include the insight, learning, decision, or pattern that other agents can benefit from.'),
-  tags: z.array(z.string()).optional().describe('Optional array of tags to categorize and improve searchability of the memory entry. Tags help agents find relevant knowledge quickly.')
-});
-
-export const SearchMemorySchema = z.object({
-  repositoryPath: z.string().describe('Absolute path to the repository where memories will be searched. This determines the scope of the search.'),
-  queryText: z.string().describe('Search query text to find relevant memories. Uses semantic search to find memories with similar content or meaning.'),
-  agentId: z.string().optional().describe('Optional agent ID to filter memories created by a specific agent. If not provided, will search all agents\' memories in the repository.'),
-  limit: z.number().default(10).describe('Maximum number of memory entries to return. Defaults to 10. Results are ordered by relevance score.')
-});
 
 export const ListAgentsSchema = z.object({
   repositoryPath: z.string().describe('Absolute path to the repository where agents will be listed. This determines the scope of the agent search.'),
@@ -75,29 +43,6 @@ export const TerminateAgentSchema = z.object({
   agentIds: z.array(z.string()).describe('Array of agent IDs to terminate. Each ID should correspond to an active agent. The termination process will gracefully shut down each agent and clean up their resources.')
 });
 
-export const CloseRoomSchema = z.object({
-  roomName: z.string().describe('Name of the communication room to close. This performs a soft close, marking the room as closed but preserving all messages and data.'),
-  terminateAgents: z.boolean().default(true).describe('Whether to terminate all agents associated with this room when closing it. Defaults to true. If false, agents will remain active but lose their room association.')
-});
-
-export const DeleteRoomSchema = z.object({
-  roomName: z.string().describe('Name of the communication room to permanently delete. This will remove all messages and data associated with the room.'),
-  forceDelete: z.boolean().default(false).describe('Whether to force delete the room even if it\'s not closed. Defaults to false. If false, the room must be closed before deletion. If true, will delete the room regardless of status.')
-});
-
-export const ListRoomsSchema = z.object({
-  repositoryPath: z.string().describe('Absolute path to the repository where rooms will be listed. This determines the scope of the room search.'),
-  status: z.enum(['active', 'closed', 'all']).optional().describe('Optional status filter to show rooms with specific status. "active" shows only open rooms, "closed" shows only closed rooms, "all" shows all rooms. If not provided, defaults to showing all rooms.'),
-  limit: z.number().default(20).describe('Maximum number of rooms to return. Defaults to 20. Use for pagination.'),
-  offset: z.number().default(0).describe('Number of rooms to skip before returning results. Defaults to 0. Use for pagination.')
-});
-
-export const ListRoomMessagesSchema = z.object({
-  roomName: z.string().describe('Name of the communication room to retrieve messages from. The room must exist and be accessible.'),
-  limit: z.number().default(50).describe('Maximum number of messages to return. Defaults to 50. Use for pagination and to control response size.'),
-  offset: z.number().default(0).describe('Number of messages to skip before returning results. Defaults to 0. Use for pagination through message history.'),
-  sinceTimestamp: z.string().optional().describe('Optional ISO timestamp string to only retrieve messages sent after this time. Useful for getting recent messages or continuing from a specific point in time.')
-});
 
 export const MonitorAgentsSchema = z.object({
   agentId: z.string().optional().describe('Optional specific agent ID to monitor. If provided, will focus monitoring on this single agent. If not provided, will monitor all agents in the scope.'),
@@ -110,21 +55,32 @@ export const MonitorAgentsSchema = z.object({
   detailLevel: z.enum(['summary', 'detailed', 'verbose']).default('summary').describe('Level of detail in monitoring output. "summary" provides basic updates, "detailed" includes more context and metadata, "verbose" provides comprehensive information about all events.')
 });
 
+export const StructuredOrchestrationSchema = z.object({
+  title: z.string().describe('Title for the structured orchestration - should be descriptive and concise'),
+  objective: z.string().describe('Detailed description of the objective to be orchestrated using structured phased workflow. This should be a clear, comprehensive statement of what needs to be accomplished.'),
+  repositoryPath: z.string().describe('Absolute path to the repository where the orchestration will take place. This is the working directory for all spawned agents.'),
+  foundationSessionId: z.string().optional().describe('Optional session ID for cost optimization. When provided, all spawned agents will share this session context, reducing token costs by 85-90% through shared conversation history.'),
+  maxDuration: z.number().optional().describe('Maximum duration in minutes for the orchestration. Defaults to 60 minutes. The orchestration will be cancelled if it exceeds this duration.'),
+  enableProgressTracking: z.boolean().optional().default(true).describe('Whether to enable detailed progress tracking and real-time updates. Defaults to true.'),
+  customPhaseConfig: z.record(z.string(), z.boolean()).optional().describe('Optional configuration to enable/disable specific phases. Keys can be "research", "plan", "execute", "monitor", "cleanup". All phases are enabled by default.')
+});
+
+export const ContinueAgentSessionSchema = z.object({
+  agentId: z.string().describe('ID of the agent whose session should be continued. This agent must exist and have a stored conversation session ID.'),
+  additionalInstructions: z.string().optional().describe('Optional additional instructions to provide to the agent when resuming the session. These will be appended to the agent\'s original task and context.'),
+  newTaskDescription: z.string().optional().describe('Optional new task description to replace the agent\'s current task. If provided, this will become the agent\'s new primary objective.'),
+  preserveContext: z.boolean().default(true).describe('Whether to preserve the agent\'s conversation context when continuing the session. If true, the agent will resume with all previous conversation history. If false, starts a fresh conversation with the stored session ID.'),
+  updateMetadata: z.record(z.string(), z.any()).optional().describe('Optional metadata updates to apply to the agent when continuing the session. This can include new configuration, status updates, or coordination information.')
+});
+
 export type OrchestrationObjectiveInput = z.infer<typeof OrchestrationObjectiveSchema>;
 export type SpawnAgentInput = z.infer<typeof SpawnAgentSchema>;
 export type CreateTaskInput = z.infer<typeof CreateTaskSchema>;
-export type JoinRoomInput = z.infer<typeof JoinRoomSchema>;
-export type SendMessageInput = z.infer<typeof SendMessageSchema>;
-export type WaitForMessagesInput = z.infer<typeof WaitForMessagesSchema>;
-export type StoreMemoryInput = z.infer<typeof StoreMemorySchema>;
-export type SearchMemoryInput = z.infer<typeof SearchMemorySchema>;
 export type ListAgentsInput = z.infer<typeof ListAgentsSchema>;
 export type TerminateAgentInput = z.infer<typeof TerminateAgentSchema>;
-export type CloseRoomInput = z.infer<typeof CloseRoomSchema>;
-export type DeleteRoomInput = z.infer<typeof DeleteRoomSchema>;
-export type ListRoomsInput = z.infer<typeof ListRoomsSchema>;
-export type ListRoomMessagesInput = z.infer<typeof ListRoomMessagesSchema>;
 export type MonitorAgentsInput = z.infer<typeof MonitorAgentsSchema>;
+export type StructuredOrchestrationInput = z.infer<typeof StructuredOrchestrationSchema>;
+export type ContinueAgentSessionInput = z.infer<typeof ContinueAgentSessionSchema>;
 
 // ===============================================
 // Agent Orchestration Tool Response Schemas
@@ -174,75 +130,7 @@ export const CreateTaskResponseSchema = z.object({
   }).optional().describe('Task creation details returned when successful, containing task metadata, priority, and dependency information.')
 });
 
-// Join Room Response
-export const JoinRoomResponseSchema = z.object({
-  success: z.boolean().describe('Whether the agent successfully joined the communication room. True if agent is now a participant and can send/receive messages.'),
-  message: z.string().describe('Human-readable message describing the join result, including room name and confirmation or error details.'),
-  timestamp: z.string().describe('ISO timestamp string indicating when the agent joined the room.'),
-  execution_time_ms: z.number().optional().describe('Time taken to join the room in milliseconds, including participant registration and message history retrieval.'),
-  data: z.object({
-    room_id: z.string().describe('Unique identifier of the joined room, used for internal operations and message routing.'),
-    room_name: z.string().describe('Human-readable name of the room that was joined.'),
-    agent_name: z.string().describe('Name of the agent that joined the room, as it will appear in messages and participant lists.'),
-    participant_count: z.number().describe('Total number of participants currently in the room, including the newly joined agent.'),
-    recent_message_count: z.number().describe('Number of recent messages retrieved for context, typically the last 10 messages.'),
-    recent_messages: z.array(z.any()).describe('Array of recent message objects providing context about ongoing conversations, limited to last 5 messages for response size.')
-  }).optional().describe('Room join details returned when successful, containing room info, participant count, and recent message context.')
-});
 
-// Send Message Response
-export const SendMessageResponseSchema = z.object({
-  success: z.boolean().describe('Whether the message was successfully sent to the room. True if message was delivered to all participants.'),
-  message: z.string().describe('Human-readable confirmation of message delivery or error details if sending failed.'),
-  timestamp: z.string().describe('ISO timestamp string indicating when the message was sent and delivered.'),
-  execution_time_ms: z.number().optional().describe('Time taken to send the message in milliseconds, including delivery to all participants.'),
-  data: z.object({
-    message_id: z.string().describe('Unique identifier of the sent message, used for tracking and potential message operations.'),
-    room_name: z.string().describe('Name of the room where the message was sent.'),
-    agent_name: z.string().describe('Name of the agent that sent the message, as it appears to other participants.'),
-    mentions: z.array(z.string()).describe('List of agent names that were mentioned in the message, who may receive special notifications.')
-  }).optional().describe('Message sending details returned when successful, containing message ID, room info, and mention information.')
-});
-
-// Wait For Messages Response
-export const WaitForMessagesResponseSchema = z.object({
-  success: z.boolean().describe('Whether the wait operation completed successfully. True if messages were retrieved or timeout was reached gracefully.'),
-  message: z.string().describe('Human-readable description of the wait result, including number of messages received or timeout information.'),
-  timestamp: z.string().describe('ISO timestamp string indicating when the wait operation completed.'),
-  execution_time_ms: z.number().optional().describe('Actual time spent waiting for messages in milliseconds, may be less than requested timeout if messages arrived.'),
-  data: z.object({
-    messages: z.array(z.any()).describe('Array of message objects received during the wait period, each containing agent name, message content, timestamp, and metadata.'),
-    count: z.number().describe('Total number of messages received during the wait period.'),
-    room_name: z.string().describe('Name of the room that was monitored for messages.')
-  }).optional().describe('Message wait results returned when successful, containing all messages received during the wait period with metadata.')
-});
-
-// Store Memory Response
-export const StoreMemoryResponseSchema = z.object({
-  success: z.boolean().describe('Whether the memory entry was successfully stored in the shared knowledge graph. True if insight is now available to other agents.'),
-  message: z.string().describe('Human-readable confirmation of memory storage or error details if storage failed.'),
-  timestamp: z.string().describe('ISO timestamp string indicating when the memory entry was created and stored.'),
-  execution_time_ms: z.number().optional().describe('Time taken to store the memory entry in milliseconds, including knowledge graph operations and indexing.'),
-  data: z.object({
-    memory_id: z.string().describe('Unique identifier of the stored memory entry, used for retrieval and cross-referencing.'),
-    entry_type: z.string().describe('Type of memory entry that was stored (e.g., "insight", "pattern", "decision", "lesson").'),
-    title: z.string().describe('Title of the memory entry as it was stored, used for search and identification.'),
-    agent_id: z.string().describe('ID of the agent that created and stored this memory entry, tracking knowledge contribution.')
-  }).optional().describe('Memory storage details returned when successful, containing memory ID, type, and contributor information.')
-});
-
-// Search Memory Response
-export const SearchMemoryResponseSchema = z.object({
-  success: z.boolean().describe('Whether the memory search completed successfully. True if search was executed and results were retrieved.'),
-  message: z.string().describe('Human-readable description of search results, including number of insights found or search errors.'),
-  timestamp: z.string().describe('ISO timestamp string indicating when the search was completed.'),
-  execution_time_ms: z.number().optional().describe('Time taken to complete the semantic search in milliseconds, including vector similarity calculations.'),
-  data: z.object({
-    insights: z.array(z.any()).describe('Array of matching memory entries/insights, each containing title, content, type, agent ID, and relevance score. Ordered by relevance.'),
-    count: z.number().describe('Total number of memory entries found matching the search criteria.'),
-    query: z.string().describe('The original search query text that was used for semantic matching.')
-  }).optional().describe('Memory search results returned when successful, containing relevant insights with metadata and relevance scoring.')
-});
 
 // List Agents Response
 export const ListAgentsResponseSchema = z.object({
@@ -281,84 +169,6 @@ export const TerminateAgentResponseSchema = z.object({
   }).optional().describe('Agent termination details returned when operation completes, containing individual results and summary counts.')
 });
 
-// Close Room Response
-export const CloseRoomResponseSchema = z.object({
-  success: z.boolean().describe('Whether the room was successfully closed. True if room is marked as closed and associated agents were handled.'),
-  message: z.string().describe('Human-readable description of the close operation result, including room name and agent termination summary.'),
-  timestamp: z.string().describe('ISO timestamp string indicating when the room was closed.'),
-  execution_time_ms: z.number().optional().describe('Time taken to close the room in milliseconds, including agent termination if requested.'),
-  data: z.object({
-    room_name: z.string().describe('Name of the room that was closed.'),
-    terminated_agents: z.array(z.string()).describe('List of agent IDs that were terminated as part of the room closure process.'),
-    agent_count: z.number().describe('Number of agents that were terminated when closing the room.')
-  }).optional().describe('Room closure details returned when successful, containing room name and information about terminated agents.')
-});
-
-// Delete Room Response
-export const DeleteRoomResponseSchema = z.object({
-  success: z.boolean().describe('Whether the room was successfully deleted permanently. True if room and all associated data were removed.'),
-  message: z.string().describe('Human-readable description of the deletion result, including room name and data removal confirmation.'),
-  timestamp: z.string().describe('ISO timestamp string indicating when the room was permanently deleted.'),
-  execution_time_ms: z.number().optional().describe('Time taken to delete the room in milliseconds, including message deletion and agent cleanup.'),
-  data: z.object({
-    room_name: z.string().describe('Name of the room that was permanently deleted.'),
-    messages_deleted: z.boolean().describe('Whether all messages in the room were successfully deleted from the database.'),
-    agents_terminated: z.number().describe('Number of agents that were terminated as part of the room deletion process.')
-  }).optional().describe('Room deletion details returned when successful, containing room name and confirmation of data removal.')
-});
-
-// List Rooms Response
-export const ListRoomsResponseSchema = z.object({
-  success: z.boolean().describe('Whether the room listing operation completed successfully. True if room information was retrieved and formatted.'),
-  message: z.string().describe('Human-readable description of the listing result, including number of rooms found and any filtering applied.'),
-  timestamp: z.string().describe('ISO timestamp string indicating when the room listing was completed.'),
-  execution_time_ms: z.number().optional().describe('Time taken to retrieve and format the room list in milliseconds.'),
-  data: z.object({
-    rooms: z.array(z.object({
-      id: z.string().describe('Unique identifier of the room.'),
-      name: z.string().describe('Human-readable name of the room.'),
-      description: z.string().optional().describe('Optional description of the room\'s purpose or context.'),
-      repository_path: z.string().describe('File system path of the repository this room is associated with.'),
-      is_general: z.boolean().describe('Whether this is a general-purpose room (true) or a specialized coordination room (false).'),
-      status: z.string().describe('Current status of the room ("active" for open rooms, "closed" for closed rooms).'),
-      created_at: z.string().describe('ISO timestamp string indicating when the room was created.'),
-      closed_at: z.string().optional().describe('ISO timestamp string indicating when the room was closed, if applicable.'),
-      metadata: z.any().optional().describe('Additional room metadata including creation context, associated agents, and configuration.')
-    })).describe('Array of room objects with their status, metadata, and associated repository information.'),
-    pagination: z.object({
-      total: z.number().describe('Total number of rooms matching the search criteria (before pagination).'),
-      limit: z.number().describe('Maximum number of rooms returned in this response.'),
-      offset: z.number().describe('Number of rooms skipped before this page of results.'),
-      has_more: z.boolean().describe('Whether there are more rooms available beyond this page.')
-    }).describe('Pagination information for navigating through large room lists.')
-  }).optional().describe('Room listing details returned when successful, containing room information with pagination support.')
-});
-
-// List Room Messages Response
-export const ListRoomMessagesResponseSchema = z.object({
-  success: z.boolean().describe('Whether the message listing operation completed successfully. True if messages were retrieved from the specified room.'),
-  message: z.string().describe('Human-readable description of the message retrieval result, including number of messages found.'),
-  timestamp: z.string().describe('ISO timestamp string indicating when the message listing was completed.'),
-  execution_time_ms: z.number().optional().describe('Time taken to retrieve and format the message list in milliseconds.'),
-  data: z.object({
-    room_id: z.string().describe('Unique identifier of the room from which messages were retrieved.'),
-    room_name: z.string().describe('Human-readable name of the room from which messages were retrieved.'),
-    messages: z.array(z.object({
-      id: z.string().describe('Unique identifier of the message.'),
-      agent_name: z.string().describe('Name of the agent that sent this message.'),
-      message: z.string().describe('Full text content of the message.'),
-      mentions: z.array(z.string()).optional().describe('List of agent names that were mentioned in this message.'),
-      message_type: z.string().describe('Type of message (e.g., "standard", "system", "coordination").'),
-      timestamp: z.string().describe('ISO timestamp string indicating when this message was sent.')
-    })).describe('Array of message objects in chronological order, containing full message content and metadata.'),
-    pagination: z.object({
-      total: z.number().describe('Total number of messages in the room (before pagination).'),
-      limit: z.number().describe('Maximum number of messages returned in this response.'),
-      offset: z.number().describe('Number of messages skipped before this page of results.'),
-      has_more: z.boolean().describe('Whether there are more messages available beyond this page.')
-    }).describe('Pagination information for navigating through message history.')
-  }).optional().describe('Message listing details returned when successful, containing message content and metadata with pagination support.')
-});
 
 // Monitor Agents Response
 export const MonitorAgentsResponseSchema = z.object({
@@ -377,19 +187,60 @@ export const MonitorAgentsResponseSchema = z.object({
   }).optional().describe('Monitoring operation details returned when successful, containing monitoring configuration, duration, and event capture summary.')
 });
 
+// Structured Orchestration Response
+export const StructuredOrchestrationResponseSchema = z.object({
+  success: z.boolean().describe('Whether the structured orchestration completed successfully. True if all phases executed and the objective was accomplished.'),
+  message: z.string().describe('Human-readable description of the orchestration result, including completion status and any important outcomes.'),
+  timestamp: z.string().describe('ISO timestamp string indicating when the orchestration operation completed.'),
+  execution_time_ms: z.number().optional().describe('Total time taken to complete the structured orchestration in milliseconds.'),
+  data: z.object({
+    orchestration_id: z.string().describe('Unique identifier of the structured orchestration instance.'),
+    complexity_level: z.string().describe('Analyzed complexity level of the objective ("simple", "moderate", or "complex").'),
+    recommended_model: z.string().describe('AI model recommended and used for complex phases ("claude-3-7-sonnet-latest", "claude-sonnet-4-0", or "claude-opus-4-0").'),
+    phases_completed: z.array(z.string()).describe('List of workflow phases that were completed successfully (e.g., ["research", "plan", "execute"]).'),
+    spawned_agents: z.array(z.string()).describe('List of agent IDs that were spawned during the orchestration.'),
+    created_tasks: z.array(z.string()).describe('List of task IDs that were created during the orchestration.'),
+    room_name: z.string().optional().describe('Name of the coordination room created for agent communication.'),
+    master_task_id: z.string().optional().describe('ID of the master task created for this orchestration.'),
+    final_results: z.any().optional().describe('Final results and outputs from each completed phase.'),
+    total_duration: z.number().describe('Total duration of the orchestration in milliseconds.'),
+    progress: z.number().describe('Final progress percentage (0-100).')
+  }).optional().describe('Structured orchestration details returned when completed, containing phase results, spawned agents, and final outcomes.')
+});
+
+// Continue Agent Session Response
+export const ContinueAgentSessionResponseSchema = z.object({
+  success: z.boolean().describe('Whether the agent session continuation was successful. True if agent was resumed with stored session ID and is actively running.'),
+  message: z.string().describe('Human-readable description of the session continuation result, including agent status and any context preservation details.'),
+  timestamp: z.string().describe('ISO timestamp string indicating when the session continuation completed.'),
+  execution_time_ms: z.number().optional().describe('Time taken to continue the agent session in milliseconds, including process startup and context restoration.'),
+  data: z.object({
+    agent_id: z.string().describe('ID of the agent whose session was continued.'),
+    agent_name: z.string().describe('Name of the agent that was resumed.'),
+    agent_type: z.string().describe('Type of the agent that was resumed (e.g., "backend", "frontend", "testing").'),
+    session_id: z.string().describe('The stored conversation session ID that was used to resume the agent.'),
+    previous_status: z.string().describe('The agent\'s status before session continuation (e.g., "completed", "terminated", "failed").'),
+    new_status: z.string().describe('The agent\'s status after session continuation (typically "active").'),
+    context_preserved: z.boolean().describe('Whether the agent\'s conversation context was preserved during resumption.'),
+    task_updated: z.boolean().describe('Whether the agent was given a new task description during resumption.'),
+    instructions_added: z.boolean().describe('Whether additional instructions were provided to the agent during resumption.'),
+    claude_pid: z.number().optional().describe('Process ID of the resumed Claude agent process, if available.'),
+    room_id: z.string().optional().describe('ID of the coordination room the agent is assigned to, if any.'),
+    resumption_details: z.object({
+      original_task: z.string().optional().describe('The agent\'s original task description.'),
+      new_task: z.string().optional().describe('The new task description, if updated.'),
+      additional_instructions: z.string().optional().describe('Additional instructions provided during resumption.'),
+      metadata_updates: z.record(z.string(), z.any()).optional().describe('Metadata updates applied during resumption.')
+    }).describe('Details about what was changed or preserved during the session continuation.')
+  }).optional().describe('Agent session continuation details returned when successful, containing agent info, session details, and resumption context.')
+});
+
 // Export response types
 export type OrchestrationObjectiveResponse = z.infer<typeof OrchestrationObjectiveResponseSchema>;
 export type SpawnAgentResponse = z.infer<typeof SpawnAgentResponseSchema>;
 export type CreateTaskResponse = z.infer<typeof CreateTaskResponseSchema>;
-export type JoinRoomResponse = z.infer<typeof JoinRoomResponseSchema>;
-export type SendMessageResponse = z.infer<typeof SendMessageResponseSchema>;
-export type WaitForMessagesResponse = z.infer<typeof WaitForMessagesResponseSchema>;
-export type StoreMemoryResponse = z.infer<typeof StoreMemoryResponseSchema>;
-export type SearchMemoryResponse = z.infer<typeof SearchMemoryResponseSchema>;
 export type ListAgentsResponse = z.infer<typeof ListAgentsResponseSchema>;
 export type TerminateAgentResponse = z.infer<typeof TerminateAgentResponseSchema>;
-export type CloseRoomResponse = z.infer<typeof CloseRoomResponseSchema>;
-export type DeleteRoomResponse = z.infer<typeof DeleteRoomResponseSchema>;
-export type ListRoomsResponse = z.infer<typeof ListRoomsResponseSchema>;
-export type ListRoomMessagesResponse = z.infer<typeof ListRoomMessagesResponseSchema>;
 export type MonitorAgentsResponse = z.infer<typeof MonitorAgentsResponseSchema>;
+export type StructuredOrchestrationResponse = z.infer<typeof StructuredOrchestrationResponseSchema>;
+export type ContinueAgentSessionResponse = z.infer<typeof ContinueAgentSessionResponseSchema>;

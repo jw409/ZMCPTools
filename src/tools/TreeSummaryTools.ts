@@ -3,9 +3,9 @@
  * Exposes TreeSummary functionality through the MCP protocol for agent use
  */
 
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { zodToJsonSchema } from 'zod-to-json-schema';
+import type { McpTool } from '../schemas/tools/index.js';
 import {
   TreeSummaryService,
   type ProjectOverview,
@@ -40,7 +40,7 @@ export class TreeSummaryTools {
   /**
    * Get all TreeSummary MCP tools
    */
-  getTools() {
+  getTools(): McpTool[] {
     return [
       {
         name: "update_file_analysis",
@@ -48,6 +48,7 @@ export class TreeSummaryTools {
           "Update or create analysis data for a specific file in the TreeSummary system",
         inputSchema: zodToJsonSchema(UpdateFileAnalysisSchema),
         outputSchema: zodToJsonSchema(UpdateFileAnalysisResponseSchema),
+        handler: this.updateFileAnalysis.bind(this),
       },
       {
         name: "remove_file_analysis",
@@ -55,12 +56,14 @@ export class TreeSummaryTools {
           "Remove analysis data for a deleted file from the TreeSummary system",
         inputSchema: zodToJsonSchema(RemoveFileAnalysisSchema),
         outputSchema: zodToJsonSchema(RemoveFileAnalysisResponseSchema),
+        handler: this.removeFileAnalysis.bind(this),
       },
       {
         name: "update_project_metadata",
         description: "Update project metadata in the TreeSummary system",
         inputSchema: zodToJsonSchema(UpdateProjectMetadataSchema),
         outputSchema: zodToJsonSchema(UpdateProjectMetadataResponseSchema),
+        handler: this.updateProjectMetadata.bind(this),
       },
       {
         name: "get_project_overview",
@@ -68,56 +71,32 @@ export class TreeSummaryTools {
           "Get comprehensive project overview from TreeSummary analysis",
         inputSchema: zodToJsonSchema(GetProjectOverviewSchema),
         outputSchema: zodToJsonSchema(GetProjectOverviewResponseSchema),
+        handler: this.getProjectOverview.bind(this),
       },
       {
         name: "cleanup_stale_analyses",
         description: "Clean up stale analysis files older than specified days",
         inputSchema: zodToJsonSchema(CleanupStaleAnalysesSchema),
         outputSchema: zodToJsonSchema(CleanupStaleAnalysesResponseSchema),
+        handler: this.cleanupStaleAnalyses.bind(this),
       },
     ];
   }
 
-  /**
-   * Handle tool execution
-   */
-  async handleToolCall(name: string, args: any): Promise<TreeSummaryResponse> {
-    try {
-      switch (name) {
-        case "update_file_analysis":
-          return await this.updateFileAnalysis(args);
-        case "remove_file_analysis":
-          return await this.removeFileAnalysis(args);
-        case "update_project_metadata":
-          return await this.updateProjectMetadata(args);
-        case "get_project_overview":
-          return await this.getProjectOverview(args);
-        case "cleanup_stale_analyses":
-          return await this.cleanupStaleAnalyses(args);
-        default:
-          return createErrorResponse(
-            `Unknown TreeSummary tool: ${name}`,
-            `Tool ${name} is not implemented`,
-            "UNKNOWN_TOOL"
-          );
-      }
-    } catch (error) {
-      return createErrorResponse(
-        `TreeSummary tool error: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-        error instanceof Error ? error.message : String(error),
-        "EXECUTION_ERROR"
-      );
-    }
-  }
 
   /**
    * Implementation: Update file analysis
    */
   private async updateFileAnalysis(args: any): Promise<TreeSummaryResponse> {
     const startTime = Date.now();
-    const { filePath, analysisData } = args;
+    
+    // Map snake_case to camelCase for compatibility
+    const normalizedArgs = {
+      filePath: args.filePath || args.file_path,
+      analysisData: args.analysisData || args.analysis_data
+    };
+    
+    const { filePath, analysisData } = normalizedArgs;
 
     try {
       // Parse date if it's a string
@@ -160,7 +139,13 @@ export class TreeSummaryTools {
    */
   private async removeFileAnalysis(args: any): Promise<TreeSummaryResponse> {
     const startTime = Date.now();
-    const { filePath } = args;
+    
+    // Map snake_case to camelCase for compatibility
+    const normalizedArgs = {
+      filePath: args.filePath || args.file_path
+    };
+    
+    const { filePath } = normalizedArgs;
 
     try {
       const success = await this.treeSummaryService.removeFileAnalysis(
@@ -197,7 +182,13 @@ export class TreeSummaryTools {
    */
   private async updateProjectMetadata(args: any): Promise<TreeSummaryResponse> {
     const startTime = Date.now();
-    const { projectPath } = args;
+    
+    // Map snake_case to camelCase for compatibility
+    const normalizedArgs = {
+      projectPath: args.projectPath || args.project_path
+    };
+    
+    const { projectPath } = normalizedArgs;
 
     try {
       await this.treeSummaryService.updateProjectMetadata(projectPath);
@@ -228,7 +219,13 @@ export class TreeSummaryTools {
    */
   private async getProjectOverview(args: any): Promise<TreeSummaryResponse> {
     const startTime = Date.now();
-    const { projectPath } = args;
+    
+    // Map snake_case to camelCase for compatibility
+    const normalizedArgs = {
+      projectPath: args.projectPath || args.project_path
+    };
+    
+    const { projectPath } = normalizedArgs;
 
     try {
       const overview = await this.treeSummaryService.getProjectOverview(
@@ -261,7 +258,14 @@ export class TreeSummaryTools {
    */
   private async cleanupStaleAnalyses(args: any): Promise<TreeSummaryResponse> {
     const startTime = Date.now();
-    const { projectPath, maxAgeDays = 30 } = args;
+    
+    // Map snake_case to camelCase for compatibility
+    const normalizedArgs = {
+      projectPath: args.projectPath || args.project_path,
+      maxAgeDays: args.maxAgeDays || args.max_age_days || 30
+    };
+    
+    const { projectPath, maxAgeDays } = normalizedArgs;
 
     try {
       const cleanedCount = await this.treeSummaryService.cleanupStaleAnalyses(

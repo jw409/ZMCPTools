@@ -36,6 +36,15 @@ export interface EventTypes {
     reason?: string;
     repositoryPath: string;
   };
+
+  agent_resumed: {
+    agentId: string;
+    previousStatus: AgentStatus;
+    newStatus: AgentStatus;
+    timestamp: Date;
+    repositoryPath: string;
+    sessionId?: string;
+  };
   
   // Task events  
   task_update: {
@@ -93,6 +102,51 @@ export interface EventTypes {
     agentCount: number;
     completedTasks: number;
     totalTasks: number;
+    timestamp: Date;
+    repositoryPath: string;
+    metadata?: Record<string, any>;
+  };
+
+  orchestration_phase_change: {
+    orchestrationId: string;
+    fromPhase: string;
+    toPhase: string;
+    timestamp: Date;
+    repositoryPath: string;
+  };
+
+  orchestration_completed: {
+    orchestrationId: string;
+    repositoryPath: string;
+    success: boolean;
+    duration: number;
+    finalResults?: Record<string, any>;
+    timestamp: Date;
+  };
+
+  orchestration_phase_completed: {
+    orchestrationId: string;
+    phase: string;
+    repositoryPath: string;
+    outputs?: Record<string, any>;
+    timestamp: Date;
+  };
+
+  orchestration_cancelled: {
+    orchestrationId: string;
+    reason: string;
+    timestamp: Date;
+    repositoryPath?: string;
+  };
+  
+  // Progress events
+  progress_update: {
+    contextId: string;
+    contextType: 'agent' | 'orchestration' | 'task' | 'monitoring';
+    agentId?: string;
+    actualProgress: number;
+    reportedProgress: number;
+    message?: string;
     timestamp: Date;
     repositoryPath: string;
     metadata?: Record<string, any>;
