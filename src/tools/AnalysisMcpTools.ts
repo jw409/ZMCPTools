@@ -5,7 +5,6 @@
 
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import { zodToJsonSchema } from 'zod-to-json-schema';
 import * as fs from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
@@ -81,44 +80,44 @@ export class AnalysisMcpTools {
       {
         name: 'analyze_project_structure',
         description: 'Analyze project structure and generate a comprehensive overview',
-        inputSchema: zodToJsonSchema(AnalyzeProjectStructureSchema),
-        outputSchema: zodToJsonSchema(AnalyzeProjectStructureResponseSchema)
+        inputSchema: AnalyzeProjectStructureSchema,
+        outputSchema: AnalyzeProjectStructureResponseSchema
       },
       {
         name: 'generate_project_summary',
         description: 'Generate AI-optimized project overview and analysis',
-        inputSchema: zodToJsonSchema(GenerateProjectSummarySchema),
-        outputSchema: zodToJsonSchema(GenerateProjectSummaryResponseSchema)
+        inputSchema: GenerateProjectSummarySchema,
+        outputSchema: GenerateProjectSummaryResponseSchema
       },
       {
         name: 'analyze_file_symbols',
         description: 'Extract and analyze symbols (functions, classes, etc.) from code files',
-        inputSchema: zodToJsonSchema(AnalyzeFileSymbolsSchema),
-        outputSchema: zodToJsonSchema(AnalyzeFileSymbolsResponseSchema)
+        inputSchema: AnalyzeFileSymbolsSchema,
+        outputSchema: AnalyzeFileSymbolsResponseSchema
       },
       {
         name: 'list_files',
         description: 'List files in a directory with smart ignore patterns',
-        inputSchema: zodToJsonSchema(ListFilesSchema),
-        outputSchema: zodToJsonSchema(ListFilesResponseSchema)
+        inputSchema: ListFilesSchema,
+        outputSchema: ListFilesResponseSchema
       },
       {
         name: 'find_files',
         description: 'Search for files by pattern with optional content matching',
-        inputSchema: zodToJsonSchema(FindFilesSchema),
-        outputSchema: zodToJsonSchema(FindFilesResponseSchema)
+        inputSchema: FindFilesSchema,
+        outputSchema: FindFilesResponseSchema
       },
       {
         name: 'easy_replace',
         description: 'Fuzzy string replacement in files with smart matching',
-        inputSchema: zodToJsonSchema(EasyReplaceSchema),
-        outputSchema: zodToJsonSchema(EasyReplaceResponseSchema)
+        inputSchema: EasyReplaceSchema,
+        outputSchema: EasyReplaceResponseSchema
       },
       {
         name: 'cleanup_orphaned_projects',
         description: 'Clean up orphaned or unused project directories',
-        inputSchema: zodToJsonSchema(CleanupOrphanedProjectsSchema),
-        outputSchema: zodToJsonSchema(CleanupOrphanedProjectsResponseSchema)
+        inputSchema: CleanupOrphanedProjectsSchema,
+        outputSchema: CleanupOrphanedProjectsResponseSchema
       }
     ];
   }

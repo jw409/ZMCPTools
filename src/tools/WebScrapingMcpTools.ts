@@ -5,7 +5,6 @@
 
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import { zodToJsonSchema } from 'zod-to-json-schema';
 import { createHash } from 'crypto';
 import type { WebScrapingService } from '../services/WebScrapingService.js';
 import type { KnowledgeGraphService } from '../services/KnowledgeGraphService.js';
@@ -167,57 +166,57 @@ export class WebScrapingMcpTools {
       {
         name: 'scrape_documentation',
         description: 'Scrape documentation from a website using intelligent sub-agents. Jobs are queued and processed automatically by the background worker. Supports plain string selectors for content extraction.',
-        inputSchema: zodToJsonSchema(ScrapeDocumentationSchema),
-        outputSchema: zodToJsonSchema(ScrapeDocumentationResponseSchema)
+        inputSchema: ScrapeDocumentationSchema,
+        outputSchema: ScrapeDocumentationResponseSchema
       },
       {
         name: 'get_scraping_status',
         description: 'Get status of active and recent scraping jobs (worker runs automatically)',
-        inputSchema: zodToJsonSchema(GetScrapingStatusSchema),
-        outputSchema: zodToJsonSchema(GetScrapingStatusResponseSchema)
+        inputSchema: GetScrapingStatusSchema,
+        outputSchema: GetScrapingStatusResponseSchema
       },
       {
         name: 'cancel_scrape_job',
         description: 'Cancel an active or pending scraping job',
-        inputSchema: zodToJsonSchema(CancelScrapeJobSchema),
-        outputSchema: zodToJsonSchema(CancelScrapeJobResponseSchema)
+        inputSchema: CancelScrapeJobSchema,
+        outputSchema: CancelScrapeJobResponseSchema
       },
       {
         name: 'force_unlock_job',
         description: 'Force unlock a stuck scraping job - useful for debugging and recovery',
-        inputSchema: zodToJsonSchema(ForceUnlockJobSchema),
-        outputSchema: zodToJsonSchema(ForceUnlockJobResponseSchema)
+        inputSchema: ForceUnlockJobSchema,
+        outputSchema: ForceUnlockJobResponseSchema
       },
       {
         name: 'force_unlock_stuck_jobs',
         description: 'Force unlock all stuck scraping jobs (jobs that haven\'t been updated recently)',
-        inputSchema: zodToJsonSchema(ForceUnlockStuckJobsSchema),
-        outputSchema: zodToJsonSchema(ForceUnlockStuckJobsResponseSchema)
+        inputSchema: ForceUnlockStuckJobsSchema,
+        outputSchema: ForceUnlockStuckJobsResponseSchema
       },
       // Manual worker control tools removed - worker now starts/stops automatically with MCP server
       {
         name: 'list_documentation_sources',
         description: 'List all configured documentation sources',
-        inputSchema: zodToJsonSchema(ListDocumentationSourcesSchema),
-        outputSchema: zodToJsonSchema(ListDocumentationSourcesResponseSchema)
+        inputSchema: ListDocumentationSourcesSchema,
+        outputSchema: ListDocumentationSourcesResponseSchema
       },
       {
         name: 'delete_pages_by_pattern',
         description: 'Delete website pages matching URL patterns (useful for cleaning up version URLs, static assets)',
-        inputSchema: zodToJsonSchema(DeletePagesByPatternSchema),
-        outputSchema: zodToJsonSchema(DeletePagesByPatternResponseSchema)
+        inputSchema: DeletePagesByPatternSchema,
+        outputSchema: DeletePagesByPatternResponseSchema
       },
       {
         name: 'delete_pages_by_ids',
         description: 'Delete specific pages by their IDs',
-        inputSchema: zodToJsonSchema(DeletePagesByIdsSchema),
-        outputSchema: zodToJsonSchema(DeletePagesByIdsResponseSchema)
+        inputSchema: DeletePagesByIdsSchema,
+        outputSchema: DeletePagesByIdsResponseSchema
       },
       {
         name: 'delete_all_website_pages',
         description: 'Delete all pages for a website (useful for clean slate before re-scraping)',
-        inputSchema: zodToJsonSchema(DeleteAllWebsitePagesSchema),
-        outputSchema: zodToJsonSchema(DeleteAllWebsitePagesResponseSchema)
+        inputSchema: DeleteAllWebsitePagesSchema,
+        outputSchema: DeleteAllWebsitePagesResponseSchema
       }
     ];
   }
