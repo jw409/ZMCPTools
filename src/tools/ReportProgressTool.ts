@@ -8,6 +8,7 @@
  */
 
 import { z } from "zod";
+import { zodToJsonSchema } from 'zod-to-json-schema';
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { eventBus } from "../services/EventBus.js";
 import { AgentService } from "../services/AgentService.js";
@@ -61,8 +62,8 @@ export class ReportProgressTool {
         name: "report_progress",
         description:
           "Report progress updates for agent tasks and status changes",
-        inputSchema: ReportProgressSchema,
-        outputSchema: ProgressReportResponseSchema,
+        inputSchema: zodToJsonSchema(ReportProgressSchema),
+        outputSchema: zodToJsonSchema(ProgressReportResponseSchema),
       },
     ];
   }

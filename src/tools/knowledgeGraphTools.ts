@@ -5,6 +5,7 @@
 
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 import { DatabaseManager } from '../database/index.js';
 import { KnowledgeGraphService } from '../services/KnowledgeGraphService.js';
 import { VectorSearchService } from '../services/VectorSearchService.js';
@@ -49,26 +50,26 @@ export class KnowledgeGraphMcpTools {
       {
         name: 'store_knowledge_memory',
         description: 'Store a knowledge graph memory with entity creation',
-        inputSchema: StoreKnowledgeMemorySchema,
-        outputSchema: StoreKnowledgeMemoryResponseSchema
+        inputSchema: zodToJsonSchema(StoreKnowledgeMemorySchema),
+        outputSchema: zodToJsonSchema(StoreKnowledgeMemoryResponseSchema)
       },
       {
         name: 'create_knowledge_relationship',
         description: 'Create a relationship between two entities in the knowledge graph',
-        inputSchema: CreateRelationshipSchema,
-        outputSchema: CreateKnowledgeRelationshipResponseSchema
+        inputSchema: zodToJsonSchema(CreateRelationshipSchema),
+        outputSchema: zodToJsonSchema(CreateKnowledgeRelationshipResponseSchema)
       },
       {
         name: 'search_knowledge_graph',
         description: 'Search the knowledge graph using semantic or basic search',
-        inputSchema: SearchKnowledgeGraphSchema,
-        outputSchema: SearchKnowledgeGraphResponseSchema
+        inputSchema: zodToJsonSchema(SearchKnowledgeGraphSchema),
+        outputSchema: zodToJsonSchema(SearchKnowledgeGraphResponseSchema)
       },
       {
         name: 'find_related_entities',
         description: 'Find related entities through relationship traversal',
-        inputSchema: FindRelatedEntitiesSchema,
-        outputSchema: FindRelatedEntitiesResponseSchema
+        inputSchema: zodToJsonSchema(FindRelatedEntitiesSchema),
+        outputSchema: zodToJsonSchema(FindRelatedEntitiesResponseSchema)
       }
     ];
   }

@@ -5,6 +5,7 @@
 
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import { zodToJsonSchema } from 'zod-to-json-schema';
 import {
   TreeSummaryService,
   type ProjectOverview,
@@ -45,34 +46,34 @@ export class TreeSummaryTools {
         name: "update_file_analysis",
         description:
           "Update or create analysis data for a specific file in the TreeSummary system",
-        inputSchema: UpdateFileAnalysisSchema,
-        outputSchema: UpdateFileAnalysisResponseSchema,
+        inputSchema: zodToJsonSchema(UpdateFileAnalysisSchema),
+        outputSchema: zodToJsonSchema(UpdateFileAnalysisResponseSchema),
       },
       {
         name: "remove_file_analysis",
         description:
           "Remove analysis data for a deleted file from the TreeSummary system",
-        inputSchema: RemoveFileAnalysisSchema,
-        outputSchema: RemoveFileAnalysisResponseSchema,
+        inputSchema: zodToJsonSchema(RemoveFileAnalysisSchema),
+        outputSchema: zodToJsonSchema(RemoveFileAnalysisResponseSchema),
       },
       {
         name: "update_project_metadata",
         description: "Update project metadata in the TreeSummary system",
-        inputSchema: UpdateProjectMetadataSchema,
-        outputSchema: UpdateProjectMetadataResponseSchema,
+        inputSchema: zodToJsonSchema(UpdateProjectMetadataSchema),
+        outputSchema: zodToJsonSchema(UpdateProjectMetadataResponseSchema),
       },
       {
         name: "get_project_overview",
         description:
           "Get comprehensive project overview from TreeSummary analysis",
-        inputSchema: GetProjectOverviewSchema,
-        outputSchema: GetProjectOverviewResponseSchema,
+        inputSchema: zodToJsonSchema(GetProjectOverviewSchema),
+        outputSchema: zodToJsonSchema(GetProjectOverviewResponseSchema),
       },
       {
         name: "cleanup_stale_analyses",
         description: "Clean up stale analysis files older than specified days",
-        inputSchema: CleanupStaleAnalysesSchema,
-        outputSchema: CleanupStaleAnalysesResponseSchema,
+        inputSchema: zodToJsonSchema(CleanupStaleAnalysesSchema),
+        outputSchema: zodToJsonSchema(CleanupStaleAnalysesResponseSchema),
       },
     ];
   }
