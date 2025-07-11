@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
   createInsertSchema,
   createSelectSchema,
@@ -92,8 +92,8 @@ export const documentationSources = sqliteTable("documentation_sources", {
   })
     .notNull()
     .default("not_started"),
-  createdAt: text("createdAt").notNull().default("CURRENT_TIMESTAMP"),
-  updatedAt: text("updatedAt").notNull().default("CURRENT_TIMESTAMP"),
+  createdAt: text("createdAt").notNull().default(sql`(current_timestamp)`),
+  updatedAt: text("updatedAt").notNull().default(sql`(current_timestamp)`),
   sourceMetadata: text("sourceMetadata", { mode: "json" }).$type<
     Record<string, any>
   >(),
@@ -114,8 +114,8 @@ export const scrapeJobs = sqliteTable("scrape_jobs", {
   lockedBy: text("lockedBy"),
   lockedAt: text("lockedAt"), // ISO datetime string
   lockTimeout: integer("lockTimeout").notNull().default(3600), // seconds
-  createdAt: text("createdAt").notNull().default("CURRENT_TIMESTAMP"),
-  updatedAt: text("updatedAt").notNull().default("CURRENT_TIMESTAMP"),
+  createdAt: text("createdAt").notNull().default(sql`(current_timestamp)`),
+  updatedAt: text("updatedAt").notNull().default(sql`(current_timestamp)`),
   startedAt: text("startedAt"), // ISO datetime string
   completedAt: text("completedAt"), // ISO datetime string
   errorMessage: text("errorMessage"),
@@ -130,8 +130,8 @@ export const websites = sqliteTable("websites", {
   domain: text("domain").notNull().unique(), // Just domain.tld (unique)
   metaDescription: text("metaDescription"), // Optional or generated description
   sitemapData: text("sitemapData"), // JSON string containing parsed sitemap data
-  createdAt: text("createdAt").notNull().default("CURRENT_TIMESTAMP"),
-  updatedAt: text("updatedAt").notNull().default("CURRENT_TIMESTAMP"),
+  createdAt: text("createdAt").notNull().default(sql`(current_timestamp)`),
+  updatedAt: text("updatedAt").notNull().default(sql`(current_timestamp)`),
 });
 
 // Website pages table - individual pages within a website
@@ -146,8 +146,8 @@ export const websitePages = sqliteTable("website_pages", {
   title: text("title"), // Page title
   httpStatus: integer("httpStatus"),
   errorMessage: text("errorMessage"),
-  createdAt: text("createdAt").notNull().default("CURRENT_TIMESTAMP"),
-  updatedAt: text("updatedAt").notNull().default("CURRENT_TIMESTAMP"),
+  createdAt: text("createdAt").notNull().default(sql`(current_timestamp)`),
+  updatedAt: text("updatedAt").notNull().default(sql`(current_timestamp)`),
 });
 
 
