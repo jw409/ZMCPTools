@@ -45,8 +45,8 @@ export const documentationStatusSchema = z.enum([
 
 // Schema validation helpers
 export const selectorsSchema = z.string().optional();
-export const allowPatternsSchema = z.array(z.union([z.string(), z.record(z.any())])).default([]);
-export const ignorePatternsSchema = z.array(z.union([z.string(), z.record(z.any())])).default([]);
+export const allowPatternsSchema = z.array(z.union([z.string(), z.record(z.string(), z.any())])).default([]);
+export const ignorePatternsSchema = z.array(z.union([z.string(), z.record(z.string(), z.any())])).default([]);
 export const sourceMetadataSchema = z.record(z.string(), z.any()).optional();
 export const jobDataSchema = z.record(z.string(), z.any());
 export const resultDataSchema = z.record(z.string(), z.any()).optional();

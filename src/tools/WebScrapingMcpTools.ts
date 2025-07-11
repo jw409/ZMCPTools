@@ -4,14 +4,34 @@
  */
 
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import { z } from 'zod';
+import { z } from 'zod/v4';
 import { createHash } from 'crypto';
 import type { WebScrapingService } from '../services/WebScrapingService.js';
 import type { KnowledgeGraphService } from '../services/KnowledgeGraphService.js';
 import { MemoryService } from '../services/MemoryService.js';
 import { PatternMatcher, type ScrapingPattern, type StringPattern, type PathPattern, type VersionPattern } from '../utils/patternMatcher.js';
 import { ScrapingOptimizer } from '../utils/scrapingOptimizer.js';
-import { WebScrapingResponseSchema, createSuccessResponse, createErrorResponse, type WebScrapingResponse } from '../schemas/toolResponses.js';
+import { createSuccessResponse, createErrorResponse, type WebScrapingResponse } from '../schemas/toolResponses.js';
+import {
+  ScrapeDocumentationSchema,
+  GetScrapingStatusSchema,
+  CancelScrapeJobSchema,
+  ForceUnlockJobSchema,
+  ForceUnlockStuckJobsSchema,
+  ListDocumentationSourcesSchema,
+  DeletePagesByPatternSchema,
+  DeletePagesByIdsSchema,
+  DeleteAllWebsitePagesSchema,
+  ScrapeDocumentationResponseSchema,
+  GetScrapingStatusResponseSchema,
+  CancelScrapeJobResponseSchema,
+  ForceUnlockJobResponseSchema,
+  ForceUnlockStuckJobsResponseSchema,
+  ListDocumentationSourcesResponseSchema,
+  DeletePagesByPatternResponseSchema,
+  DeletePagesByIdsResponseSchema,
+  DeleteAllWebsitePagesResponseSchema
+} from '../schemas/tools/webScraping.js';
 
 // Pattern validation function
 const validatePatternArray = (patterns: (string | ScrapingPattern)[]): boolean => {
@@ -25,113 +45,7 @@ const validatePatternArray = (patterns: (string | ScrapingPattern)[]): boolean =
   });
 };
 
-// Validation schemas
-const ScrapeDocumentationSchema = z.object({
-  url: z.string().url(),
-  name: z.string().optional(),
-  source_type: z.enum(['api', 'guide', 'reference', 'tutorial']).default('guide'),
-  max_pages: z.number().int().min(1).max(1000).default(200),
-  selectors: z.string().optional(),
-  
-  // Legacy pattern support
-  allow_patterns: z.array(z.union([z.string(), z.record(z.any())])).optional().refine(
-    (patterns) => !patterns || validatePatternArray(patterns),
-    { message: "Invalid pattern format. Use string patterns (*/docs/*), regex patterns (/api\\/v[0-9]+\\/.*/) or JSON patterns ({\"path_segment\": \"docs\"})." }
-  ),
-  ignore_patterns: z.array(z.union([z.string(), z.record(z.any())])).optional().refine(
-    (patterns) => !patterns || validatePatternArray(patterns),
-    { message: "Invalid pattern format. Use string patterns (*/private/*), regex patterns (/login|admin/) or JSON patterns ({\"extension\": [\"js\", \"css\"]})." }
-  ),
-  
-  // Typed pattern parameters
-  allow_path_segments: z.array(z.string()).optional(),
-  ignore_path_segments: z.array(z.string()).optional(),
-  allow_file_extensions: z.array(z.string()).optional(),
-  ignore_file_extensions: z.array(z.string()).optional(),
-  allow_url_contains: z.array(z.string()).optional(),
-  ignore_url_contains: z.array(z.string()).optional(),
-  allow_url_starts_with: z.array(z.string()).optional(),
-  ignore_url_starts_with: z.array(z.string()).optional(),
-  allow_version_patterns: z.array(z.object({
-    prefix: z.string(),
-    major: z.number().optional(),
-    minor: z.number().optional(),
-    patch: z.number().optional()
-  })).optional(),
-  ignore_version_patterns: z.array(z.object({
-    prefix: z.string(),
-    major: z.number().optional(),
-    minor: z.number().optional(),
-    patch: z.number().optional()
-  })).optional(),
-  allow_glob_patterns: z.array(z.string()).optional(),
-  ignore_glob_patterns: z.array(z.string()).optional(),
-  allow_regex_patterns: z.array(z.string()).optional(),
-  ignore_regex_patterns: z.array(z.string()).optional(),
-  
-  include_subdomains: z.boolean().default(false),
-  force_refresh: z.boolean().default(false),
-  agent_id: z.string().optional(),
-  enable_sampling: z.boolean().default(true),
-  sampling_timeout: z.number().optional().default(30000)
-});
-
-const GetScrapingStatusSchema = z.object({
-  source_id: z.string().optional(),
-  include_job_details: z.boolean().default(true)
-});
-
-const CancelScrapeJobSchema = z.object({
-  job_id: z.string()
-});
-
-const ForceUnlockJobSchema = z.object({
-  job_id: z.string(),
-  reason: z.string().optional()
-});
-
-const ForceUnlockStuckJobsSchema = z.object({
-  stuck_threshold_minutes: z.number().min(1).max(1440).default(30),
-});
-
-// StartScrapingWorkerSchema removed - worker now starts automatically with MCP server
-
-const DeletePagesByPatternSchema = z.object({
-  website_id: z.string(),
-  url_patterns: z.array(z.string()),
-  dry_run: z.boolean().default(true)
-});
-
-const DeletePagesByIdsSchema = z.object({
-  page_ids: z.array(z.string()).min(1)
-});
-
-const DeleteAllWebsitePagesSchema = z.object({
-  website_id: z.string(),
-  confirm: z.boolean().default(false)
-});
-
-// Export schemas for MCP server registration
-export { 
-  ScrapeDocumentationSchema,
-  GetScrapingStatusSchema,
-  CancelScrapeJobSchema,
-  ForceUnlockJobSchema,
-  ForceUnlockStuckJobsSchema,
-  DeletePagesByPatternSchema,
-  DeletePagesByIdsSchema,
-  DeleteAllWebsitePagesSchema
-};
-
-// Export inferred types
-export type ScrapeDocumentationInput = z.infer<typeof ScrapeDocumentationSchema>;
-export type GetScrapingStatusInput = z.infer<typeof GetScrapingStatusSchema>;
-export type CancelScrapeJobInput = z.infer<typeof CancelScrapeJobSchema>;
-export type ForceUnlockJobInput = z.infer<typeof ForceUnlockJobSchema>;
-export type ForceUnlockStuckJobsInput = z.infer<typeof ForceUnlockStuckJobsSchema>;
-export type DeletePagesByPatternInput = z.infer<typeof DeletePagesByPatternSchema>;
-export type DeletePagesByIdsInput = z.infer<typeof DeletePagesByIdsSchema>;
-export type DeleteAllWebsitePagesInput = z.infer<typeof DeleteAllWebsitePagesSchema>;
+// Schemas imported from external file - see ../schemas/tools/webScraping.ts
 
 // Convert typed parameters to internal ScrapingPattern format
 function convertTypedParametersToPatterns(params: any): {
@@ -247,330 +161,62 @@ export class WebScrapingMcpTools {
   /**
    * Get all web scraping related MCP tools
    */
-  getTools(): Tool[] {
+  getTools() {
     return [
       {
         name: 'scrape_documentation',
         description: 'Scrape documentation from a website using intelligent sub-agents. Jobs are queued and processed automatically by the background worker. Supports plain string selectors for content extraction.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            url: {
-              type: 'string',
-              format: 'uri',
-              description: 'Base URL of the documentation site to scrape'
-            },
-            name: {
-              type: 'string',
-              description: 'Human-readable name for this documentation source'
-            },
-            source_type: {
-              type: 'string',
-              enum: ['api', 'guide', 'reference', 'tutorial'],
-              default: 'guide',
-              description: 'Type of documentation being scraped'
-            },
-            max_pages: {
-              type: 'number',
-              minimum: 1,
-              maximum: 1000,
-              default: 200,
-              description: 'Maximum number of pages to scrape (default: 200 for comprehensive documentation coverage)'
-            },
-            selectors: {
-              type: 'string',
-              description: 'CSS selector or JavaScript code for extracting specific content (e.g., "article", "main .content", or "document.querySelector(\'.content\')")'
-            },
-            // String and JSON pattern arrays (legacy support)
-            allow_patterns: {
-              type: 'array',
-              items: { 
-                oneOf: [
-                  { type: 'string' },
-                  { type: 'object' }
-                ]
-              },
-              description: 'URL patterns to include during crawling (allowlist). Supports: 1) String patterns: glob patterns (**/docs/**), regex patterns (/api\\/v[0-9]+\\/.*/) or plain strings. 2) JSON patterns (recommended for AI): {"path_segment": "docs"}, {"extension": ["html", "htm"]}, {"version": {"prefix": "v", "major": 1}}, {"and": [{"contains": "/docs/"}, {"not": {"extension": "pdf"}}]}. JSON patterns are more readable and powerful for complex logic.'
-            },
-            ignore_patterns: {
-              type: 'array',
-              items: { 
-                oneOf: [
-                  { type: 'string' },
-                  { type: 'object' }
-                ]
-              },
-              description: 'URL patterns to ignore during crawling (blocklist). Supports: 1) String patterns: glob patterns (**/private/**), regex patterns (/login|admin/) or plain strings. 2) JSON patterns (recommended for AI): {"extension": ["js", "css", "png"]}, {"version": {"prefix": "v"}}, {"or": [{"contains": "/private/"}, {"path_segment": "admin"}]}. JSON patterns provide better readability and logical operations.'
-            },
-            
-            // Typed pattern parameters (recommended for AI)
-            allow_path_segments: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Path segments to allow (e.g., ["docs", "api", "guides"])'
-            },
-            ignore_path_segments: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Path segments to ignore (e.g., ["private", "admin", "internal"])'
-            },
-            allow_file_extensions: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'File extensions to allow (e.g., ["html", "htm", "md"])'
-            },
-            ignore_file_extensions: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'File extensions to ignore (e.g., ["js", "css", "png", "jpg", "pdf"])'
-            },
-            allow_url_contains: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'URL substrings that must be present (e.g., ["/docs/", "/api/"])'
-            },
-            ignore_url_contains: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'URL substrings to ignore (e.g., ["/private/", "/admin/"])'
-            },
-            allow_url_starts_with: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'URL prefixes to allow (e.g., ["https://docs.example.com", "https://api.example.com"])'
-            },
-            ignore_url_starts_with: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'URL prefixes to ignore (e.g., ["https://private.example.com", "https://admin.example.com"])'
-            },
-            allow_version_patterns: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  prefix: { type: 'string', description: 'Version prefix (e.g., "v", "api/v")' },
-                  major: { type: 'number', description: 'Major version number' },
-                  minor: { type: 'number', description: 'Minor version number' },
-                  patch: { type: 'number', description: 'Patch version number' }
-                },
-                required: ['prefix']
-              },
-              description: 'Version patterns to allow (e.g., [{"prefix": "v", "major": 1}, {"prefix": "api/v", "major": 2}])'
-            },
-            ignore_version_patterns: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  prefix: { type: 'string', description: 'Version prefix (e.g., "v", "api/v")' },
-                  major: { type: 'number', description: 'Major version number' },
-                  minor: { type: 'number', description: 'Minor version number' },
-                  patch: { type: 'number', description: 'Patch version number' }
-                },
-                required: ['prefix']
-              },
-              description: 'Version patterns to ignore (e.g., [{"prefix": "v", "major": 0}, {"prefix": "api/v", "major": 1}])'
-            },
-            allow_glob_patterns: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Glob patterns to allow (e.g., ["**/docs/**", "**/api/**"])'
-            },
-            ignore_glob_patterns: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Glob patterns to ignore (e.g., ["**/private/**", "**/admin/**"])'
-            },
-            allow_regex_patterns: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Regex patterns to allow (e.g., ["/api/v[0-9]+/.*", "/docs/[a-z]+/.*"])'
-            },
-            ignore_regex_patterns: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Regex patterns to ignore (e.g., ["/login", "/admin", "/private"])'
-            },
-            include_subdomains: {
-              type: 'boolean',
-              default: false,
-              description: 'Whether to include subdomains when crawling'
-            },
-            force_refresh: {
-              type: 'boolean',
-              default: false,
-              description: 'Force refresh even if recently scraped'
-            },
-            agent_id: {
-              type: 'string',
-              description: 'ID of the agent requesting this scraping'
-            },
-            enable_sampling: {
-              type: 'boolean',
-              default: true,
-              description: 'Enable intelligent parameter optimization using MCP sampling'
-            },
-            sampling_timeout: {
-              type: 'number',
-              default: 30000,
-              description: 'Timeout for sampling optimization in milliseconds'
-            }
-          },
-          required: ['url']
-        },
-        outputSchema: WebScrapingResponseSchema
+        inputSchema: z.toJSONSchema(ScrapeDocumentationSchema) as any,
+        outputSchema: z.toJSONSchema(ScrapeDocumentationResponseSchema) as any
       },
       {
         name: 'get_scraping_status',
         description: 'Get status of active and recent scraping jobs (worker runs automatically)',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            source_id: {
-              type: 'string',
-              description: 'Optional source ID to filter results'
-            },
-            include_job_details: {
-              type: 'boolean',
-              default: true,
-              description: 'Include detailed job information in response'
-            }
-          },
-          required: []
-        },
-        outputSchema: WebScrapingResponseSchema
+        inputSchema: z.toJSONSchema(GetScrapingStatusSchema) as any,
+        outputSchema: z.toJSONSchema(GetScrapingStatusResponseSchema) as any
       },
       {
         name: 'cancel_scrape_job',
         description: 'Cancel an active or pending scraping job',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            job_id: {
-              type: 'string',
-              description: 'ID of the scraping job to cancel'
-            }
-          },
-          required: ['job_id']
-        },
-        outputSchema: WebScrapingResponseSchema
+        inputSchema: z.toJSONSchema(CancelScrapeJobSchema) as any,
+        outputSchema: z.toJSONSchema(CancelScrapeJobResponseSchema) as any
       },
       {
         name: 'force_unlock_job',
         description: 'Force unlock a stuck scraping job - useful for debugging and recovery',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            job_id: {
-              type: 'string',
-              description: 'ID of the scraping job to force unlock'
-            },
-            reason: {
-              type: 'string',
-              description: 'Optional reason for force unlocking the job'
-            }
-          },
-          required: ['job_id']
-        },
-        outputSchema: WebScrapingResponseSchema
+        inputSchema: z.toJSONSchema(ForceUnlockJobSchema) as any,
+        outputSchema: z.toJSONSchema(ForceUnlockJobResponseSchema) as any
       },
       {
         name: 'force_unlock_stuck_jobs',
         description: 'Force unlock all stuck scraping jobs (jobs that haven\'t been updated recently)',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            stuck_threshold_minutes: {
-              type: 'number',
-              minimum: 1,
-              maximum: 1440,
-              default: 30,
-              description: 'Consider jobs stuck if they haven\'t been updated for this many minutes'
-            }
-          },
-          required: []
-        },
-        outputSchema: WebScrapingResponseSchema
+        inputSchema: z.toJSONSchema(ForceUnlockStuckJobsSchema) as any,
+        outputSchema: z.toJSONSchema(ForceUnlockStuckJobsResponseSchema) as any
       },
       // Manual worker control tools removed - worker now starts/stops automatically with MCP server
       {
         name: 'list_documentation_sources',
         description: 'List all configured documentation sources',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            include_stats: {
-              type: 'boolean',
-              default: true,
-              description: 'Include entry counts and last scraped info'
-            }
-          },
-          required: []
-        },
-        outputSchema: WebScrapingResponseSchema
+        inputSchema: z.toJSONSchema(ListDocumentationSourcesSchema) as any,
+        outputSchema: z.toJSONSchema(ListDocumentationSourcesResponseSchema) as any
       },
       {
         name: 'delete_pages_by_pattern',
         description: 'Delete website pages matching URL patterns (useful for cleaning up version URLs, static assets)',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            website_id: {
-              type: 'string',
-              description: 'Website ID to delete pages from'
-            },
-            url_patterns: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'URL patterns to match (glob, regex, or plain strings). Examples: ["/v[0-9]+/", "**/*.js", "**/*.css"]'
-            },
-            dry_run: {
-              type: 'boolean',
-              default: true,
-              description: 'Show what would be deleted without actually deleting'
-            }
-          },
-          required: ['website_id', 'url_patterns']
-        },
-        outputSchema: WebScrapingResponseSchema
+        inputSchema: z.toJSONSchema(DeletePagesByPatternSchema) as any,
+        outputSchema: z.toJSONSchema(DeletePagesByPatternResponseSchema) as any
       },
       {
         name: 'delete_pages_by_ids',
         description: 'Delete specific pages by their IDs',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            page_ids: {
-              type: 'array',
-              items: { type: 'string' },
-              minItems: 1,
-              description: 'Array of page IDs to delete'
-            }
-          },
-          required: ['page_ids']
-        },
-        outputSchema: WebScrapingResponseSchema
+        inputSchema: z.toJSONSchema(DeletePagesByIdsSchema) as any,
+        outputSchema: z.toJSONSchema(DeletePagesByIdsResponseSchema) as any
       },
       {
         name: 'delete_all_website_pages',
         description: 'Delete all pages for a website (useful for clean slate before re-scraping)',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            website_id: {
-              type: 'string',
-              description: 'Website ID to delete all pages from'
-            },
-            confirm: {
-              type: 'boolean',
-              default: false,
-              description: 'Safety check - must be true to actually delete all pages'
-            }
-          },
-          required: ['website_id', 'confirm']
-        },
-        outputSchema: WebScrapingResponseSchema
+        inputSchema: z.toJSONSchema(DeleteAllWebsitePagesSchema) as any,
+        outputSchema: z.toJSONSchema(DeleteAllWebsitePagesResponseSchema) as any
       }
     ];
   }
@@ -1022,7 +668,7 @@ export class WebScrapingMcpTools {
         {
           job_id: 'batch_unlock',
           status: 'batch_unlocked',
-          jobs: result.unlockedJobs || [],
+          jobs: result.unlockedCount || [],
           deleted_count: result.unlockedCount
         },
         executionTime
@@ -1040,16 +686,18 @@ export class WebScrapingMcpTools {
 
   // Manual worker control methods removed - worker now starts/stops automatically with MCP server
 
-  private async listDocumentationSources(args: any) {
-    const { include_stats = true } = args;
+  private async listDocumentationSources(args: any): Promise<WebScrapingResponse> {
+    const startTime = Date.now();
     
     try {
+      const params = ListDocumentationSourcesSchema.parse(args);
+      
       // List all websites and their page counts if stats are requested
       const websites = await this.webScrapingService['websiteRepository'].listWebsites({ limit: 100 });
       
       const sources = await Promise.all(websites.map(async (website) => {
         let pageCount = 0;
-        if (include_stats) {
+        if (params.include_stats) {
           pageCount = await this.webScrapingService['websitePagesRepository'].countByWebsiteId(website.id);
         }
         
@@ -1060,21 +708,27 @@ export class WebScrapingMcpTools {
           metaDescription: website.metaDescription,
           createdAt: website.createdAt,
           updatedAt: website.updatedAt,
-          ...(include_stats && { pageCount })
+          ...(params.include_stats && { pageCount })
         };
       }));
       
-      return {
-        success: true,
-        sources,
-        total_sources: websites.length,
-        message: `Found ${websites.length} documentation websites`
-      };
+      const executionTime = Date.now() - startTime;
+      
+      return createSuccessResponse(
+        `Found ${websites.length} documentation websites`,
+        {
+          sources,
+          total_sources: websites.length
+        },
+        executionTime
+      );
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to list documentation sources'
-      };
+      const executionTime = Date.now() - startTime;
+      return createErrorResponse(
+        'Failed to list documentation sources',
+        error instanceof Error ? error.message : 'Unknown error occurred',
+        'LIST_SOURCES_ERROR'
+      );
     }
   }
 
@@ -1096,21 +750,28 @@ export class WebScrapingMcpTools {
     });
   }
 
-  private async deletePagesByPattern(args: any) {
-    const params = DeletePagesByPatternSchema.parse(args);
+  private async deletePagesByPattern(args: any): Promise<WebScrapingResponse> {
+    const startTime = Date.now();
     
     try {
+      const params = DeletePagesByPatternSchema.parse(args);
+      
       // Get all pages for this website
       const pages = await this.webScrapingService['websitePagesRepository'].listByWebsiteId(params.website_id, { limit: 10000 });
       
       if (pages.length === 0) {
-        return {
-          success: true,
-          message: `No pages found for website ${params.website_id}`,
-          pages_matched: 0,
-          pages_deleted: 0,
-          dry_run: params.dry_run
-        };
+        const executionTime = Date.now() - startTime;
+        return createSuccessResponse(
+          `No pages found for website ${params.website_id}`,
+          {
+            pages_matched: 0,
+            pages_deleted: 0,
+            dry_run: params.dry_run,
+            patterns_used: params.url_patterns,
+            total_pages_scanned: 0
+          },
+          executionTime
+        );
       }
 
       // Find pages that match the deletion patterns
@@ -1124,16 +785,19 @@ export class WebScrapingMcpTools {
       const matchedUrls = matchedPages.map(page => ({ id: page.id, url: page.url }));
 
       if (params.dry_run) {
-        return {
-          success: true,
-          message: `DRY RUN: Would delete ${matchedPages.length} pages matching patterns`,
-          pages_matched: matchedPages.length,
-          pages_deleted: 0,
-          dry_run: true,
-          matched_urls: matchedUrls.slice(0, 20), // Show first 20 for preview
-          patterns_used: params.url_patterns,
-          total_pages_scanned: pages.length
-        };
+        const executionTime = Date.now() - startTime;
+        return createSuccessResponse(
+          `DRY RUN: Would delete ${matchedPages.length} pages matching patterns`,
+          {
+            pages_matched: matchedPages.length,
+            pages_deleted: 0,
+            dry_run: true,
+            matched_urls: matchedUrls.slice(0, 20), // Show first 20 for preview
+            patterns_used: params.url_patterns,
+            total_pages_scanned: pages.length
+          },
+          executionTime
+        );
       }
 
       // Actually delete the pages
@@ -1145,27 +809,35 @@ export class WebScrapingMcpTools {
         }
       }
 
-      return {
-        success: true,
-        message: `Successfully deleted ${deletedCount} pages matching patterns`,
-        pages_matched: matchedPages.length,
-        pages_deleted: deletedCount,
-        dry_run: false,
-        patterns_used: params.url_patterns,
-        total_pages_scanned: pages.length
-      };
+      const executionTime = Date.now() - startTime;
+      
+      return createSuccessResponse(
+        `Successfully deleted ${deletedCount} pages matching patterns`,
+        {
+          pages_matched: matchedPages.length,
+          pages_deleted: deletedCount,
+          dry_run: false,
+          patterns_used: params.url_patterns,
+          total_pages_scanned: pages.length
+        },
+        executionTime
+      );
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to delete pages by pattern'
-      };
+      const executionTime = Date.now() - startTime;
+      return createErrorResponse(
+        'Failed to delete pages by pattern',
+        error instanceof Error ? error.message : 'Unknown error occurred',
+        'DELETE_PATTERN_ERROR'
+      );
     }
   }
 
-  private async deletePagesByIds(args: any) {
-    const params = DeletePagesByIdsSchema.parse(args);
+  private async deletePagesByIds(args: any): Promise<WebScrapingResponse> {
+    const startTime = Date.now();
     
     try {
+      const params = DeletePagesByIdsSchema.parse(args);
+      
       let deletedCount = 0;
       const results = [];
 
@@ -1189,57 +861,77 @@ export class WebScrapingMcpTools {
         }
       }
 
-      return {
-        success: true,
-        message: `Successfully deleted ${deletedCount} of ${params.page_ids.length} pages`,
-        pages_deleted: deletedCount,
-        total_requested: params.page_ids.length,
-        results
-      };
+      const executionTime = Date.now() - startTime;
+      
+      return createSuccessResponse(
+        `Successfully deleted ${deletedCount} of ${params.page_ids.length} pages`,
+        {
+          pages_deleted: deletedCount,
+          total_requested: params.page_ids.length,
+          results
+        },
+        executionTime
+      );
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to delete pages by IDs'
-      };
+      const executionTime = Date.now() - startTime;
+      return createErrorResponse(
+        'Failed to delete pages by IDs',
+        error instanceof Error ? error.message : 'Unknown error occurred',
+        'DELETE_BY_IDS_ERROR'
+      );
     }
   }
 
-  private async deleteAllWebsitePages(args: any) {
-    const params = DeleteAllWebsitePagesSchema.parse(args);
+  private async deleteAllWebsitePages(args: any): Promise<WebScrapingResponse> {
+    const startTime = Date.now();
     
-    if (!params.confirm) {
-      return {
-        success: false,
-        error: 'Safety check failed: confirm parameter must be true to delete all pages for a website'
-      };
-    }
-
     try {
+      const params = DeleteAllWebsitePagesSchema.parse(args);
+      
+      if (!params.confirm) {
+        const executionTime = Date.now() - startTime;
+        return createErrorResponse(
+          'Safety check failed',
+          'confirm parameter must be true to delete all pages for a website',
+          'CONFIRMATION_REQUIRED'
+        );
+      }
+
       // Get current page count for reporting
       const pageCount = await this.webScrapingService['websitePagesRepository'].countByWebsiteId(params.website_id);
       
       if (pageCount === 0) {
-        return {
-          success: true,
-          message: `No pages found for website ${params.website_id}`,
-          pages_deleted: 0
-        };
+        const executionTime = Date.now() - startTime;
+        return createSuccessResponse(
+          `No pages found for website ${params.website_id}`,
+          {
+            pages_deleted: 0,
+            website_id: params.website_id
+          },
+          executionTime
+        );
       }
 
       // Delete all pages for this website
       const deletedCount = await this.webScrapingService['websitePagesRepository'].deleteByWebsiteId(params.website_id);
 
-      return {
-        success: true,
-        message: `Successfully deleted all ${deletedCount} pages for website ${params.website_id}`,
-        pages_deleted: deletedCount,
-        website_id: params.website_id
-      };
+      const executionTime = Date.now() - startTime;
+      
+      return createSuccessResponse(
+        `Successfully deleted all ${deletedCount} pages for website ${params.website_id}`,
+        {
+          pages_deleted: deletedCount,
+          website_id: params.website_id
+        },
+        executionTime
+      );
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to delete all website pages'
-      };
+      const executionTime = Date.now() - startTime;
+      return createErrorResponse(
+        'Failed to delete all website pages',
+        error instanceof Error ? error.message : 'Unknown error occurred',
+        'DELETE_ALL_PAGES_ERROR'
+      );
     }
   }
 }

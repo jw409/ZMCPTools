@@ -20,6 +20,7 @@ async function mainServer() {
   const portIndex = args.indexOf('--port');
   const hostIndex = args.indexOf('--host');
   
+  const transport = (transportIndex !== -1 && args[transportIndex + 1]) ? args[transportIndex + 1] : 'stdio';
   const httpPort = (portIndex !== -1 && args[portIndex + 1]) ? parseInt(args[portIndex + 1]) : 4269;
   const httpHost = (hostIndex !== -1 && args[hostIndex + 1]) ? args[hostIndex + 1] : '127.0.0.1';
 
@@ -31,14 +32,17 @@ async function mainServer() {
   process.stderr.write('🚀 Starting Claude MCP Tools TypeScript Server...\n');
   process.stderr.write(`📁 Data directory: ${dataDir}\n`);
   process.stderr.write(`🗃️ Database path: ${databasePath}\n`);
-  process.stderr.write(`🌐 Transport: HTTP\n`);
-  process.stderr.write(`🌐 HTTP Host: ${httpHost}:${httpPort}\n`);
+  process.stderr.write(`🌐 Transport: ${transport.toUpperCase()}\n`);
+  if (transport === 'http') {
+    process.stderr.write(`🌐 HTTP Host: ${httpHost}:${httpPort}\n`);
+  }
 
   // Create the MCP server
   const server = new McpToolsServer({
     name: 'claude-mcp-tools',
     version: '1.0.0',
     databasePath,
+    transport: transport as 'http' | 'stdio',
     httpPort,
     httpHost
   });
@@ -85,7 +89,7 @@ async function main() {
     process.stderr.write(`💾 Crash logs will be stored in: ${crashHandler.getCrashLogDir()}\n`);
 
     // Wrap the main server function with crash handling
-    const wrappedMainServer = wrapMainServer(mainServer, 'claude-mcp-tools-ts');
+    const wrappedMainServer = wrapMainServer(mainServer, 'claude-mcp-tools');
     
     // Start the server with crash handling
     await wrappedMainServer();

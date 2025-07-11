@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v4';
 
 /**
  * Base response schema for all MCP tools
@@ -124,89 +124,6 @@ export const ProgressReportResponseSchema = BaseToolResponseSchema.extend({
 
 export type ProgressReportResponse = z.infer<typeof ProgressReportResponseSchema>;
 
-/**
- * Knowledge graph tool response schemas
- */
-
-// Store Knowledge Memory Response
-export const StoreKnowledgeMemoryResponseSchema = z.object({
-  success: z.boolean(),
-  entity_id: z.string(),
-  message: z.string()
-});
-
-export type StoreKnowledgeMemoryResponse = z.infer<typeof StoreKnowledgeMemoryResponseSchema>;
-
-// Create Knowledge Relationship Response  
-export const CreateKnowledgeRelationshipResponseSchema = z.object({
-  success: z.boolean(),
-  relationship_id: z.string(),
-  message: z.string()
-});
-
-export type CreateKnowledgeRelationshipResponse = z.infer<typeof CreateKnowledgeRelationshipResponseSchema>;
-
-// Search Knowledge Graph Response
-export const SearchKnowledgeGraphResponseSchema = z.object({
-  entities: z.array(z.object({
-    id: z.string(),
-    type: z.string(),
-    name: z.string(),
-    description: z.string().optional(),
-    importance_score: z.number(),
-    confidence_score: z.number(),
-    properties: z.record(z.string(), z.unknown()).optional(),
-    discovered_by: z.string().optional(),
-    created_at: z.string()
-  })),
-  relationships: z.array(z.object({
-    id: z.string(),
-    from_entity_id: z.string(),
-    to_entity_id: z.string(),
-    type: z.string(),
-    strength: z.number(),
-    confidence: z.number(),
-    context: z.string().optional(),
-    discovered_by: z.string().optional(),
-    created_at: z.string()
-  })),
-  total_results: z.number(),
-  search_metadata: z.object({
-    search_type: z.string(),
-    processing_time: z.number()
-  })
-});
-
-export type SearchKnowledgeGraphResponse = z.infer<typeof SearchKnowledgeGraphResponseSchema>;
-
-// Find Related Entities Response
-export const FindRelatedEntitiesResponseSchema = z.object({
-  entities: z.array(z.object({
-    id: z.string(),
-    type: z.string(),
-    name: z.string(),
-    description: z.string().optional(),
-    importance_score: z.number(),
-    confidence_score: z.number(),
-    relationships: z.array(z.object({
-      id: z.string(),
-      type: z.string(),
-      strength: z.number(),
-      confidence: z.number()
-    }))
-  })),
-  relationships: z.array(z.object({
-    id: z.string(),
-    from_entity_id: z.string(),
-    to_entity_id: z.string(),
-    type: z.string(),
-    strength: z.number(),
-    confidence: z.number()
-  })),
-  total_found: z.number()
-});
-
-export type FindRelatedEntitiesResponse = z.infer<typeof FindRelatedEntitiesResponseSchema>;
 
 // Generic Knowledge Graph Response (for backward compatibility)
 export const KnowledgeGraphResponseSchema = BaseToolResponseSchema.extend({
@@ -265,7 +182,7 @@ export const ProjectSummarySchema = z.object({
   description: z.string().optional(),
   framework: z.string().optional(),
   language: z.string().optional(),
-  dependencies: z.record(z.string()).optional(),
+  dependencies: z.record(z.string(), z.string()).optional(),
   structure: ProjectStructureInfoSchema,
   gitInfo: z.object({
     branch: z.string().optional(),
@@ -276,7 +193,7 @@ export const ProjectSummarySchema = z.object({
     totalFiles: z.number(),
     totalDirectories: z.number(),
     totalSize: z.number(),
-    fileTypes: z.record(z.number())
+    fileTypes: z.record(z.string(), z.number())
   })
 });
 

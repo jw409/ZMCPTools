@@ -4,7 +4,7 @@
  */
 
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import { z } from 'zod';
+import { z } from 'zod/v4';
 import * as fs from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
@@ -22,8 +22,35 @@ import {
   ListFilesSchema,
   FindFilesSchema,
   EasyReplaceSchema,
-  CleanupOrphanedProjectsSchema
-} from '../schemas/toolRequests.js';
+  CleanupOrphanedProjectsSchema,
+  // Import individual response schemas
+  AnalyzeProjectStructureResponseSchema,
+  GenerateProjectSummaryResponseSchema,
+  AnalyzeFileSymbolsResponseSchema,
+  ListFilesResponseSchema,
+  FindFilesResponseSchema,
+  EasyReplaceResponseSchema,
+  CleanupOrphanedProjectsResponseSchema,
+  // Import response types
+  type AnalyzeProjectStructureResponse,
+  type GenerateProjectSummaryResponse,
+  type AnalyzeFileSymbolsResponse,
+  type ListFilesResponse,
+  type FindFilesResponse,
+  type EasyReplaceResponse,
+  type CleanupOrphanedProjectsResponse
+} from '../schemas/tools/analysis.js';
+import type { RegisteredTool } from '@modelcontextprotocol/sdk/server/mcp.js';
+
+// Union type for all analysis tool responses
+type AnalysisToolResponse = 
+  | AnalyzeProjectStructureResponse
+  | GenerateProjectSummaryResponse
+  | AnalyzeFileSymbolsResponse
+  | ListFilesResponse
+  | FindFilesResponse
+  | EasyReplaceResponse
+  | CleanupOrphanedProjectsResponse;
 
 // Promisified fs operations for legacy compatibility
 const readFile = promisify(fs.readFile);
@@ -48,49 +75,49 @@ export class AnalysisMcpTools {
   /**
    * Get all analysis-related MCP tools
    */
-  getTools(): Tool[] {
+  getTools() {
     return [
       {
         name: 'analyze_project_structure',
         description: 'Analyze project structure and generate a comprehensive overview',
-        inputSchema: AnalyzeProjectStructureSchema.shape,
-        outputSchema: AnalysisResponseSchema.shape
+        inputSchema: z.toJSONSchema(AnalyzeProjectStructureSchema) as any,
+        outputSchema: z.toJSONSchema(AnalyzeProjectStructureResponseSchema) as any
       },
       {
         name: 'generate_project_summary',
         description: 'Generate AI-optimized project overview and analysis',
-        inputSchema: GenerateProjectSummarySchema.shape,
-        outputSchema: AnalysisResponseSchema.shape
+        inputSchema: z.toJSONSchema(GenerateProjectSummarySchema) as any,
+        outputSchema: z.toJSONSchema(GenerateProjectSummaryResponseSchema) as any
       },
       {
         name: 'analyze_file_symbols',
         description: 'Extract and analyze symbols (functions, classes, etc.) from code files',
-        inputSchema: AnalyzeFileSymbolsSchema.shape,
-        outputSchema: AnalysisResponseSchema.shape
+        inputSchema: z.toJSONSchema(AnalyzeFileSymbolsSchema) as any,
+        outputSchema: z.toJSONSchema(AnalyzeFileSymbolsResponseSchema) as any
       },
       {
         name: 'list_files',
         description: 'List files in a directory with smart ignore patterns',
-        inputSchema: ListFilesSchema.shape,
-        outputSchema: AnalysisResponseSchema.shape
+        inputSchema: z.toJSONSchema(ListFilesSchema) as any,
+        outputSchema: z.toJSONSchema(ListFilesResponseSchema) as any
       },
       {
         name: 'find_files',
         description: 'Search for files by pattern with optional content matching',
-        inputSchema: FindFilesSchema.shape,
-        outputSchema: AnalysisResponseSchema.shape
+        inputSchema: z.toJSONSchema(FindFilesSchema) as any,
+        outputSchema: z.toJSONSchema(FindFilesResponseSchema) as any
       },
       {
         name: 'easy_replace',
         description: 'Fuzzy string replacement in files with smart matching',
-        inputSchema: EasyReplaceSchema.shape,
-        outputSchema: AnalysisResponseSchema.shape
+        inputSchema: z.toJSONSchema(EasyReplaceSchema) as any,
+        outputSchema: z.toJSONSchema(EasyReplaceResponseSchema) as any
       },
       {
         name: 'cleanup_orphaned_projects',
         description: 'Clean up orphaned or unused project directories',
-        inputSchema: CleanupOrphanedProjectsSchema.shape,
-        outputSchema: AnalysisResponseSchema.shape
+        inputSchema: z.toJSONSchema(CleanupOrphanedProjectsSchema) as any,
+        outputSchema: z.toJSONSchema(CleanupOrphanedProjectsResponseSchema) as any
       }
     ];
   }
@@ -98,7 +125,7 @@ export class AnalysisMcpTools {
   /**
    * Handle MCP tool calls for analysis functionality
    */
-  async handleToolCall(name: string, args: any): Promise<AnalysisResponse> {
+  async handleToolCall(name: string, args: any): Promise<AnalysisToolResponse> {
     const startTime = Date.now();
     
     try {
@@ -143,14 +170,14 @@ export class AnalysisMcpTools {
         `Successfully executed ${name}`,
         result,
         executionTime
-      ) as AnalysisResponse;
+      ) as AnalysisToolResponse;
       
     } catch (error) {
       return createErrorResponse(
         `Failed to execute ${name}`,
         error instanceof Error ? error.message : 'Unknown error occurred',
         'ANALYSIS_ERROR'
-      ) as AnalysisResponse;
+      ) as AnalysisToolResponse;
     }
   }
 

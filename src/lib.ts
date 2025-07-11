@@ -16,7 +16,7 @@ export { ClaudeSpawner, ProcessReaper, ClaudeProcess } from './process/ClaudeSpa
 export { AgentOrchestrationTools, type OrchestrationResult, type SpawnAgentOptions } from './tools/AgentOrchestrationTools.js';
 export { AnalysisMcpTools } from './tools/AnalysisMcpTools.js';
 // CacheMcpTools removed - over-engineered caching system
-export { knowledgeGraphTools } from './tools/knowledgeGraphTools.js';
+export { KnowledgeGraphMcpTools } from './tools/knowledgeGraphTools.js';
 
 // Server
 export { McpToolsServer, type McpServerOptions } from './server/McpServer.js';

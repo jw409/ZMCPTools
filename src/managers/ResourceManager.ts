@@ -1,5 +1,6 @@
 import type {
   Resource,
+  ResourceTemplate,
   TextResourceContents,
 } from "@modelcontextprotocol/sdk/types.js";
 import { DatabaseManager } from "../database/index.js";
@@ -61,10 +62,10 @@ export class ResourceManager {
   /**
    * Get all available resources
    */
-  async listResources(): Promise<Resource[]> {
-    const resources: Resource[] = [
+  listResources(): ResourceTemplate[] {
+    const resources: ResourceTemplate[] = [
       {
-        uri: "agents://list",
+        uriTemplate: "agents://list",
         name: "Agent List",
         description:
           "List of all active agents with their status and metadata (use ?limit=50&offset=0&status=active&type=backend)",
@@ -79,7 +80,7 @@ export class ResourceManager {
         }
       },
       {
-        uri: "communication://rooms",
+        uriTemplate: "communication://rooms",
         name: "Communication Rooms",
         description:
           "List of all active communication rooms (use ?limit=50&offset=0&search=text)",
@@ -93,7 +94,7 @@ export class ResourceManager {
         }
       },
       {
-        uri: "communication://messages",
+        uriTemplate: "communication://messages",
         name: "Room Messages",
         description:
           "Recent messages from communication rooms (use ?room=name&limit=50)",
@@ -106,7 +107,7 @@ export class ResourceManager {
         }
       },
       {
-        uri: "scraping://jobs",
+        uriTemplate: "scraping://jobs",
         name: "Scraper Jobs",
         description:
           "List of web scraping jobs and their status (use ?limit=50&offset=0&status=active&search=text)",
@@ -121,7 +122,7 @@ export class ResourceManager {
         }
       },
       {
-        uri: "docs://sources",
+        uriTemplate: "docs://sources",
         name: "Documentation Sources",
         description:
           "List of scraped documentation sources (use ?limit=50&offset=0&sourceType=api&search=text)",
@@ -136,7 +137,7 @@ export class ResourceManager {
         }
       },
       {
-        uri: "docs://websites",
+        uriTemplate: "docs://websites",
         name: "Documentation Websites",
         description:
           "List of all scraped websites (use ?limit=50&offset=0&search=text)",
@@ -150,7 +151,7 @@ export class ResourceManager {
         }
       },
       {
-        uri: "docs://*/pages",
+        uriTemplate: "docs://*/pages",
         name: "Website Pages",
         description:
           "List of pages for a specific website (use docs://{websiteId}/pages?limit=50&offset=0&search=text)",
@@ -165,7 +166,7 @@ export class ResourceManager {
         }
       },
       {
-        uri: "agents://insights",
+        uriTemplate: "agents://insights",
         name: "Agent Insights",
         description:
           "Aggregated insights and learnings from agents (use ?limit=100&offset=0&memoryType=insight&agentId=id&search=text)",
@@ -181,7 +182,7 @@ export class ResourceManager {
         }
       },
       {
-        uri: "vector://collections",
+        uriTemplate: "vector://collections",
         name: "Vector Collections",
         description:
           "List of ChromaDB vector collections and their statistics (use ?limit=50&offset=0&search=text)",
@@ -195,7 +196,7 @@ export class ResourceManager {
         }
       },
       {
-        uri: "vector://search",
+        uriTemplate: "vector://search",
         name: "Vector Search",
         description:
           "Semantic search across vector collections (use ?query=text&collection=name&limit=10)",
@@ -209,7 +210,7 @@ export class ResourceManager {
         }
       },
       {
-        uri: "vector://status",
+        uriTemplate: "vector://status",
         name: "Vector Database Status",
         description: "ChromaDB connection status and health information",
         mimeType: "application/json",
@@ -218,7 +219,7 @@ export class ResourceManager {
         }
       },
       {
-        uri: "docs://search",
+        uriTemplate: "docs://search",
         name: "Documentation Search",
         description: "Search documentation content (use ?query=text&source_id=id&limit=10)",
         mimeType: "application/json",
@@ -231,7 +232,7 @@ export class ResourceManager {
         }
       },
       {
-        uri: "logs://list",
+        uriTemplate: "logs://list",
         name: "Logs Directory",
         description: "List directories and files in ~/.mcptools/logs/",
         mimeType: "application/json",
@@ -240,7 +241,7 @@ export class ResourceManager {
         }
       },
       {
-        uri: "logs://*/files",
+        uriTemplate: "logs://*/files",
         name: "Log Files",
         description:
           "List files in a specific log directory (use logs://{dirname}/files)",
@@ -252,7 +253,7 @@ export class ResourceManager {
         }
       },
       {
-        uri: "logs://*/content",
+        uriTemplate: "logs://*/content",
         name: "Log File Content",
         description:
           "Read content of a specific log file (use logs://{dirname}/content?file=filename)",

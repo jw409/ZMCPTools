@@ -346,110 +346,22 @@ function createProjectConfig(): void {
   logSuccess('Project configuration created/updated');
 }
 
-async function findAvailablePort(startPort: number): Promise<number> {
-  // Common ports to avoid
-  const COMMON_PORTS = new Set([
-    21, 22, 23, 25, 53, 80, 110, 143, 443, 993, 995, // Standard protocols
-    3000, 3001, 8000, 8080, 8443, 8888, 9000, // Common dev ports
-    5432, 3306, 1433, 5984, 6379, 27017, // Database ports
-    25565, 19132, // Minecraft
-    5000, 5001, // Flask default
-    4200, // Angular CLI
-    3030, // Express common
-    8081, 8082, 8083, 8084, 8085 // Common alt HTTP ports
-  ]);
-
-  const isPortAvailable = (port: number): Promise<boolean> => {
-    return new Promise((resolve) => {
-      const server = net.createServer();
-      
-      server.once('error', () => {
-        resolve(false);
-      });
-      
-      server.once('listening', () => {
-        server.close(() => {
-          resolve(true);
-        });
-      });
-      
-      server.listen(port, '127.0.0.1');
-    });
-  };
-
-  // Try the preferred port first if it's not a common port
-  if (!COMMON_PORTS.has(startPort) && await isPortAvailable(startPort)) {
-    return startPort;
-  }
-  
-  if (COMMON_PORTS.has(startPort)) {
-    logWarning(`Port ${startPort} is a common port, finding alternative...`);
-  } else {
-    logWarning(`Port ${startPort} is busy, finding alternative...`);
-  }
-  
-  // Try a range of uncommon ports starting from 49152 (dynamic/private port range)
-  const searchStart = Math.max(49152, startPort);
-  for (let i = 0; i < 100; i++) {
-    const port = searchStart + i;
-    if (!COMMON_PORTS.has(port) && await isPortAvailable(port)) {
-      log(`Using port ${port} instead of ${startPort}`, 'cyan');
-      return port;
-    }
-  }
-  
-  // Fallback: get a random available port from the OS
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-    
-    server.once('error', (err) => {
-      reject(err);
-    });
-    
-    server.once('listening', () => {
-      const address = server.address();
-      if (address && typeof address === 'object') {
-        const randomPort = address.port;
-        server.close(() => {
-          log(`Using OS-assigned port ${randomPort}`, 'cyan');
-          resolve(randomPort);
-        });
-      } else {
-        server.close(() => {
-          reject(new Error('Failed to get random port'));
-        });
-      }
-    });
-    
-    server.listen(0, '127.0.0.1');
-  });
-}
+// Port finding function removed - not needed for stdio transport
+// Use addMcpServerHttp() function below if HTTP transport is needed later
 
 async function addMcpServer(packageManager?: { name: string; installCommand: string; linkCommand: string; unlinkCommand: string }): Promise<boolean> {
   logStep('🔌', 'Adding MCP server to Claude Code...');
   
   try {
-    // Find available port starting from 4269
-    const port = await findAvailablePort(4269);
-    
-    // Use HTTP transport with dynamic port
-    const mcpConfig = JSON.stringify({
-      type: "http",
-      command: "claude-mcp-server",
-      args: ["--port", port.toString(), "--host", "127.0.0.1"],
-      url: `http://127.0.0.1:${port}`,
-      env: {
-        MCPTOOLS_DATA_DIR: path.join(os.homedir(), '.mcptools', 'data')
-      },
-      allowInsecure: false
-    });
+    // Use stdio transport (no OAuth required for local development)
+    const mcpCommand = `claude mcp add claude-mcp-tools -s local -e MCPTOOLS_DATA_DIR="${path.join(os.homedir(), '.mcptools', 'data')}" -- claude-mcp-server`;
     
     try {
       // Try to add the server
-      execSync(`claude mcp add-json claude-mcp-tools -s local '${mcpConfig}'`, { 
+      execSync(mcpCommand, { 
         stdio: 'pipe' 
       });
-      logSuccess(`MCP server added to Claude Code on port ${port} with HTTP transport`);
+      logSuccess('MCP server added to Claude Code with stdio transport (default)');
     } catch (addError) {
       // If it fails (likely because server already exists), remove and re-add
       logStep('🔄', 'MCP server already exists, updating configuration...');
@@ -461,24 +373,37 @@ async function addMcpServer(packageManager?: { name: string; installCommand: str
       }
       
       // Re-add with new configuration
-      execSync(`claude mcp add-json claude-mcp-tools -s local '${mcpConfig}'`, { 
+      execSync(mcpCommand, { 
         stdio: 'pipe' 
       });
-      logSuccess(`MCP server configuration updated on port ${port} with HTTP transport`);
+      logSuccess('MCP server configuration updated with stdio transport (default)');
     }
     
     return true;
     
   } catch (error) {
     logError(`Failed to add MCP server: ${error}`);
-    logWarning(`You can manually add it with: claude mcp add-json claude-mcp-tools -s local '${JSON.stringify({
-      type: "http",
-      command: "claude-mcp-server", 
-      args: ["--transport", "http", "--port", "4269"],
-      url: "http://127.0.0.1:4269",
-      env: {},
-      allowInsecure: false
-    })}'`);
+    logWarning(`You can manually add it with: claude mcp add claude-mcp-tools -s local -e MCPTOOLS_DATA_DIR="${path.join(os.homedir(), '.mcptools', 'data')}" -- claude-mcp-server`);
+    return false;
+  }
+}
+
+// Separate function for HTTP transport (no OAuth required for local servers)
+async function addMcpServerHttp(port: number = 4269): Promise<boolean> {
+  logStep('🌐', 'Adding MCP server with HTTP transport...');
+  
+  // Correct HTTP transport syntax - no stdio flags needed
+  const mcpCommand = `claude mcp add --transport http claude-mcp-tools-http http://127.0.0.1:${port}`;
+  
+  try {
+    execSync(mcpCommand, { stdio: 'pipe' });
+    logSuccess(`MCP server added with HTTP transport on port ${port}`);
+    logSuccess('No OAuth required for local HTTP servers');
+    return true;
+    
+  } catch (error) {
+    logError(`Failed to add HTTP MCP server: ${error}`);
+    logWarning(`You can manually add it with: ${mcpCommand}`);
     return false;
   }
 }
@@ -685,7 +610,7 @@ async function initializeDatabase(): Promise<void> {
 export async function install(options: { globalOnly?: boolean; projectOnly?: boolean; skipMcp?: boolean } = {}): Promise<void> {
   console.log(`${colors.bold}${colors.blue}`);
   console.log('╭─────────────────────────────────────────╮');
-  console.log('│ 🚀 ClaudeMcpTools TypeScript Installer │');
+  console.log('│ 🚀 ClaudeMcpTools TypeScript Installer  │');
   console.log('│ Enhanced MCP Tools for Claude Code      │');
   console.log('╰─────────────────────────────────────────╯');
   console.log(colors.reset);

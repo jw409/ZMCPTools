@@ -1,9 +1,10 @@
 /**
- * Simplified MCP Tools for Knowledge Graph
- * Uses only the core KnowledgeGraphService and VectorSearchService
+ * MCP Tools for Knowledge Graph
+ * Uses the core KnowledgeGraphService and VectorSearchService
  */
 
-import { z } from 'zod';
+import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import { z } from 'zod/v4';
 import { DatabaseManager } from '../database/index.js';
 import { KnowledgeGraphService } from '../services/KnowledgeGraphService.js';
 import { VectorSearchService } from '../services/VectorSearchService.js';
@@ -19,19 +20,106 @@ import {
   CreateRelationshipSchema,
   SearchKnowledgeGraphSchema,
   FindRelatedEntitiesSchema,
+  StoreKnowledgeMemoryResponseSchema,
+  CreateKnowledgeRelationshipResponseSchema,
+  SearchKnowledgeGraphResponseSchema,
+  FindRelatedEntitiesResponseSchema,
   type StoreKnowledgeMemoryInput,
   type CreateRelationshipInput,
   type SearchKnowledgeGraphInput,
-  type FindRelatedEntitiesInput
-} from '../schemas/toolRequests.js';
-import {
+  type FindRelatedEntitiesInput,
   type StoreKnowledgeMemoryResponse,
   type CreateKnowledgeRelationshipResponse,
   type SearchKnowledgeGraphResponse,
   type FindRelatedEntitiesResponse
-} from '../schemas/toolResponses.js';
+} from '../schemas/tools/knowledgeGraph.js';
 
 const logger = new Logger('knowledge-graph-tools');
+
+export class KnowledgeGraphMcpTools {
+  constructor(
+    private db: DatabaseManager
+  ) {}
+
+  /**
+   * Get all knowledge graph MCP tools
+   */
+  getTools() {
+    return [
+      {
+        name: 'store_knowledge_memory',
+        description: 'Store a knowledge graph memory with entity creation',
+        inputSchema: z.toJSONSchema(StoreKnowledgeMemorySchema) as any,
+        outputSchema: z.toJSONSchema(StoreKnowledgeMemoryResponseSchema) as any
+      },
+      {
+        name: 'create_knowledge_relationship',
+        description: 'Create a relationship between two entities in the knowledge graph',
+        inputSchema: z.toJSONSchema(CreateRelationshipSchema) as any,
+        outputSchema: z.toJSONSchema(CreateKnowledgeRelationshipResponseSchema) as any
+      },
+      {
+        name: 'search_knowledge_graph',
+        description: 'Search the knowledge graph using semantic or basic search',
+        inputSchema: z.toJSONSchema(SearchKnowledgeGraphSchema) as any,
+        outputSchema: z.toJSONSchema(SearchKnowledgeGraphResponseSchema) as any
+      },
+      {
+        name: 'find_related_entities',
+        description: 'Find related entities through relationship traversal',
+        inputSchema: z.toJSONSchema(FindRelatedEntitiesSchema) as any,
+        outputSchema: z.toJSONSchema(FindRelatedEntitiesResponseSchema) as any
+      }
+    ];
+  }
+
+  /**
+   * Handle MCP tool calls for knowledge graph functionality
+   */
+  async handleToolCall(name: string, args: any): Promise<any> {
+    try {
+      switch (name) {
+        case 'store_knowledge_memory':
+          return await this.storeKnowledgeMemory(args);
+        
+        case 'create_knowledge_relationship':
+          return await this.createKnowledgeRelationship(args);
+        
+        case 'search_knowledge_graph':
+          return await this.searchKnowledgeGraph(args);
+        
+        case 'find_related_entities':
+          return await this.findRelatedEntities(args);
+        
+        default:
+          throw new Error(`Unknown knowledge graph tool: ${name}`);
+      }
+    } catch (error) {
+      logger.error(`Failed to execute ${name}`, error);
+      throw error;
+    }
+  }
+
+  private async storeKnowledgeMemory(args: any): Promise<StoreKnowledgeMemoryResponse> {
+    const params = StoreKnowledgeMemorySchema.parse(args);
+    return await storeKnowledgeMemory(this.db, params);
+  }
+
+  private async createKnowledgeRelationship(args: any): Promise<CreateKnowledgeRelationshipResponse> {
+    const params = CreateRelationshipSchema.parse(args);
+    return await createKnowledgeRelationship(this.db, params);
+  }
+
+  private async searchKnowledgeGraph(args: any): Promise<SearchKnowledgeGraphResponse> {
+    const params = SearchKnowledgeGraphSchema.parse(args);
+    return await searchKnowledgeGraph(this.db, params);
+  }
+
+  private async findRelatedEntities(args: any): Promise<FindRelatedEntitiesResponse> {
+    const params = FindRelatedEntitiesSchema.parse(args);
+    return await findRelatedEntities(this.db, params);
+  }
+}
 
 // Re-export schemas for MCP server registration
 export { StoreKnowledgeMemorySchema, CreateRelationshipSchema, SearchKnowledgeGraphSchema, FindRelatedEntitiesSchema };
@@ -265,31 +353,3 @@ export async function findRelatedEntities(
     throw new Error(`Failed to find related entities: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
-
-// Export tool definitions for MCP
-export const knowledgeGraphTools = {
-  store_knowledge_memory: {
-    name: 'store_knowledge_memory',
-    description: 'Store a knowledge graph memory with entity creation',
-    inputSchema: StoreKnowledgeMemorySchema,
-    handler: storeKnowledgeMemory
-  },
-  create_knowledge_relationship: {
-    name: 'create_knowledge_relationship',
-    description: 'Create a relationship between two entities in the knowledge graph',
-    inputSchema: CreateRelationshipSchema,
-    handler: createKnowledgeRelationship
-  },
-  search_knowledge_graph: {
-    name: 'search_knowledge_graph',
-    description: 'Search the knowledge graph',
-    inputSchema: SearchKnowledgeGraphSchema,
-    handler: searchKnowledgeGraph
-  },
-  find_related_entities: {
-    name: 'find_related_entities',
-    description: 'Find related entities through relationship traversal',
-    inputSchema: FindRelatedEntitiesSchema,
-    handler: findRelatedEntities
-  }
-};

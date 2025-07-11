@@ -1,59 +1,43 @@
 /**
  * ReportProgressTool
- * 
+ *
  * A simple tool for agents to self-report progress updates that integrates with
  * the EventBus system for real-time monitoring. This tool provides a unified
  * way for agents to communicate their status regardless of whether they're
  * working independently or in a coordinated multi-agent environment.
  */
 
-import { z } from 'zod';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import { eventBus } from '../services/EventBus.js';
-import { AgentService } from '../services/AgentService.js';
-import { TaskService } from '../services/TaskService.js';
-import { CommunicationService } from '../services/CommunicationService.js';
-import { DatabaseManager } from '../database/index.js';
-import { Logger } from '../utils/logger.js';
-import { PathUtils } from '../utils/pathUtils.js';
-import { ProgressTracker } from '../services/ProgressTracker.js';
-import { ProgressReportResponseSchema, createSuccessResponse, createErrorResponse, type ProgressReportResponse } from '../schemas/toolResponses.js';
-import type { TaskStatus, AgentStatus } from '../schemas/index.js';
+import { z } from "zod/v4";
+import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { eventBus } from "../services/EventBus.js";
+import { AgentService } from "../services/AgentService.js";
+import { TaskService } from "../services/TaskService.js";
+import { CommunicationService } from "../services/CommunicationService.js";
+import { DatabaseManager } from "../database/index.js";
+import { Logger } from "../utils/logger.js";
+import { PathUtils } from "../utils/pathUtils.js";
+import { ProgressTracker } from "../services/ProgressTracker.js";
+import {
+  ProgressReportResponseSchema,
+  createSuccessResponse,
+  createErrorResponse,
+  type ProgressReportResponse,
+} from "../schemas/toolResponses.js";
+import type { TaskStatus, AgentStatus } from "../schemas/index.js";
+import {
+  ReportProgressSchema,
+  type ReportProgressInput,
+} from "../schemas/toolRequests.js";
+import {
+  ProgressReportInternalSchema,
+  type ProgressReportInternal,
+} from "../schemas/tools/reportProgress.js";
 
-const logger = new Logger('ReportProgressTool');
+const logger = new Logger("ReportProgressTool");
 
-export const ProgressReportSchema = z.object({
-  agentId: z.string(),
-  repositoryPath: z.string(),
-  progressType: z.enum(['status', 'task', 'milestone', 'error', 'completion']),
-  message: z.string(),
-  metadata: z.object({
-    taskId: z.string().optional(),
-    previousStatus: z.union([z.string(), z.enum(['active', 'inactive', 'error', 'completed'])]).optional(),
-    newStatus: z.union([z.string(), z.enum(['active', 'inactive', 'error', 'completed'])]).optional(),
-    progressPercentage: z.number().optional(),
-    results: z.record(z.any()).optional(),
-    error: z.string().optional(),
-    timestamp: z.string().optional(),
-    roomId: z.string().optional(),
-  }).optional()
-});
-
-export const ReportProgressOptionsSchema = z.object({
-  agentId: z.string(),
-  repositoryPath: z.string(),
-  progressType: z.enum(['status', 'task', 'milestone', 'error', 'completion']),
-  message: z.string(),
-  taskId: z.string().optional(),
-  progressPercentage: z.number().optional(),
-  results: z.record(z.any()).optional(),
-  error: z.string().optional(),
-  roomId: z.string().optional(),
-  broadcastToRoom: z.boolean().optional()
-});
-
-export type ProgressReport = z.infer<typeof ProgressReportSchema>;
-export type ReportProgressOptions = z.infer<typeof ReportProgressOptionsSchema>;
+// Local type alias for backward compatibility
+export type ReportProgressOptions = ReportProgressInput;
+export type ProgressReport = ProgressReportInternal;
 
 export class ReportProgressTool {
   private agentService: AgentService;
@@ -71,100 +55,53 @@ export class ReportProgressTool {
   /**
    * Get all progress reporting MCP tools
    */
-  getTools(): Tool[] {
+  getTools() {
     return [
-      this.getReportProgressTool()
+      {
+        name: "report_progress",
+        description:
+          "Report progress updates for agent tasks and status changes",
+        inputSchema: z.toJSONSchema(ReportProgressSchema) as any,
+        outputSchema: z.toJSONSchema(ProgressReportResponseSchema) as any,
+      },
     ];
   }
 
   /**
    * Handle tool execution
    */
-  async handleToolCall(name: string, args: any): Promise<ProgressReportResponse> {
+  async handleToolCall(
+    name: string,
+    args: any
+  ): Promise<ProgressReportResponse> {
     try {
       switch (name) {
-        case 'report_progress':
+        case "report_progress":
           return await this.reportProgress(args);
         default:
           return createErrorResponse(
             `Unknown progress tool: ${name}`,
             `Tool ${name} is not implemented`,
-            'UNKNOWN_TOOL'
+            "UNKNOWN_TOOL"
           );
       }
     } catch (error) {
       return createErrorResponse(
-        `Progress tool error: ${error instanceof Error ? error.message : String(error)}`,
+        `Progress tool error: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
         error instanceof Error ? error.message : String(error),
-        'EXECUTION_ERROR'
+        "EXECUTION_ERROR"
       );
     }
   }
 
   /**
-   * Report progress tool definition
-   */
-  private getReportProgressTool(): Tool {
-    return {
-      name: 'report_progress',
-      description: 'Report progress updates for agent tasks and status changes',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          agentId: {
-            type: 'string',
-            description: 'ID of the agent reporting progress'
-          },
-          repositoryPath: {
-            type: 'string',
-            description: 'Path to the repository'
-          },
-          progressType: {
-            type: 'string',
-            enum: ['status', 'task', 'milestone', 'error', 'completion'],
-            description: 'Type of progress being reported'
-          },
-          message: {
-            type: 'string',
-            description: 'Progress message'
-          },
-          taskId: {
-            type: 'string',
-            description: 'ID of the task (optional)'
-          },
-          progressPercentage: {
-            type: 'number',
-            minimum: 0,
-            maximum: 100,
-            description: 'Progress percentage (optional)'
-          },
-          results: {
-            type: 'object',
-            description: 'Task results or metadata (optional)'
-          },
-          error: {
-            type: 'string',
-            description: 'Error message if reporting an error (optional)'
-          },
-          roomId: {
-            type: 'string',
-            description: 'Room ID for broadcasting (optional)'
-          },
-          broadcastToRoom: {
-            type: 'boolean',
-            description: 'Whether to broadcast to room (default: true)'
-          }
-        },
-        required: ['agentId', 'repositoryPath', 'progressType', 'message']
-      },
-      outputSchema: ProgressReportResponseSchema
-    };
-  }
-
-  /**
    * Report progress and emit appropriate events
    */
-  async reportProgress(options: ReportProgressOptions): Promise<ProgressReportResponse> {
+  async reportProgress(
+    options: ReportProgressOptions
+  ): Promise<ProgressReportResponse> {
     const startTime = Date.now();
     try {
       const {
@@ -177,10 +114,13 @@ export class ReportProgressTool {
         results,
         error,
         roomId,
-        broadcastToRoom = true
+        broadcastToRoom = true,
       } = options;
 
-      const resolvedPath = PathUtils.resolveRepositoryPath(repositoryPath, 'ReportProgressTool');
+      const resolvedPath = PathUtils.resolveRepositoryPath(
+        repositoryPath,
+        "ReportProgressTool"
+      );
       const timestamp = new Date();
 
       // Validate agent exists
@@ -189,7 +129,7 @@ export class ReportProgressTool {
         throw new Error(`Agent ${agentId} not found`);
       }
 
-      // Create progress report
+      // Create progress report from flattened input
       const progressReport: ProgressReport = {
         agentId,
         repositoryPath: resolvedPath,
@@ -201,25 +141,25 @@ export class ReportProgressTool {
           results,
           error,
           timestamp: timestamp.toISOString(),
-          roomId
-        }
+          roomId,
+        },
       };
 
       // Handle different progress types
       switch (progressType) {
-        case 'status':
+        case "status":
           await this.handleStatusProgress(progressReport);
           break;
-        case 'task':
+        case "task":
           await this.handleTaskProgress(progressReport);
           break;
-        case 'milestone':
+        case "milestone":
           await this.handleMilestoneProgress(progressReport);
           break;
-        case 'error':
+        case "error":
           await this.handleErrorProgress(progressReport);
           break;
-        case 'completion':
+        case "completion":
           await this.handleCompletionProgress(progressReport);
           break;
         default:
@@ -231,27 +171,30 @@ export class ReportProgressTool {
         await this.broadcastProgressToRoom(progressReport, agent);
       }
 
-      logger.info(`Progress reported for agent ${agentId}: ${progressType} - ${message}`);
+      logger.info(
+        `Progress reported for agent ${agentId}: ${progressType} - ${message}`
+      );
 
       return createSuccessResponse(
-        'Progress reported successfully',
+        "Progress reported successfully",
         {
           progress_id: `${agentId}-${timestamp.getTime()}`,
           agent_id: agentId,
           progress_type: progressType,
           progress_percentage: progressPercentage,
           room_broadcast: broadcastToRoom,
-          task_id: taskId
+          task_id: taskId,
         },
         Date.now() - startTime
       );
-
     } catch (error) {
-      logger.error('Failed to report progress:', error);
+      logger.error("Failed to report progress:", error);
       return createErrorResponse(
-        `Failed to report progress: ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to report progress: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
         error instanceof Error ? error.message : String(error),
-        'PROGRESS_REPORT_ERROR'
+        "PROGRESS_REPORT_ERROR"
       );
     }
   }
@@ -261,29 +204,31 @@ export class ReportProgressTool {
    */
   private async handleStatusProgress(report: ProgressReport): Promise<void> {
     const { agentId, repositoryPath } = report;
-    
+
     // Get current agent status
     const agent = await this.agentService.getAgent(agentId);
     if (!agent) return;
 
     // Extract status information from metadata or infer from message
-    const newStatus = report.metadata?.newStatus as AgentStatus || agent.status;
-    const previousStatus = report.metadata?.previousStatus as AgentStatus || agent.status;
+    const newStatus =
+      (report.metadata?.newStatus as AgentStatus) || agent.status;
+    const previousStatus =
+      (report.metadata?.previousStatus as AgentStatus) || agent.status;
 
     // Update agent heartbeat
     await this.agentService.updateHeartbeat(agentId);
 
     // Emit agent status change event
-    await eventBus.emit('agent_status_change', {
+    await eventBus.emit("agent_status_change", {
       agentId,
       previousStatus,
       newStatus,
       timestamp: new Date(),
       metadata: {
         progressMessage: report.message,
-        ...report.metadata
+        ...report.metadata,
       },
-      repositoryPath
+      repositoryPath,
     });
   }
 
@@ -292,10 +237,11 @@ export class ReportProgressTool {
    */
   private async handleTaskProgress(report: ProgressReport): Promise<void> {
     const { agentId, repositoryPath } = report;
-    const { taskId, progressPercentage, newStatus, previousStatus } = report.metadata || {};
+    const { taskId, progressPercentage, newStatus, previousStatus } =
+      report.metadata || {};
 
     if (!taskId) {
-      logger.warn('Task progress report missing taskId');
+      logger.warn("Task progress report missing taskId");
       return;
     }
 
@@ -305,28 +251,34 @@ export class ReportProgressTool {
       try {
         const progressContext = {
           contextId: taskId,
-          contextType: 'task' as const,
+          contextType: "task" as const,
           repositoryPath,
-          metadata: { taskId, agentId }
+          metadata: { taskId, agentId },
         };
-        
+
         const progressReport = await this.progressTracker.reportAgentProgress(
           progressContext,
           agentId,
           progressPercentage,
           report.message
         );
-        
+
         validatedProgress = progressReport.reportedProgress;
-        
-        logger.debug(`Task progress validated: ${progressPercentage}% -> ${validatedProgress}%`, {
-          taskId,
-          agentId,
-          actualProgress: progressPercentage,
-          reportedProgress: validatedProgress
-        });
+
+        logger.debug(
+          `Task progress validated: ${progressPercentage}% -> ${validatedProgress}%`,
+          {
+            taskId,
+            agentId,
+            actualProgress: progressPercentage,
+            reportedProgress: validatedProgress,
+          }
+        );
       } catch (error) {
-        logger.warn('Failed to validate task progress with ProgressTracker:', error);
+        logger.warn(
+          "Failed to validate task progress with ProgressTracker:",
+          error
+        );
         // Fall back to capped progress
         validatedProgress = Math.min(Math.max(progressPercentage, 0), 100);
       }
@@ -336,7 +288,7 @@ export class ReportProgressTool {
     if (validatedProgress !== undefined) {
       await this.taskService.updateTask(taskId, {
         progressPercentage: validatedProgress,
-        notes: report.message
+        notes: report.message,
       });
     }
 
@@ -344,12 +296,12 @@ export class ReportProgressTool {
     if (newStatus) {
       await this.taskService.updateTask(taskId, {
         status: newStatus as TaskStatus,
-        notes: report.message
+        notes: report.message,
       });
     }
 
     // Emit task update event
-    await eventBus.emit('task_update', {
+    await eventBus.emit("task_update", {
       taskId,
       previousStatus: previousStatus as TaskStatus,
       newStatus: newStatus as TaskStatus,
@@ -361,8 +313,8 @@ export class ReportProgressTool {
         progressMessage: report.message,
         originalProgress: progressPercentage,
         validatedProgress,
-        ...report.metadata
-      }
+        ...report.metadata,
+      },
     });
   }
 
@@ -377,16 +329,16 @@ export class ReportProgressTool {
     try {
       // This would integrate with knowledge graph service if needed
       logger.info(`Milestone achieved by agent ${agentId}: ${report.message}`);
-      
+
       // Emit as system warning for visibility
-      await eventBus.emit('system_warning', {
+      await eventBus.emit("system_warning", {
         message: `Milestone: ${report.message}`,
         context: `Agent ${agentId}`,
         timestamp: new Date(),
-        repositoryPath
+        repositoryPath,
       });
     } catch (error) {
-      logger.warn('Failed to store milestone progress:', error);
+      logger.warn("Failed to store milestone progress:", error);
     }
   }
 
@@ -403,73 +355,78 @@ export class ReportProgressTool {
     // Update task if provided
     if (taskId) {
       await this.taskService.updateTask(taskId, {
-        status: 'failed',
-        notes: `Error: ${report.message}`
+        status: "failed",
+        notes: `Error: ${report.message}`,
       });
 
       // Emit task update event
-      await eventBus.emit('task_update', {
+      await eventBus.emit("task_update", {
         taskId,
-        newStatus: 'failed',
+        newStatus: "failed",
         assignedAgentId: agentId,
         timestamp: new Date(),
         repositoryPath,
         metadata: {
           error: report.message,
-          ...report.metadata
-        }
+          ...report.metadata,
+        },
       });
     }
 
     // Emit system error event
-    await eventBus.emit('system_error', {
+    await eventBus.emit("system_error", {
       error: errorObj,
-      context: `Agent ${agentId}${taskId ? ` (Task: ${taskId})` : ''}`,
+      context: `Agent ${agentId}${taskId ? ` (Task: ${taskId})` : ""}`,
       timestamp: new Date(),
-      repositoryPath
+      repositoryPath,
     });
   }
 
   /**
    * Handle completion progress updates
    */
-  private async handleCompletionProgress(report: ProgressReport): Promise<void> {
+  private async handleCompletionProgress(
+    report: ProgressReport
+  ): Promise<void> {
     const { agentId, repositoryPath } = report;
     const { taskId, results } = report.metadata || {};
 
     // Update task if provided
     if (taskId) {
       await this.taskService.updateTask(taskId, {
-        status: 'completed',
+        status: "completed",
         notes: report.message,
-        results
+        results,
       });
 
       // Emit task completion event
-      await eventBus.emit('task_completed', {
+      await eventBus.emit("task_completed", {
         taskId,
         completedBy: agentId,
         results,
         timestamp: new Date(),
-        repositoryPath
+        repositoryPath,
       });
     }
 
     // Update agent status (could be completed or back to active)
     await this.agentService.updateAgentStatus(agentId, {
-      status: 'active', // Agent is available for new tasks
+      status: "active", // Agent is available for new tasks
       metadata: {
         lastCompletedTask: taskId,
         completionMessage: report.message,
-        completionResults: results
-      }
+        completionResults: results,
+      },
     });
   }
 
   /**
    * Broadcast progress to agent's room if assigned
    */
-  private async broadcastProgressToRoom(report: ProgressReport, agent: any): Promise<void> {
+  private async broadcastProgressToRoom(
+    report: ProgressReport,
+    agent: any
+  ): Promise<void> {
     try {
       // Check if agent has a room assignment
       const roomId = report.metadata?.roomId || agent.agentMetadata?.roomId;
@@ -501,13 +458,14 @@ export class ReportProgressTool {
         roomName: room.name,
         agentName: agent.agentName,
         message: progressMessage,
-        messageType: 'status_update'
+        messageType: "status_update",
       });
 
-      logger.debug(`Progress broadcasted to room ${room.name} for agent ${agent.id}`);
-
+      logger.debug(
+        `Progress broadcasted to room ${room.name} for agent ${agent.id}`
+      );
     } catch (error) {
-      logger.warn('Failed to broadcast progress to room:', error);
+      logger.warn("Failed to broadcast progress to room:", error);
     }
   }
 
@@ -543,12 +501,18 @@ export class ReportProgressTool {
    */
   private getProgressIcon(progressType: string): string {
     switch (progressType) {
-      case 'status': return '🔄';
-      case 'task': return '📋';
-      case 'milestone': return '🎯';
-      case 'error': return '❌';
-      case 'completion': return '✅';
-      default: return '📢';
+      case "status":
+        return "🔄";
+      case "task":
+        return "📋";
+      case "milestone":
+        return "🎯";
+      case "error":
+        return "❌";
+      case "completion":
+        return "✅";
+      default:
+        return "📢";
     }
   }
 }

@@ -841,7 +841,7 @@ Focus on creating comprehensive, adaptive plans that account for complexity and 
   /**
    * Get all available prompts
    */
-  async listPrompts(): Promise<Prompt[]> {
+  listPrompts(): Prompt[] {
     return Array.from(this.prompts.values()).map(template => ({
       name: template.name,
       description: template.description,
