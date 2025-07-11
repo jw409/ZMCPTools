@@ -4,7 +4,7 @@
  * These schemas are used for validation and type inference across the codebase
  */
 
-import { z } from 'zod/v4';
+import { z } from 'zod';
 import type { TaskType, AgentStatus, MessageType, EntityType, RelationshipType } from './index.js';
 
 // ===============================================

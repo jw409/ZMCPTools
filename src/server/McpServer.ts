@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import express from "express";
 import http from "http";
 import net from "net";
-import { z } from "zod/v4";
+import { z } from "zod";
 import {
   ErrorCode,
   McpError,
@@ -268,8 +268,8 @@ export class McpToolsServer {
         {
           title: tool.name,
           description: tool.description,
-          inputSchema: tool.inputSchema,
-          ...(tool.outputSchema && { outputSchema: tool.outputSchema }),
+          inputSchema: tool.inputSchema.shape,
+          ...(tool.outputSchema && { outputSchema: tool.outputSchema.shape }),
         },
         async (args: any) => {
           try {

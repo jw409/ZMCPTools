@@ -11,7 +11,8 @@
  */
 
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import { z } from 'zod/v4';
+import { z } from 'zod';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 import { chromium, firefox, webkit } from 'patchright';
 import type { Browser, Page, BrowserContext } from 'patchright';
 import UserAgent from 'user-agents';
@@ -162,33 +163,33 @@ export class BrowserTools {
       {
         name: 'create_browser_session',
         description: 'Create a new browser session with intelligent auto-close and session management',
-        inputSchema: BrowserCreateSessionSchema,
-        outputSchema: BrowserOperationResponseSchema
+        inputSchema: zodToJsonSchema(BrowserCreateSessionSchema),
+        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema)
       },
       {
         name: 'navigate_and_scrape',
         description: 'Navigate to a URL and optionally scrape content in one operation. Auto-creates session if needed.',
-        inputSchema: BrowserNavigateAndScrapeSchema,
-        outputSchema: BrowserOperationResponseSchema
+        inputSchema: zodToJsonSchema(BrowserNavigateAndScrapeSchema),
+        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema)
       },
       {
         name: 'interact_with_page',
         description: 'Perform multiple interactions with a page: click, type, hover, select, screenshot, wait, scroll',
-        inputSchema: BrowserInteractWithPageSchema,
-        outputSchema: BrowserOperationResponseSchema
+        inputSchema: zodToJsonSchema(BrowserInteractWithPageSchema),
+        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema)
       },
       {
         name: 'manage_browser_sessions',
         description: 'Manage browser sessions: list, close, cleanup idle sessions, get status',
-        inputSchema: BrowserManageSessionsSchema,
-        outputSchema: BrowserOperationResponseSchema
+        inputSchema: zodToJsonSchema(BrowserManageSessionsSchema),
+        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema)
       },
       // Legacy tools for backward compatibility
       {
         name: 'navigate_to_url',
         description: '[LEGACY] Navigate to a URL in an existing browser session. Use navigate_and_scrape instead.',
-        inputSchema: BrowserLegacyNavigateSchema,
-        outputSchema: BrowserOperationResponseSchema
+        inputSchema: zodToJsonSchema(BrowserLegacyNavigateSchema),
+        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema)
       }
     ];
   }

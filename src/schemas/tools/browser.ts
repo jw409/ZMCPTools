@@ -1,7 +1,7 @@
-import { z } from "zod/v4";
+import { z } from "zod";
 
 export const BrowserCreateSessionSchema = z.object({
-  browser_type: z.enum(["chromium", "firefox", "webkit"]).default("chromium").describe("Browser engine to use. Chromium offers best compatibility and stealth features, Firefox for privacy, Webkit for Safari-like behavior"),
+  browser_type: z.enum(["chromium", "firefox", "webkit"]).optional().describe("Browser engine to use. Chromium offers best compatibility and stealth features, Firefox for privacy, Webkit for Safari-like behavior"),
   headless: z.boolean().default(true).describe("Whether to run browser in headless mode (no UI). Set to false for debugging or when visual interaction is needed"),
   viewport_width: z.number().default(1920).describe("Browser viewport width in pixels. Affects how pages are rendered and responsive design"),
   viewport_height: z.number().default(1080).describe("Browser viewport height in pixels. Affects how pages are rendered and responsive design"),
@@ -29,7 +29,7 @@ export const BrowserNavigateAndScrapeSchema = z.object({
   selector: z.string().optional().describe("CSS selector to limit extraction to specific elements. If provided, only content within matching elements will be extracted"),
   wait_for_selector: z.string().optional().describe("CSS selector to wait for before extracting content. Useful for dynamic content that loads after navigation"),
   auto_create_session: z.boolean().default(true).describe("Whether to automatically create a new session if session_id is not provided. Convenient for one-off operations"),
-  browser_type: z.enum(["chromium", "firefox", "webkit"]).default("chromium").describe("Browser engine to use when creating a new session (only used if auto_create_session is true)"),
+  browser_type: z.enum(["chromium", "firefox", "webkit"]).optional().describe("Browser engine to use when creating a new session (only used if auto_create_session is true)"),
 }).describe("Navigate to a URL and optionally extract content in one operation. Most efficient way to scrape web pages. Can auto-create sessions for convenience.");
 
 export const BrowserInteractWithPageSchema = z.object({

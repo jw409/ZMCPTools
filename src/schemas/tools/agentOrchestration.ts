@@ -1,4 +1,4 @@
-import { z } from 'zod/v4';
+import { z } from 'zod';
 import { type TaskType, type AgentStatus, type EntityType, taskTypeSchema, entityTypeSchema, agentStatusSchema } from '../index.js';
 
 // ===============================================

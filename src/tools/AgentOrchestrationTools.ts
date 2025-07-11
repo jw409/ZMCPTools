@@ -1,5 +1,6 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import { z } from 'zod/v4';
+import { z } from 'zod';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 import { DatabaseManager } from '../database/index.js';
 import { AgentService, TaskService, CommunicationService, KnowledgeGraphService } from '../services/index.js';
 import { WebScrapingService } from '../services/WebScrapingService.js';
@@ -121,92 +122,92 @@ export class AgentOrchestrationTools {
       {
         name: 'orchestrate_objective',
         description: 'Spawn architect agent to coordinate multi-agent objective completion',
-        inputSchema: OrchestrationObjectiveSchema,
-        outputSchema: OrchestrationObjectiveResponseSchema,
+        inputSchema: zodToJsonSchema(OrchestrationObjectiveSchema),
+        outputSchema: zodToJsonSchema(OrchestrationObjectiveResponseSchema),
       },
       {
         name: 'spawn_agent',
         description: 'Spawn fully autonomous Claude agent with complete tool access',
-        inputSchema: SpawnAgentSchema,
-        outputSchema: SpawnAgentResponseSchema
+        inputSchema: zodToJsonSchema(SpawnAgentSchema),
+        outputSchema: zodToJsonSchema(SpawnAgentResponseSchema)
       },
       {
         name: 'create_task',
         description: 'Create and assign task to agents with enhanced capabilities',
-        inputSchema: CreateTaskSchema,
-        outputSchema: CreateTaskResponseSchema
+        inputSchema: zodToJsonSchema(CreateTaskSchema),
+        outputSchema: zodToJsonSchema(CreateTaskResponseSchema)
       },
       {
         name: 'join_room',
         description: 'Join communication room for coordination',
-        inputSchema: JoinRoomSchema,
-        outputSchema: JoinRoomResponseSchema
+        inputSchema: zodToJsonSchema(JoinRoomSchema),
+        outputSchema: zodToJsonSchema(JoinRoomResponseSchema)
       },
       {
         name: 'send_message',
         description: 'Send message to coordination room',
-        inputSchema: SendMessageSchema,
-        outputSchema: SendMessageResponseSchema
+        inputSchema: zodToJsonSchema(SendMessageSchema),
+        outputSchema: zodToJsonSchema(SendMessageResponseSchema)
       },
       {
         name: 'wait_for_messages',
         description: 'Wait for messages in a room',
-        inputSchema: WaitForMessagesSchema,
-        outputSchema: WaitForMessagesResponseSchema
+        inputSchema: zodToJsonSchema(WaitForMessagesSchema),
+        outputSchema: zodToJsonSchema(WaitForMessagesResponseSchema)
       },
       {
         name: 'store_memory',
         description: 'Store insights and learnings in shared memory',
-        inputSchema: StoreMemorySchema,
-        outputSchema: StoreMemoryResponseSchema
+        inputSchema: zodToJsonSchema(StoreMemorySchema),
+        outputSchema: zodToJsonSchema(StoreMemoryResponseSchema)
       },
       {
         name: 'search_memory',
         description: 'Search shared memory for insights',
-        inputSchema: SearchMemorySchema,
-        outputSchema: SearchMemoryResponseSchema
+        inputSchema: zodToJsonSchema(SearchMemorySchema),
+        outputSchema: zodToJsonSchema(SearchMemoryResponseSchema)
       },
       {
         name: 'list_agents',
         description: 'Get list of active agents',
-        inputSchema: ListAgentsSchema,
-        outputSchema: ListAgentsResponseSchema
+        inputSchema: zodToJsonSchema(ListAgentsSchema),
+        outputSchema: zodToJsonSchema(ListAgentsResponseSchema)
       },
       {
         name: 'terminate_agent',
         description: 'Terminate one or more agents',
-        inputSchema: TerminateAgentSchema,
-        outputSchema: TerminateAgentResponseSchema
+        inputSchema: zodToJsonSchema(TerminateAgentSchema),
+        outputSchema: zodToJsonSchema(TerminateAgentResponseSchema)
       },
       {
         name: 'close_room',
         description: 'Close a communication room (soft delete - marks as closed but keeps data)',
-        inputSchema: CloseRoomSchema,
-        outputSchema: CloseRoomResponseSchema
+        inputSchema: zodToJsonSchema(CloseRoomSchema),
+        outputSchema: zodToJsonSchema(CloseRoomResponseSchema)
       },
       {
         name: 'delete_room',
         description: 'Permanently delete a communication room and all its messages',
-        inputSchema: DeleteRoomSchema,
-        outputSchema: DeleteRoomResponseSchema
+        inputSchema: zodToJsonSchema(DeleteRoomSchema),
+        outputSchema: zodToJsonSchema(DeleteRoomResponseSchema)
       },
       {
         name: 'list_rooms',
         description: 'List communication rooms with filtering and pagination',
-        inputSchema: ListRoomsSchema,
-        outputSchema: ListRoomsResponseSchema
+        inputSchema: zodToJsonSchema(ListRoomsSchema),
+        outputSchema: zodToJsonSchema(ListRoomsResponseSchema)
       },
       {
         name: 'list_room_messages',
         description: 'List messages from a specific room with pagination',
-        inputSchema: ListRoomMessagesSchema,
-        outputSchema: ListRoomMessagesResponseSchema
+        inputSchema: zodToJsonSchema(ListRoomMessagesSchema),
+        outputSchema: zodToJsonSchema(ListRoomMessagesResponseSchema)
       },
       {
         name: 'monitor_agents',
         description: 'Monitor agents with real-time updates using EventBus system',
-        inputSchema: MonitorAgentsSchema,
-        outputSchema: MonitorAgentsResponseSchema
+        inputSchema: zodToJsonSchema(MonitorAgentsSchema),
+        outputSchema: zodToJsonSchema(MonitorAgentsResponseSchema)
       }
     ];
   }
