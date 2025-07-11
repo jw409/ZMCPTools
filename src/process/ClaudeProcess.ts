@@ -2,7 +2,7 @@ import { EventEmitter } from "events";
 import { writeFileSync, mkdirSync, existsSync, readFileSync } from "fs";
 import path, { join } from "path";
 import { tmpdir, homedir } from "os";
-import { execSync } from "child_process";
+import { execSync, execFile } from "child_process";
 import { spawn } from "child_process";
 
 export interface ClaudeSpawnConfig {
@@ -84,15 +84,29 @@ export class ClaudeProcess extends EventEmitter {
 
   private async executeQuery(): Promise<void> {
     try {
-      // Build the CLI command
-      const cliArgs = this.buildCliCommand();
+      // Write prompt to temporary file to avoid shell argument issues
+      const tempPromptFile = join(tmpdir(), `claude-prompt-${this.pid}.txt`);
+      const finalPrompt = this.buildFinalPrompt();
+      writeFileSync(tempPromptFile, finalPrompt);
       
-      // Use spawn for streaming output instead of execSync
+      // Build CLI command without the prompt (we'll pipe it via stdin)
+      const cliArgs = this.buildCliCommandWithStdin();
+      
+      // Use spawn for streaming output
       this.childProcess = spawn('claude', cliArgs, {
         cwd: this.config.workingDirectory,
         stdio: ['pipe', 'pipe', 'pipe'],
         env: { ...process.env, ...this.config.environmentVars }
       });
+      
+      // Check if process started successfully
+      if (!this.childProcess.pid) {
+        throw new Error('Failed to start child process - no PID assigned');
+      }
+      
+      // Send the prompt via stdin
+      this.childProcess.stdin.write(finalPrompt);
+      this.childProcess.stdin.end();
 
       // Handle stdout data (streaming JSON)
       this.childProcess.stdout.on('data', (data: Buffer) => {
@@ -160,6 +174,12 @@ export class ClaudeProcess extends EventEmitter {
       this.childProcess.on('error', (error: Error) => {
         const errorMessage = `Failed to spawn claude CLI: ${error.message}`;
         
+        // More detailed error logging
+        process.stderr.write(`Claude Process ${this.pid} Error: ${errorMessage}\n`);
+        if (error.stack) {
+          process.stderr.write(`Stack trace: ${error.stack}\n`);
+        }
+        
         try {
           writeFileSync(this.stderrPath, errorMessage + '\n', { flag: "a" });
         } catch (logError) {
@@ -221,36 +241,24 @@ export class ClaudeProcess extends EventEmitter {
     const args: string[] = [];
     
     // Always use print mode for non-interactive execution
-    args.push('--print');
+    args.push('-p');
     
-    // Use stream-json output format for structured parsing
-    args.push('--output-format', 'stream-json');
-    
-    // Add system prompt if available
-    const systemPrompt = this.buildSystemPrompt();
-    if (systemPrompt) {
-      args.push('--system-prompt', systemPrompt);
-    }
-    
-    // Add append system prompt if available
-    const appendSystemPrompt = this.buildAppendSystemPrompt();
-    if (appendSystemPrompt) {
-      args.push('--append-system-prompt', appendSystemPrompt);
-    }
+    // Use json output format for structured parsing (not stream-json)
+    args.push('--output-format', 'json');
     
     // Add model if specified
     if (this.config.model) {
       args.push('--model', this.config.model);
     }
     
-    // Add allowed tools
+    // Add allowed tools - format as space-separated list after flag
     if (this.config.allowedTools && this.config.allowedTools.length > 0) {
-      args.push('--allowedTools', this.config.allowedTools.join(','));
+      args.push('--allowedTools', this.config.allowedTools.join(' '));
     }
     
-    // Add disallowed tools
+    // Add disallowed tools - format as space-separated list after flag  
     if (this.config.disallowedTools && this.config.disallowedTools.length > 0) {
-      args.push('--disallowedTools', this.config.disallowedTools.join(','));
+      args.push('--disallowedTools', this.config.disallowedTools.join(' '));
     }
     
     // Add session ID for resuming
@@ -264,17 +272,81 @@ export class ClaudeProcess extends EventEmitter {
     // Skip permission prompts
     args.push('--dangerously-skip-permissions');
     
-    // Add the prompt as the final argument
-    args.push(this.config.prompt);
+    // Build the final prompt with system prompts embedded
+    const finalPrompt = this.buildFinalPrompt();
+    args.push(finalPrompt);
     
     return args;
+  }
+
+  /**
+   * Build the CLI command arguments array for stdin input (no prompt argument)
+   */
+  private buildCliCommandWithStdin(): string[] {
+    const args: string[] = [];
+    
+    // Always use print mode for non-interactive execution
+    args.push('-p');
+    
+    // Use json output format for structured parsing (not stream-json)
+    args.push('--output-format', 'json');
+    
+    // Add model if specified
+    if (this.config.model) {
+      args.push('--model', this.config.model);
+    }
+    
+    // Add allowed tools - format as space-separated list after flag
+    if (this.config.allowedTools && this.config.allowedTools.length > 0) {
+      args.push('--allowedTools', this.config.allowedTools.join(' '));
+    }
+    
+    // Add disallowed tools - format as space-separated list after flag
+    if (this.config.disallowedTools && this.config.disallowedTools.length > 0) {
+      args.push('--disallowedTools', this.config.disallowedTools.join(' '));
+    }
+    
+    // Add session ID for resuming
+    if (this.config.sessionId) {
+      args.push('--resume', this.config.sessionId);
+    }
+    
+    // Add verbose logging
+    args.push('--verbose');
+    
+    // Skip permission prompts
+    args.push('--dangerously-skip-permissions');
+    
+    // Note: No prompt argument - we'll send it via stdin
+    
+    return args;
+  }
+
+  /**
+   * Build the final prompt by combining system prompts with user prompt
+   */
+  private buildFinalPrompt(): string {
+    const systemPrompt = this.buildSystemPrompt();
+    const appendSystemPrompt = this.buildAppendSystemPrompt();
+    
+    // If we have system prompts, format them properly
+    if (systemPrompt || appendSystemPrompt) {
+      return this.formatPromptWithSystemPrompt(systemPrompt, this.config.prompt, appendSystemPrompt);
+    }
+    
+    // Otherwise just return the user prompt
+    return this.config.prompt;
   }
 
   /**
    * Process streaming output from CLI and emit appropriate events
    */
   private processStreamOutput(): void {
-    // Handle stream-json format which outputs one JSON object per line
+    // Handle json format which may output complete JSON objects
+    // Try to find complete JSON messages in the buffer
+    let processedLength = 0;
+    
+    // Look for JSON objects separated by newlines or complete messages
     const lines = this.stdoutBuffer.split('\n');
     
     // Keep the last line in buffer in case it's incomplete

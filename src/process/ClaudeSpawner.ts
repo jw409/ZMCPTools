@@ -61,12 +61,12 @@ export class ClaudeSpawner extends EventEmitter {
     }
 
     // Validate and set default model to one of the supported models
-    const supportedModels = ['claude-3-7-sonnet-latest', 'claude-sonnet-4-0', 'claude-opus-4-0'];
+    const supportedModels = ['claude-3-7-sonnet-latest', 'claude-sonnet-4-20250514', 'claude-opus-4-20250514', 'sonnet', 'opus'];
     if (config.model && !supportedModels.includes(config.model)) {
-      process.stderr.write(`Warning: Model ${config.model} is not in supported list. Using claude-sonnet-4-0 instead.\n`);
-      config.model = 'claude-sonnet-4-0';
+      process.stderr.write(`Warning: Model ${config.model} is not in supported list. Using sonnet instead.\n`);
+      config.model = 'sonnet';
     } else if (!config.model) {
-      config.model = 'claude-sonnet-4-0'; // Default to Sonnet 4
+      config.model = 'sonnet'; // Default to Sonnet alias
     }
 
     process.stderr.write(`Creating Claude SDK agent in: ${workingDir}\n`);

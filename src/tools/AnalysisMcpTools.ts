@@ -168,7 +168,7 @@ export class AnalysisMcpTools {
         const stats = this.calculateProjectStats(cachedStructure.structure);
         
         return createSuccessResponse(
-          `Successfully analyzed ${stats.totalFiles} files and ${stats.totalDirectories} directories (cached), summary written to .treesummary/structure.txt`,
+          `Successfully analyzed ${stats.totalFiles} files and ${stats.totalDirectories} directories (cached). Full structure written to .treesummary/structure.txt - search this file for specific details.`,
           {
             stats,
             summary_generated: params.generate_summary,
@@ -208,7 +208,7 @@ export class AnalysisMcpTools {
     const stats = this.calculateProjectStats(structure);
     
     return createSuccessResponse(
-      `Successfully analyzed ${stats.totalFiles} files and ${stats.totalDirectories} directories, summary written to .treesummary/structure.txt`,
+      `Successfully analyzed ${stats.totalFiles} files and ${stats.totalDirectories} directories. Full structure written to .treesummary/structure.txt - search this file for specific details.`,
       {
         stats,
         summary_generated: params.generate_summary,
