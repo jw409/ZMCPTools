@@ -1,12 +1,9 @@
 import { EventEmitter } from "events";
 import { writeFileSync, mkdirSync, existsSync, readFileSync } from "fs";
-import { join } from "path";
+import path, { join } from "path";
 import { tmpdir, homedir } from "os";
-import {
-  query,
-  type SDKMessage,
-  type Options,
-} from "@anthropic-ai/claude-code";
+import { execSync } from "child_process";
+import { spawn } from "child_process";
 
 export interface ClaudeSpawnConfig {
   workingDirectory: string;
@@ -26,10 +23,20 @@ export interface ClaudeSpawnConfig {
   onSessionIdExtracted?: (sessionId: string) => Promise<void>; // Callback for session ID extraction
 }
 
+export interface CLIMessage {
+  type: 'assistant' | 'user' | 'system' | 'result' | 'error' | 'session_id';
+  content?: string;
+  session_id?: string;
+  result?: any;
+  error?: any;
+  subtype?: string;
+  metadata?: any;
+}
+
 export class ClaudeProcess extends EventEmitter {
   public readonly pid: number;
   public readonly config: ClaudeSpawnConfig;
-  private abortController: AbortController;
+  private childProcess: any = null;
   private _exitCode: number | null = null;
   private _hasExited = false;
   private stdoutPath: string;
@@ -37,12 +44,12 @@ export class ClaudeProcess extends EventEmitter {
   private runPromise: Promise<void> | null = null;
   private extractedSessionId: string | null = null;
   private sessionIdExtracted = false;
+  private stdoutBuffer = '';
 
   constructor(config: ClaudeSpawnConfig) {
     super();
     this.config = config;
-    this.pid = Math.floor(Math.random() * 100000) + Date.now(); // Generate unique pseudo-PID
-    this.abortController = new AbortController();
+    this.pid = Math.floor(Math.random() * 90000) + 10000; // Generate simple 5-digit PID
 
     // Set up log files in the dedicated claude_agents directory
     const logDir = join(homedir(), ".mcptools", "logs", "claude_agents");
@@ -77,57 +84,127 @@ export class ClaudeProcess extends EventEmitter {
 
   private async executeQuery(): Promise<void> {
     try {
-      // Inject CLAUDE.md content into system prompt for agent context
-      const systemPrompt = this.buildSystemPrompt();
-
-      // Build Claude SDK options
-      const options: Options = {
-        abortController: this.abortController,
+      // Build the CLI command
+      const cliArgs = this.buildCliCommand();
+      
+      // Use spawn for streaming output instead of execSync
+      this.childProcess = spawn('claude', cliArgs, {
         cwd: this.config.workingDirectory,
-        allowedTools: this.config.allowedTools,
-        disallowedTools: this.config.disallowedTools,
-        model: this.config.model,
-        customSystemPrompt: systemPrompt, // Built system prompt with agent-specific prompt included
-        appendSystemPrompt: this.buildAppendSystemPrompt(), // Auto-generated post-task instructions
-        permissionMode: "bypassPermissions", // Equivalent to --dangerously-skip-permissions
-        resume: this.config.sessionId,
-      };
-
-      // Execute Claude query with SDK
-      const response = query({
-        prompt: this.config.prompt,
-        abortController: this.abortController,
-        options,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...process.env, ...this.config.environmentVars }
       });
 
-      // Process streaming messages
-      for await (const message of response) {
-        this.handleSDKMessage(message);
-
-        if (this.abortController.signal.aborted) {
-          break;
+      // Handle stdout data (streaming JSON)
+      this.childProcess.stdout.on('data', (data: Buffer) => {
+        const chunk = data.toString();
+        this.stdoutBuffer += chunk;
+        
+        // Try to parse complete JSON messages from buffer
+        this.processStreamOutput();
+        
+        // Write raw output to log
+        try {
+          writeFileSync(this.stdoutPath, chunk, { flag: "a" });
+        } catch (logError) {
+          process.stderr.write(`Failed to write stdout log: ${logError}\n`);
         }
-      }
+      });
 
-      // Mark as completed successfully
-      this._exitCode = 0;
-      this._hasExited = true;
-      this.emit("exit", { code: 0, signal: null, pid: this.pid });
+      // Handle stderr data
+      this.childProcess.stderr.on('data', (data: Buffer) => {
+        const chunk = data.toString();
+        
+        try {
+          writeFileSync(this.stderrPath, chunk, { flag: "a" });
+        } catch (logError) {
+          process.stderr.write(`Failed to write stderr log: ${logError}\n`);
+        }
+        
+        // Emit stderr events
+        this.emit("stderr", {
+          data: chunk,
+          pid: this.pid,
+          messageType: "error",
+        });
+      });
+
+      // Handle process exit
+      this.childProcess.on('exit', (code: number | null, signal: NodeJS.Signals | null) => {
+        // Process any remaining buffer content
+        if (this.stdoutBuffer.trim()) {
+          try {
+            const message = JSON.parse(this.stdoutBuffer.trim()) as CLIMessage;
+            this.handleCLIMessage(message);
+          } catch (parseError) {
+            // Emit as raw text if not JSON
+            this.emit("stdout", {
+              data: this.stdoutBuffer,
+              pid: this.pid,
+              isJson: false,
+              messageType: "text",
+            });
+          }
+        }
+        
+        this._exitCode = code !== null ? code : (signal ? 1 : 0);
+        this._hasExited = true;
+        
+        if (code === 0) {
+          this.emit("exit", { code: 0, signal, pid: this.pid });
+        } else {
+          this.emit("exit", { code: this._exitCode, signal, pid: this.pid });
+        }
+      });
+
+      // Handle process errors
+      this.childProcess.on('error', (error: Error) => {
+        const errorMessage = `Failed to spawn claude CLI: ${error.message}`;
+        
+        try {
+          writeFileSync(this.stderrPath, errorMessage + '\n', { flag: "a" });
+        } catch (logError) {
+          process.stderr.write(`Failed to write error log: ${logError}\n`);
+        }
+        
+        this._exitCode = 1;
+        this._hasExited = true;
+        this.emit("error", { error, pid: this.pid });
+        this.emit("exit", { code: 1, signal: null, pid: this.pid });
+      });
+
     } catch (error) {
-      // Handle errors
+      // Handle setup errors
       let errorMessage = "Unknown error";
+      let errorDetails = "";
+      
       if (error instanceof Error) {
         errorMessage = error.message;
+        errorDetails = `Stack: ${error.stack}\n`;
+        
+        // If there are additional properties on the error object, log them
+        const errorProps = Object.getOwnPropertyNames(error);
+        for (const prop of errorProps) {
+          if (prop !== 'name' && prop !== 'message' && prop !== 'stack') {
+            errorDetails += `${prop}: ${(error as any)[prop]}\n`;
+          }
+        }
+      } else {
+        errorDetails = `Non-Error object thrown: ${JSON.stringify(error)}\n`;
       }
 
+      const fullErrorLog = `Error: ${errorMessage}\n${errorDetails}`;
+      
       try {
-        writeFileSync(this.stderrPath, `Error: ${errorMessage}\n`, {
+        writeFileSync(this.stderrPath, fullErrorLog, {
           flag: "a",
         });
+        // Also log to console for immediate debugging
+        process.stderr.write(`Claude Process ${this.pid} Error Details:\n${fullErrorLog}`);
       } catch (logError) {
         process.stderr.write(
           `Failed to write error log for process ${this.pid}: ${logError}\n`
         );
+        process.stderr.write(`Original error was: ${errorMessage}\n`);
       }
 
       this._exitCode = 1;
@@ -135,6 +212,235 @@ export class ClaudeProcess extends EventEmitter {
       this.emit("error", { error, pid: this.pid });
       this.emit("exit", { code: 1, signal: null, pid: this.pid });
     }
+  }
+
+  /**
+   * Build the CLI command arguments array
+   */
+  private buildCliCommand(): string[] {
+    const args: string[] = [];
+    
+    // Always use print mode for non-interactive execution
+    args.push('--print');
+    
+    // Use stream-json output format for structured parsing
+    args.push('--output-format', 'stream-json');
+    
+    // Add system prompt if available
+    const systemPrompt = this.buildSystemPrompt();
+    if (systemPrompt) {
+      args.push('--system-prompt', systemPrompt);
+    }
+    
+    // Add append system prompt if available
+    const appendSystemPrompt = this.buildAppendSystemPrompt();
+    if (appendSystemPrompt) {
+      args.push('--append-system-prompt', appendSystemPrompt);
+    }
+    
+    // Add model if specified
+    if (this.config.model) {
+      args.push('--model', this.config.model);
+    }
+    
+    // Add allowed tools
+    if (this.config.allowedTools && this.config.allowedTools.length > 0) {
+      args.push('--allowedTools', this.config.allowedTools.join(','));
+    }
+    
+    // Add disallowed tools
+    if (this.config.disallowedTools && this.config.disallowedTools.length > 0) {
+      args.push('--disallowedTools', this.config.disallowedTools.join(','));
+    }
+    
+    // Add session ID for resuming
+    if (this.config.sessionId) {
+      args.push('--resume', this.config.sessionId);
+    }
+    
+    // Add verbose logging
+    args.push('--verbose');
+    
+    // Skip permission prompts
+    args.push('--dangerously-skip-permissions');
+    
+    // Add the prompt as the final argument
+    args.push(this.config.prompt);
+    
+    return args;
+  }
+
+  /**
+   * Process streaming output from CLI and emit appropriate events
+   */
+  private processStreamOutput(): void {
+    // Handle stream-json format which outputs one JSON object per line
+    const lines = this.stdoutBuffer.split('\n');
+    
+    // Keep the last line in buffer in case it's incomplete
+    this.stdoutBuffer = lines.pop() || '';
+    
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      if (!trimmedLine) continue;
+      
+      try {
+        // Try to parse as JSON
+        const message = JSON.parse(trimmedLine) as CLIMessage;
+        this.handleCLIMessage(message);
+      } catch (parseError) {
+        // If we can't parse as JSON, treat as plain text output
+        this.emit("stdout", {
+          data: line,
+          pid: this.pid,
+          isJson: false,
+          messageType: "text",
+        });
+      }
+    }
+  }
+
+  /**
+   * Handle CLI message similar to SDK message handling
+   */
+  private handleCLIMessage(message: CLIMessage): void {
+    try {
+      const messageStr = JSON.stringify(message);
+      
+      // Extract session_id from CLI message if not already extracted
+      this.extractSessionIdFromCLIMessage(message);
+
+      // Emit structured message based on type
+      switch (message.type) {
+        case "assistant":
+        case "user":
+          this.emit("stdout", {
+            data: messageStr,
+            pid: this.pid,
+            isJson: true,
+            messageType: message.type,
+          });
+          break;
+
+        case "system":
+          this.emit("stdout", {
+            data: messageStr,
+            pid: this.pid,
+            isJson: true,
+            messageType: "system",
+          });
+          break;
+
+        case "result":
+          if (message.subtype === "success") {
+            this.emit("stdout", {
+              data: messageStr,
+              pid: this.pid,
+              isJson: true,
+              messageType: "result",
+              result: message.result,
+            });
+          } else {
+            this.emit("stderr", {
+              data: messageStr,
+              pid: this.pid,
+              messageType: "error",
+            });
+          }
+          break;
+
+        case "session_id":
+          if (message.session_id) {
+            this.handleSessionIdExtraction(message.session_id);
+          }
+          break;
+
+        case "error":
+          this.emit("stderr", {
+            data: messageStr,
+            pid: this.pid,
+            messageType: "error",
+          });
+          break;
+      }
+    } catch (error) {
+      process.stderr.write(
+        `Failed to handle CLI message for process ${this.pid}: ${error}\n`
+      );
+    }
+  }
+
+  /**
+   * Extract session_id from CLI message and call callback if configured
+   */
+  private async extractSessionIdFromCLIMessage(message: CLIMessage): Promise<void> {
+    // Skip if already extracted
+    if (this.sessionIdExtracted) {
+      return;
+    }
+
+    try {
+      let sessionId: string | undefined;
+
+      // Check for session_id in the message
+      if (message.session_id) {
+        sessionId = message.session_id;
+      } else if (message.type === 'session_id' && message.content) {
+        sessionId = message.content;
+      } else if (message.metadata?.session_id) {
+        sessionId = message.metadata.session_id;
+      }
+
+      if (sessionId) {
+        this.handleSessionIdExtraction(sessionId);
+      }
+    } catch (error) {
+      // Log error but don't fail the message handling
+      process.stderr.write(
+        `Error extracting session ID from CLI message for process ${this.pid}: ${error}\n`
+      );
+    }
+  }
+
+  /**
+   * Handle session ID extraction
+   */
+  private async handleSessionIdExtraction(sessionId: string): Promise<void> {
+    this.extractedSessionId = sessionId;
+    this.sessionIdExtracted = true;
+
+    // Call the callback if provided
+    if (this.config.onSessionIdExtracted) {
+      try {
+        await this.config.onSessionIdExtracted(sessionId);
+      } catch (error) {
+        process.stderr.write(
+          `Error in session ID callback for process ${this.pid}: ${error}\n`
+        );
+      }
+    }
+
+    // Emit an event for session ID extraction
+    this.emit('sessionIdExtracted', { sessionId, pid: this.pid });
+  }
+
+  private formatPromptWithSystemPrompt(systemPrompt: string, userPrompt: string, appendSystemPrompt?: string): string {
+    const parts: string[] = [];
+    
+    // Add system prompt first
+    if (systemPrompt.trim()) {
+      parts.push(`<system>\n${systemPrompt.trim()}\n</system>`);
+    }
+    
+    // Add append system prompt if provided
+    if (appendSystemPrompt && appendSystemPrompt.trim()) {
+      parts.push(`<system>\n${appendSystemPrompt.trim()}\n</system>`);
+    }
+    
+    // Add user prompt
+    parts.push(userPrompt);
+    
+    return parts.join('\n\n');
   }
 
   private buildSystemPrompt(): string {
@@ -645,145 +951,6 @@ export class ClaudeProcess extends EventEmitter {
     .join("\n")}`;
   }
 
-  private handleSDKMessage(message: SDKMessage): void {
-    try {
-      const messageStr = JSON.stringify(message);
-      writeFileSync(this.stdoutPath, messageStr + "\n", { flag: "a" });
-
-      // Extract session_id from SDK message if not already extracted
-      this.extractSessionIdFromMessage(message);
-
-      // Emit structured message based on type
-      switch (message.type) {
-        case "assistant":
-        case "user":
-          this.emit("stdout", {
-            data: messageStr,
-            pid: this.pid,
-            isJson: true,
-            messageType: message.type,
-          });
-          break;
-
-        case "system":
-          this.emit("stdout", {
-            data: messageStr,
-            pid: this.pid,
-            isJson: true,
-            messageType: "system",
-          });
-          break;
-
-        case "result":
-          if (message.subtype === "success") {
-            this.emit("stdout", {
-              data: messageStr,
-              pid: this.pid,
-              isJson: true,
-              messageType: "result",
-              result: message.result,
-            });
-          } else {
-            this.emit("stderr", {
-              data: messageStr,
-              pid: this.pid,
-              messageType: "error",
-            });
-          }
-          break;
-      }
-    } catch (error) {
-      process.stderr.write(
-        `Failed to handle SDK message for process ${this.pid}: ${error}\n`
-      );
-    }
-  }
-
-  /**
-   * Extract session_id from SDK message and call callback if configured
-   */
-  private async extractSessionIdFromMessage(message: SDKMessage): Promise<void> {
-    // Skip if already extracted
-    if (this.sessionIdExtracted) {
-      return;
-    }
-
-    try {
-      // Check for session_id in the message structure
-      let sessionId: string | undefined;
-
-      // Look for session_id in various possible locations in the message
-      if (message && typeof message === 'object') {
-        // Check direct session_id property
-        if ('session_id' in message && typeof message.session_id === 'string') {
-          sessionId = message.session_id;
-        }
-        // Check in metadata
-        else if ('metadata' in message && message.metadata && typeof message.metadata === 'object') {
-          const metadata = message.metadata as any;
-          if ('session_id' in metadata && typeof metadata.session_id === 'string') {
-            sessionId = metadata.session_id;
-          }
-        }
-        // Check in result data for result messages
-        else if (message.type === 'result' && 'result' in message && message.result && typeof message.result === 'object') {
-          const result = message.result as any;
-          if ('session_id' in result && typeof result.session_id === 'string') {
-            sessionId = result.session_id;
-          }
-        }
-        // Check nested properties
-        else {
-          // Recursively search for session_id in the message
-          sessionId = this.findSessionIdInObject(message);
-        }
-      }
-
-      if (sessionId) {
-        this.extractedSessionId = sessionId;
-        this.sessionIdExtracted = true;
-
-        // Call the callback if provided
-        if (this.config.onSessionIdExtracted) {
-          await this.config.onSessionIdExtracted(sessionId);
-        }
-
-        // Emit an event for session ID extraction
-        this.emit('sessionIdExtracted', { sessionId, pid: this.pid });
-      }
-    } catch (error) {
-      // Log error but don't fail the message handling
-      process.stderr.write(
-        `Error extracting session ID from message for process ${this.pid}: ${error}\n`
-      );
-    }
-  }
-
-  /**
-   * Recursively search for session_id in an object
-   */
-  private findSessionIdInObject(obj: any): string | undefined {
-    if (!obj || typeof obj !== 'object') {
-      return undefined;
-    }
-
-    // Check direct property
-    if ('session_id' in obj && typeof obj.session_id === 'string') {
-      return obj.session_id;
-    }
-
-    // Recursively check nested objects
-    for (const value of Object.values(obj)) {
-      if (value && typeof value === 'object') {
-        const found = this.findSessionIdInObject(value);
-        if (found) {
-          return found;
-        }
-      }
-    }
-
-    return undefined;
-  }
 
   /**
    * Get the extracted session ID
@@ -801,12 +968,16 @@ export class ClaudeProcess extends EventEmitter {
   }
 
   terminate(signal: NodeJS.Signals = "SIGTERM"): void {
-    if (!this._hasExited) {
-      this.abortController.abort("Process terminated");
-      // For compatibility, we'll set exit code based on signal
-      this._exitCode = signal === "SIGKILL" ? 137 : 143;
-      this._hasExited = true;
-      this.emit("exit", { code: this._exitCode, signal, pid: this.pid });
+    if (!this._hasExited && this.childProcess) {
+      try {
+        this.childProcess.kill(signal);
+        // For compatibility, we'll set exit code based on signal
+        this._exitCode = signal === "SIGKILL" ? 137 : 143;
+        this._hasExited = true;
+        this.emit("exit", { code: this._exitCode, signal, pid: this.pid });
+      } catch (error) {
+        process.stderr.write(`Failed to terminate child process ${this.pid}: ${error}\n`);
+      }
     }
   }
 

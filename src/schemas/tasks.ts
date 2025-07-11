@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
-import { relations } from 'drizzle-orm';
+import { relations, sql } from 'drizzle-orm';
 import { createInsertSchema, createSelectSchema, createUpdateSchema } from 'drizzle-zod';
 import { agentSessions } from './agents';
 
@@ -50,8 +50,8 @@ export const tasks = sqliteTable('tasks', {
   description: text('description').notNull(),
   requirements: text('requirements', { mode: 'json' }).$type<Record<string, unknown>>(),
   results: text('results', { mode: 'json' }).$type<Record<string, unknown>>(),
-  createdAt: text('createdAt').notNull().default('CURRENT_TIMESTAMP'),
-  updatedAt: text('updatedAt').notNull().default('CURRENT_TIMESTAMP'),
+  createdAt: text('createdAt').notNull().default(sql`(current_timestamp)`),
+  updatedAt: text('updatedAt').notNull().default(sql`(current_timestamp)`),
 });
 
 export const taskDependencies = sqliteTable('task_dependencies', {

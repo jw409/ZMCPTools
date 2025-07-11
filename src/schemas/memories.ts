@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { sql } from 'drizzle-orm';
 import { sqliteTable, text, real, integer } from 'drizzle-orm/sqlite-core';
 import { createInsertSchema, createSelectSchema, createUpdateSchema } from 'drizzle-zod';
 
@@ -48,7 +49,7 @@ export const memories = sqliteTable('memories', {
   accessedCount: integer('accessedCount').notNull().default(0),
   referencedCount: integer('referencedCount').notNull().default(0),
   lastAccessed: text('lastAccessed'), // ISO datetime string
-  createdAt: text('createdAt').notNull().default('CURRENT_TIMESTAMP'),
+  createdAt: text('createdAt').notNull().default(sql`(current_timestamp)`),
 });
 
 // Drizzle-zod schemas with proper validation

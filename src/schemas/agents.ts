@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
+import { sql } from 'drizzle-orm';
 import { createInsertSchema, createSelectSchema, createUpdateSchema } from 'drizzle-zod';
 
 // Zod v4 schemas for validation
@@ -81,8 +82,8 @@ export const agentSessions = sqliteTable('agent_sessions', {
   roomId: text('roomId'),
   convoSessionId: text('convoSessionId'),
   additionalInstructions: text('additionalInstructions'),
-  createdAt: text('createdAt').notNull().default('CURRENT_TIMESTAMP'),
-  lastHeartbeat: text('lastHeartbeat').notNull().default('CURRENT_TIMESTAMP'),
+  createdAt: text('createdAt').notNull().default(sql`(current_timestamp)`),
+  lastHeartbeat: text('lastHeartbeat').notNull().default(sql`(current_timestamp)`),
   agentMetadata: text('agentMetadata', { mode: 'json' }).$type<Record<string, unknown>>(),
 });
 

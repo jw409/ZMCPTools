@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { sqliteTable, text, real, integer } from 'drizzle-orm/sqlite-core';
-import { relations } from 'drizzle-orm';
+import { relations, sql } from 'drizzle-orm';
 import { createInsertSchema, createSelectSchema, createUpdateSchema } from 'drizzle-zod';
 
 // Entity types in the knowledge graph
@@ -119,8 +119,8 @@ export const knowledgeEntities = sqliteTable('knowledge_entities', {
   lastAccessed: text('lastAccessed'),
   
   // Lifecycle tracking
-  createdAt: text('createdAt').notNull().default('CURRENT_TIMESTAMP'),
-  updatedAt: text('updatedAt').notNull().default('CURRENT_TIMESTAMP'),
+  createdAt: text('createdAt').notNull().default(sql`(current_timestamp)`),
+  updatedAt: text('updatedAt').notNull().default(sql`(current_timestamp)`),
   
   // Discovery context
   discoveredBy: text('discoveredBy'), // Agent ID
@@ -153,8 +153,8 @@ export const knowledgeRelationships = sqliteTable('knowledge_relationships', {
   evidenceCount: integer('evidenceCount').notNull().default(1),
   
   // Lifecycle tracking
-  createdAt: text('createdAt').notNull().default('CURRENT_TIMESTAMP'),
-  updatedAt: text('updatedAt').notNull().default('CURRENT_TIMESTAMP'),
+  createdAt: text('createdAt').notNull().default(sql`(current_timestamp)`),
+  updatedAt: text('updatedAt').notNull().default(sql`(current_timestamp)`),
   
   // Discovery context
   discoveredBy: text('discoveredBy'), // Agent ID
@@ -190,8 +190,8 @@ export const knowledgeInsights = sqliteTable('knowledge_insights', {
   actionability: real('actionability').notNull().default(0.5),
   
   // Lifecycle tracking
-  createdAt: text('createdAt').notNull().default('CURRENT_TIMESTAMP'),
-  updatedAt: text('updatedAt').notNull().default('CURRENT_TIMESTAMP'),
+  createdAt: text('createdAt').notNull().default(sql`(current_timestamp)`),
+  updatedAt: text('updatedAt').notNull().default(sql`(current_timestamp)`),
   
   // Discovery context
   discoveredBy: text('discoveredBy'), // Agent ID

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { int, sqliteTable, text } from 'drizzle-orm/sqlite-core';
-import { relations } from 'drizzle-orm';
+import { relations, sql } from 'drizzle-orm';
 import { createInsertSchema, createSelectSchema, createUpdateSchema } from 'drizzle-zod';
 
 // Zod v4 schemas for validation
@@ -25,7 +25,7 @@ export const chatRooms = sqliteTable('chat_rooms', {
   description: text('description'),
   repositoryPath: text('repositoryPath').notNull(),
   isGeneral: int('isGeneral', { mode: 'boolean' }).notNull().default(false),
-  createdAt: text('createdAt').notNull().default('CURRENT_TIMESTAMP'),
+  createdAt: text('createdAt').notNull().default(sql`(current_timestamp)`),
   roomMetadata: text('roomMetadata', { mode: 'json' }).$type<Record<string, unknown>>(),
 });
 
@@ -34,7 +34,7 @@ export const chatMessages = sqliteTable('chat_messages', {
   roomId: text('roomId').notNull(),
   agentName: text('agentName').notNull(),
   message: text('message').notNull(),
-  timestamp: text('timestamp').notNull().default('CURRENT_TIMESTAMP'),
+  timestamp: text('timestamp').notNull().default(sql`(current_timestamp)`),
   mentions: text('mentions', { mode: 'json' }).$type<string[]>(),
   messageType: text('messageType', { enum: ['standard', 'system', 'notification', 'alert', 'status_update', 'coordination', 'error', 'debug'] }).notNull().default('standard'),
 });

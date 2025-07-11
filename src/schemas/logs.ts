@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { sqliteTable, text, real } from 'drizzle-orm/sqlite-core';
-import { relations } from 'drizzle-orm';
+import { relations, sql } from 'drizzle-orm';
 import { createInsertSchema, createSelectSchema, createUpdateSchema } from 'drizzle-zod';
 import { agentSessions } from './agents';
 import { tasks } from './tasks';
@@ -81,7 +81,7 @@ export const errorLogs = sqliteTable('error_logs', {
   resolutionDetails: text('resolutionDetails'),
   patternId: text('patternId'),
   severity: text('severity', { enum: ['low', 'medium', 'high', 'critical'] }).notNull().default('medium'),
-  createdAt: text('createdAt').notNull().default('CURRENT_TIMESTAMP'),
+  createdAt: text('createdAt').notNull().default(sql`(current_timestamp)`),
   resolvedAt: text('resolvedAt'), // ISO datetime string
 });
 
@@ -96,7 +96,7 @@ export const toolCallLogs = sqliteTable('tool_call_logs', {
   status: text('status', { enum: ['success', 'error', 'timeout', 'cancelled', 'retried'] }).notNull(),
   executionTime: real('executionTime'), // seconds
   errorMessage: text('errorMessage'),
-  createdAt: text('createdAt').notNull().default('CURRENT_TIMESTAMP'),
+  createdAt: text('createdAt').notNull().default(sql`(current_timestamp)`),
 });
 
 // Drizzle relations

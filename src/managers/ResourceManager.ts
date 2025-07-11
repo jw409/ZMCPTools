@@ -25,6 +25,42 @@ export interface ResourceInfo {
   mimeType: string;
 }
 
+// Cursor-based pagination interfaces (MCP compliant)
+interface CursorPaginationOptions {
+  cursor?: string;
+  limit?: number;
+}
+
+interface CursorPaginatedResult<T> {
+  data: T[];
+  nextCursor?: string;
+  limit: number;
+  total?: number; // Optional for performance
+}
+
+// Cursor encoding/decoding utilities for MCP compliance
+class CursorManager {
+  static encode(position: any): string {
+    return Buffer.from(JSON.stringify(position)).toString('base64');
+  }
+  
+  static decode(cursor: string): any {
+    try {
+      return JSON.parse(Buffer.from(cursor, 'base64').toString());
+    } catch {
+      throw new Error('Invalid cursor format');
+    }
+  }
+
+  static createTimestampCursor(timestamp: string, id?: string): string {
+    return this.encode({ timestamp, id });
+  }
+
+  static createPositionCursor(position: number): string {
+    return this.encode({ position });
+  }
+}
+
 export class ResourceManager {
   private repositoryPath: string;
   private agentService: AgentService;
@@ -68,12 +104,12 @@ export class ResourceManager {
         uriTemplate: "agents://list",
         name: "Agent List",
         description:
-          "List of all active agents with their status and metadata (use ?limit=50&offset=0&status=active&type=backend)",
+          "List of all active agents with their status and metadata (use ?limit=50&cursor=token&status=active&type=backend)",
         mimeType: "application/json",
         _meta: {
           "params": {
-            "limit": 10,
-            "offset": 0,
+            "limit": 50,
+            "cursor": "optional cursor token from previous response",
             "status": "active",
             "type": "agentType"
           }
@@ -83,12 +119,12 @@ export class ResourceManager {
         uriTemplate: "communication://rooms",
         name: "Communication Rooms",
         description:
-          "List of all active communication rooms (use ?limit=50&offset=0&search=text)",
+          "List of all active communication rooms (use ?limit=50&cursor=token&search=text)",
         mimeType: "application/json",
         _meta: {
           "params": {
             "limit": 50,
-            "offset": 0,
+            "cursor": "optional cursor token from previous response",
             "search": "text to search room names and descriptions, if provided"
           }
         }
@@ -110,12 +146,12 @@ export class ResourceManager {
         uriTemplate: "scraping://jobs",
         name: "Scraper Jobs",
         description:
-          "List of web scraping jobs and their status (use ?limit=50&offset=0&status=active&search=text)",
+          "List of web scraping jobs and their status (use ?limit=50&cursor=token&status=active&search=text)",
         mimeType: "application/json",
         _meta: {
           "params": {
             "limit": 50,
-            "offset": 0,
+            "cursor": "optional cursor token from previous response",
             "status": "active",
             "search": "text to search job names and descriptions, if provided"
           }
@@ -125,12 +161,12 @@ export class ResourceManager {
         uriTemplate: "docs://sources",
         name: "Documentation Sources",
         description:
-          "List of scraped documentation sources (use ?limit=50&offset=0&sourceType=api&search=text)",
+          "List of scraped documentation sources (use ?limit=50&cursor=token&sourceType=api&search=text)",
         mimeType: "application/json",
         _meta: {
           "params": {
             "limit": 50,
-            "offset": 0,
+            "cursor": "optional cursor token from previous response",
             "sourceType": "api",
             "search": "text to search source names and descriptions, if provided"
           }
@@ -140,12 +176,12 @@ export class ResourceManager {
         uriTemplate: "docs://websites",
         name: "Documentation Websites",
         description:
-          "List of all scraped websites (use ?limit=50&offset=0&search=text)",
+          "List of all scraped websites (use ?limit=50&cursor=token&search=text)",
         mimeType: "application/json",
         _meta: {
           "params": {
             "limit": 50,
-            "offset": 0,
+            "cursor": "optional cursor token from previous response",
             "search": "text to search website names and descriptions, if provided"
           }
         }
@@ -154,13 +190,13 @@ export class ResourceManager {
         uriTemplate: "docs://*/pages",
         name: "Website Pages",
         description:
-          "List of pages for a specific website (use docs://{websiteId}/pages?limit=50&offset=0&search=text)",
+          "List of pages for a specific website (use docs://{websiteId}/pages?limit=50&cursor=token&search=text)",
         mimeType: "application/json",
         _meta: {
           "params": {
             "websiteId": "ID of the website to fetch pages for (in the URI path)",
             "limit": 50,
-            "offset": 0,
+            "cursor": "optional cursor token from previous response",
             "search": "text to search page titles and content, if provided"
           }
         }
@@ -169,12 +205,12 @@ export class ResourceManager {
         uriTemplate: "agents://insights",
         name: "Agent Insights",
         description:
-          "Aggregated insights and learnings from agents (use ?limit=100&offset=0&memoryType=insight&agentId=id&search=text)",
+          "Aggregated insights and learnings from agents (use ?limit=100&cursor=token&memoryType=insight&agentId=id&search=text)",
         mimeType: "application/json",
         _meta: {
           "params": {
             "limit": 100,
-            "offset": 0,
+            "cursor": "optional cursor token from previous response",
             "memoryType": "insight",
             "agentId": "ID of the agent to fetch insights for",
             "search": "text to search insights, if provided"
@@ -185,12 +221,12 @@ export class ResourceManager {
         uriTemplate: "vector://collections",
         name: "Vector Collections",
         description:
-          "List of ChromaDB vector collections and their statistics (use ?limit=50&offset=0&search=text)",
+          "List of LanceDB vector collections and their statistics (use ?limit=50&cursor=token&search=text)",
         mimeType: "application/json",
         _meta: {
           "params": {
             "limit": 50,
-            "offset": 0,
+            "cursor": "optional cursor token from previous response",
             "search": "text to search collection names and descriptions, if provided"
           }
         }
@@ -367,9 +403,20 @@ export class ResourceManager {
     searchParams: URLSearchParams
   ): Promise<TextResourceContents> {
     const limit = parseInt(searchParams.get("limit") || "50");
-    const offset = parseInt(searchParams.get("offset") || "0");
+    const cursor = searchParams.get("cursor");
     const status = searchParams.get("status") || undefined;
     const type = searchParams.get("type") || undefined;
+
+    // Parse cursor for position information
+    let startPosition = 0;
+    if (cursor) {
+      try {
+        const cursorData = CursorManager.decode(cursor);
+        startPosition = cursorData.position || 0;
+      } catch (error) {
+        throw new Error('Invalid cursor parameter');
+      }
+    }
 
     const agents = await this.agentService.listAgents(this.repositoryPath);
 
@@ -386,9 +433,18 @@ export class ResourceManager {
       );
     }
 
-    // Apply pagination
-    const total = filteredAgents.length;
-    const paginatedAgents = filteredAgents.slice(offset, offset + limit);
+    // Sort by creation time for consistent cursor pagination
+    filteredAgents.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+    // Apply cursor-based pagination
+    const endPosition = startPosition + limit;
+    const paginatedAgents = filteredAgents.slice(startPosition, endPosition);
+
+    // Generate next cursor if more results exist
+    let nextCursor: string | undefined;
+    if (endPosition < filteredAgents.length) {
+      nextCursor = CursorManager.createPositionCursor(endPosition);
+    }
 
     return {
       uri: "agents://list",
@@ -407,9 +463,9 @@ export class ResourceManager {
             capabilities: agent.capabilities,
             metadata: agent.agentMetadata,
           })),
-          total,
+          nextCursor,
           limit,
-          offset,
+          total: filteredAgents.length, // Optional for performance
           filters: { status, type },
           timestamp: new Date().toISOString(),
         },
@@ -423,8 +479,19 @@ export class ResourceManager {
     searchParams: URLSearchParams
   ): Promise<TextResourceContents> {
     const limit = parseInt(searchParams.get("limit") || "50");
-    const offset = parseInt(searchParams.get("offset") || "0");
+    const cursor = searchParams.get("cursor");
     const search = searchParams.get("search") || undefined;
+
+    // Parse cursor for position information
+    let startPosition = 0;
+    if (cursor) {
+      try {
+        const cursorData = CursorManager.decode(cursor);
+        startPosition = cursorData.position || 0;
+      } catch (error) {
+        throw new Error('Invalid cursor parameter');
+      }
+    }
 
     const rooms = await this.communicationService.listRooms(
       this.repositoryPath
@@ -441,9 +508,18 @@ export class ResourceManager {
       );
     }
 
-    // Apply pagination
-    const total = filteredRooms.length;
-    const paginatedRooms = filteredRooms.slice(offset, offset + limit);
+    // Sort by creation time for consistent cursor pagination
+    filteredRooms.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+    // Apply cursor-based pagination
+    const endPosition = startPosition + limit;
+    const paginatedRooms = filteredRooms.slice(startPosition, endPosition);
+
+    // Generate next cursor if more results exist
+    let nextCursor: string | undefined;
+    if (endPosition < filteredRooms.length) {
+      nextCursor = CursorManager.createPositionCursor(endPosition);
+    }
 
     return {
       uri: "communication://rooms",
@@ -457,9 +533,9 @@ export class ResourceManager {
             metadata: room.roomMetadata,
             createdAt: room.createdAt,
           })),
-          total,
+          nextCursor,
           limit,
-          offset,
+          total: filteredRooms.length,
           search,
           timestamp: new Date().toISOString(),
         },
@@ -511,9 +587,20 @@ export class ResourceManager {
     searchParams: URLSearchParams
   ): Promise<TextResourceContents> {
     const limit = parseInt(searchParams.get("limit") || "50");
-    const offset = parseInt(searchParams.get("offset") || "0");
+    const cursor = searchParams.get("cursor");
     const statusFilter = searchParams.get("status") || undefined;
     const search = searchParams.get("search") || undefined;
+
+    // Parse cursor for position information
+    let startPosition = 0;
+    if (cursor) {
+      try {
+        const cursorData = CursorManager.decode(cursor);
+        startPosition = cursorData.position || 0;
+      } catch (error) {
+        throw new Error('Invalid cursor parameter');
+      }
+    }
 
     const status = await this.webScrapingService.getScrapingStatus();
     const jobs = [...status.activeJobs, ...status.pendingJobs];
@@ -531,9 +618,18 @@ export class ResourceManager {
       );
     }
 
-    // Apply pagination
-    const total = filteredJobs.length;
-    const paginatedJobs = filteredJobs.slice(offset, offset + limit);
+    // Sort by startedAt time for consistent cursor pagination
+    filteredJobs.sort((a, b) => new Date(a.startedAt || 0).getTime() - new Date(b.startedAt || 0).getTime());
+
+    // Apply cursor-based pagination
+    const endPosition = startPosition + limit;
+    const paginatedJobs = filteredJobs.slice(startPosition, endPosition);
+
+    // Generate next cursor if more results exist
+    let nextCursor: string | undefined;
+    if (endPosition < filteredJobs.length) {
+      nextCursor = CursorManager.createPositionCursor(endPosition);
+    }
 
     return {
       uri: "scraping://jobs",
@@ -550,9 +646,9 @@ export class ResourceManager {
             progress: job.progress,
             errorMessage: job.errorMessage,
           })),
-          total,
+          nextCursor,
           limit,
-          offset,
+          total: filteredJobs.length,
           filters: { status: statusFilter, search },
           timestamp: new Date().toISOString(),
         },
@@ -621,23 +717,44 @@ export class ResourceManager {
     searchParams: URLSearchParams
   ): Promise<TextResourceContents> {
     const limit = parseInt(searchParams.get("limit") || "50");
-    const offset = parseInt(searchParams.get("offset") || "0");
+    const cursor = searchParams.get("cursor");
     const searchTerm = searchParams.get("search") || undefined;
 
+    // Parse cursor for position information
+    let offset = 0;
+    if (cursor) {
+      try {
+        const cursorData = CursorManager.decode(cursor);
+        offset = cursorData.position || 0;
+      } catch (error) {
+        throw new Error('Invalid cursor parameter');
+      }
+    }
+
     const websites = await this.websiteRepository.listWebsites({
-      limit,
+      limit: limit + 1, // Get one extra to determine if more exist
       offset,
       searchTerm,
     });
 
     const totalCount = await this.websiteRepository.count(searchTerm);
 
+    // Determine if more results exist
+    const hasMore = websites.length > limit;
+    const paginatedWebsites = hasMore ? websites.slice(0, limit) : websites;
+
+    // Generate next cursor if more results exist
+    let nextCursor: string | undefined;
+    if (hasMore) {
+      nextCursor = CursorManager.createPositionCursor(offset + limit);
+    }
+
     return {
       uri: "docs://websites",
       mimeType: "application/json",
       text: JSON.stringify(
         {
-          websites: websites.map((website) => ({
+          websites: paginatedWebsites.map((website) => ({
             id: website.id,
             name: website.name,
             domain: website.domain,
@@ -645,9 +762,9 @@ export class ResourceManager {
             createdAt: website.createdAt,
             updatedAt: website.updatedAt,
           })),
-          total: totalCount,
+          nextCursor,
           limit,
-          offset,
+          total: totalCount,
           searchTerm,
           timestamp: new Date().toISOString(),
         },
