@@ -1,4 +1,4 @@
-import type { Prompt, PromptArgument, GetPromptResult, PromptMessage } from '@modelcontextprotocol/sdk/types.js';
+import type { Prompt, PromptArgument, GetPromptResult, PromptMessage, GetPromptRequest, ListPromptsResult } from '@modelcontextprotocol/sdk/types.js';
 
 export interface PromptTemplate {
   name: string;
@@ -50,7 +50,7 @@ COORDINATION PLAN:
 
 Use orchestrate_objective() to spawn coordinated agents with proper dependencies.
 Focus on thorough investigation, clean implementation, and comprehensive testing.`
-    });
+    } satisfies PromptTemplate);
 
     // Issue fixer for general problems
     this.prompts.set('issue-fixer', {
@@ -845,7 +845,11 @@ Focus on creating comprehensive, adaptive plans that account for complexity and 
     return Array.from(this.prompts.values()).map(template => ({
       name: template.name,
       description: template.description,
-      arguments: template.arguments || []
+      arguments: (template.arguments || []).map(arg => ({
+        name: arg.name,
+        description: arg.description,
+        required: arg.required
+      }))
     }));
   }
 

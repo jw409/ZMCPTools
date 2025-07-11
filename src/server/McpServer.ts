@@ -354,27 +354,30 @@ export class McpToolsServer {
         resource.name,
         resource.uriTemplate,
         {
-          title: resource.title,
           description: resource.description,
-          inputSchema: resource.inputSchema,
-          outputSchema: resource.outputSchema,
+          mimeType: resource.mimeType,
         },
-        async (args: any) => {
+        async (uri: URL) => {
           try {
-            const result = await this.resourceManager.readResource(args);
+            const uriString = uri.toString();
+            process.stderr.write(
+              `🔍 Reading resource: ${resource.name} with uri: ${uriString}\n`
+            );
+            const result = await this.resourceManager.readResource(uriString);
+            
+            // Return the result directly as it already has the correct structure
+            // with uri, mimeType, and text fields
             return {
-              content: [
-                { type: "text", text: JSON.stringify(result, null, 2) },
-              ],
+              contents: [result],
             };
           } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : "Unknown error";
             return {
-              content: [
+              contents: [
                 {
-                  type: "text",
-                  text: `Error: ${
-                    error instanceof Error ? error.message : "Unknown error"
-                  }`,
+                  uri: uri.toString(),
+                  mimeType: "text/plain",
+                  text: `Error: ${errorMessage}`,
                 },
               ],
             };
@@ -387,12 +390,27 @@ export class McpToolsServer {
   private registerAllPrompts(): void {
     const prompts = this.promptManager.listPrompts();
     prompts.forEach((prompt) => {
+      // Convert arguments to proper Zod schema format
+      const argsSchema: Record<string, any> = {};
+      if (prompt.arguments) {
+        prompt.arguments.forEach(arg => {
+          // Create Zod string schema with description
+          let schema = z.string().describe(arg.description || '');
+          
+          // Make it optional if not required
+          if (arg.required === false) {
+            schema = schema.optional();
+          }
+          
+          argsSchema[arg.name] = schema;
+        });
+      }
+
       this.server.registerPrompt(
         prompt.name,
         {
-          title: prompt.title,
           description: prompt.description,
-          argsSchema: prompt.arguments as any,
+          argsSchema: Object.keys(argsSchema).length > 0 ? argsSchema : undefined
         },
         async (args: any) => {
           try {
@@ -400,22 +418,11 @@ export class McpToolsServer {
               prompt.name,
               args
             );
-            return {
-              content: [
-                { type: "text", text: JSON.stringify(result, null, 2) },
-              ],
-            };
+            return result;
           } catch (error) {
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: `Error: ${
-                    error instanceof Error ? error.message : "Unknown error"
-                  }`,
-                },
-              ],
-            };
+            throw new Error(
+              error instanceof Error ? error.message : "Unknown error"
+            );
           }
         }
       );
