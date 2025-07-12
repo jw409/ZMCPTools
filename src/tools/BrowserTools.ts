@@ -1500,17 +1500,8 @@ export class BrowserTools {
                 domOptions
               );
               
-              // Check if DOM is too large for MCP response
-              const elementCount = this.countDOMElements(rawDomJson);
-              const limits = this.getContentSizeLimits();
-              
-              if (elementCount > limits.maxDomElements) {
-                // Provide overview in MCP response, full DOM stored in database
-                enhancedContent.dom_json = this.createDOMOverview(rawDomJson, indexingResult?.pageId);
-              } else {
-                // Small DOM can be included in MCP response
-                enhancedContent.dom_json = rawDomJson;
-              }
+              // Always provide overview for MCP response - full DOM stored in database during indexing
+              enhancedContent.dom_json = this.createDOMOverview(rawDomJson, indexingResult?.pageId);
               
               // Note: Full DOM is still stored in database during indexing regardless of response size
             }
@@ -1520,7 +1511,7 @@ export class BrowserTools {
           }
         }
 
-        // Capture screenshot
+        // Capture screenshot - store in database, provide reference in MCP response
         if (params.capture_screenshot) {
           const screenshotResult = await this.takeScreenshotCore(
             sessionId,
@@ -1533,14 +1524,20 @@ export class BrowserTools {
           );
           
           if (screenshotResult.success && screenshotResult.aiImage) {
-            enhancedContent.screenshot_base64 = screenshotResult.aiImage.data;
+            // Store metadata but not full base64 in MCP response
+            enhancedContent.screenshot_captured = true;
             enhancedContent.screenshot_metadata = {
+              size_bytes: Math.round(screenshotResult.aiImage.data.length * 0.75), // Estimate from base64
               width: 1920, // These would ideally come from the actual screenshot
               height: 1080,
               device_scale_factor: 1.0,
               timestamp: new Date().toISOString(),
               full_page: params.screenshot_full_page ?? true,
-              format: 'png' as const
+              format: 'png' as const,
+              page_id: indexingResult?.pageId,
+              usage_note: indexingResult?.pageId 
+                ? `Screenshot stored in database. Use get_page_screenshot with page_id: ${indexingResult?.pageId}` 
+                : 'Screenshot stored in database. Use DOM navigation tools to access.'
             };
           }
         }
