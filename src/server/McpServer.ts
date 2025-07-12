@@ -354,7 +354,7 @@ export class McpToolsServer {
       this.repositoryPath,
       this.db
     );
-    this.browserAIDOMTools = new BrowserAIDOMTools();
+    this.browserAIDOMTools = new BrowserAIDOMTools(this.db);
     this.webScrapingMcpTools = new WebScrapingMcpTools(
       this.webScrapingService,
       knowledgeGraphService,

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import type { McpTool } from '../schemas/tools/index.js';
 import { WebsitePagesRepository } from "../repositories/WebsitePagesRepository.js";
+import { DatabaseManager } from "../database/index.js";
 import { Logger } from "../utils/logger.js";
 
 const logger = new Logger("BrowserAIDOMTools");
@@ -74,8 +75,8 @@ interface NavigationContext {
 export class BrowserAIDOMTools {
   private pagesRepo: WebsitePagesRepository;
 
-  constructor() {
-    this.pagesRepo = new WebsitePagesRepository();
+  constructor(db: DatabaseManager) {
+    this.pagesRepo = new WebsitePagesRepository(db);
   }
 
   /**
