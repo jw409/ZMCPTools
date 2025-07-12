@@ -20,6 +20,11 @@ import UserAgent from 'user-agents';
 import type { KnowledgeGraphService } from '../services/KnowledgeGraphService.js';
 import { MemoryService } from '../services/MemoryService.js';
 import { BrowserOperationResponseSchema, createSuccessResponse, createErrorResponse, type BrowserOperationResponse } from '../schemas/toolResponses.js';
+import { WebsiteRepository } from '../repositories/WebsiteRepository.js';
+import { WebsitePagesRepository } from '../repositories/WebsitePagesRepository.js';
+import { DatabaseManager } from '../database/index.js';
+import { createHash, randomUUID } from 'crypto';
+import { serializeDOMWithPlaywright, sanitizeHTMLContent, convertHTMLToMarkdown, type SerializationOptions, AI_OPTIMIZED_OPTIONS } from '../utils/domToJson.js';
 import {
   BrowserCreateSessionSchema,
   BrowserNavigateAndScrapeSchema,
@@ -109,6 +114,14 @@ export interface ScreenshotOptions {
   clip?: { x: number; y: number; width: number; height: number };
   quality?: number;
   type?: 'png' | 'jpeg';
+  returnForAI?: boolean;
+}
+
+// AI-compatible image format
+export interface AIImageFormat {
+  type: 'image';
+  data: string; // base64 encoded
+  mimeType: 'image/png' | 'image/jpeg';
 }
 
 export interface NavigationOptions {
@@ -146,12 +159,18 @@ export class BrowserTools {
   private sessionCleanupInterval: NodeJS.Timeout | null = null;
   private memoryService: MemoryService;
 
+  // Website indexing repositories
+  private websiteRepository: WebsiteRepository;
+  private websitePagesRepository: WebsitePagesRepository;
+
   constructor(
     private knowledgeGraphService: KnowledgeGraphService,
     private repositoryPath: string,
-    private db: any
+    private db: DatabaseManager
   ) {
     this.memoryService = new MemoryService(db);
+    this.websiteRepository = new WebsiteRepository(db);
+    this.websitePagesRepository = new WebsitePagesRepository(db);
     this.startCleanupServices();
   }
 
@@ -430,9 +449,14 @@ export class BrowserTools {
    */
   private async takeScreenshotCore(
     sessionId: string,
-    filepath: string,
+    filepath?: string,
     options: ScreenshotOptions = {}
-  ): Promise<{ success: boolean; filepath?: string; error?: string }> {
+  ): Promise<{ 
+    success: boolean; 
+    filepath?: string; 
+    aiImage?: AIImageFormat;
+    error?: string 
+  }> {
     try {
       const session = this.sessions.get(sessionId);
       if (!session) {
@@ -442,15 +466,42 @@ export class BrowserTools {
       session.lastUsed = new Date();
       this.updateSessionActivity(sessionId);
 
-      await session.page.screenshot({
-        path: filepath,
-        fullPage: options.fullPage ?? false,
-        clip: options.clip,
-        quality: options.quality,
-        type: options.type || 'png'
-      });
+      const screenshotType = options.type || 'png';
+      const mimeType = screenshotType === 'jpeg' ? 'image/jpeg' : 'image/png';
 
-      return { success: true, filepath };
+      if (options.returnForAI) {
+        // Return AI-compatible image format
+        const buffer = await session.page.screenshot({
+          fullPage: options.fullPage ?? false,
+          clip: options.clip,
+          quality: options.quality,
+          type: screenshotType
+        });
+        
+        const base64Data = buffer.toString('base64');
+        const aiImage: AIImageFormat = {
+          type: 'image',
+          data: base64Data,
+          mimeType: mimeType as 'image/png' | 'image/jpeg'
+        };
+        
+        return { success: true, aiImage };
+      } else {
+        // Traditional file-based screenshot
+        if (!filepath) {
+          return { success: false, error: 'Filepath required when returnForAI is false' };
+        }
+        
+        await session.page.screenshot({
+          path: filepath,
+          fullPage: options.fullPage ?? false,
+          clip: options.clip,
+          quality: options.quality,
+          type: screenshotType
+        });
+
+        return { success: true, filepath };
+      }
     } catch (error) {
       return { 
         success: false, 
@@ -664,6 +715,214 @@ export class BrowserTools {
     }));
   }
 
+  /**
+   * Index a website page in the database with all content types
+   */
+  private async indexWebsitePage(
+    sessionId: string,
+    url: string,
+    options: {
+      extractHtml?: boolean;
+      extractSanitizedHtml?: boolean;
+      extractMarkdown?: boolean;
+      extractDomJson?: boolean;
+      captureScreenshot?: boolean;
+      screenshotFullPage?: boolean;
+      selector?: string;
+      httpStatus?: number;
+      title?: string;
+      errorMessage?: string;
+    }
+  ): Promise<{
+    success: boolean;
+    websiteId?: string;
+    pageId?: string;
+    error?: string;
+  }> {
+    try {
+      const session = this.sessions.get(sessionId);
+      if (!session) {
+        return { success: false, error: `Session ${sessionId} not found` };
+      }
+
+      // Extract domain from URL
+      const domain = this.websiteRepository.extractDomainFromUrl(url);
+      
+      // Find or create website entry
+      const website = await this.websiteRepository.findOrCreateByDomain(domain, {
+        name: domain,
+        metaDescription: `Website at ${domain}`
+      });
+
+      // Normalize URL for consistent storage
+      const normalizedUrl = this.websitePagesRepository.normalizeUrl(url);
+
+      // Initialize content variables
+      let htmlContent: string | undefined;
+      let sanitizedHtmlContent: string | undefined;
+      let markdownContent: string | undefined;
+      let domJsonContent: Record<string, any> | undefined;
+      let screenshotBase64: string | undefined;
+      let screenshotMetadata: any | undefined;
+
+      // Extract HTML content if requested
+      if (options.extractHtml) {
+        const htmlResult = await this.scrapeContentCore(sessionId, {
+          extractHtml: true,
+          selector: options.selector
+        });
+        
+        if (htmlResult.success && htmlResult.content?.html) {
+          htmlContent = htmlResult.content.html;
+        }
+      }
+
+      // Extract sanitized HTML if requested
+      if (options.extractSanitizedHtml) {
+        if (!htmlContent) {
+          // Get HTML first if we don't have it
+          const htmlResult = await this.scrapeContentCore(sessionId, {
+            extractHtml: true,
+            selector: options.selector
+          });
+          
+          if (htmlResult.success && htmlResult.content?.html) {
+            htmlContent = htmlResult.content.html;
+          }
+        }
+        
+        if (htmlContent) {
+          sanitizedHtmlContent = sanitizeHTMLContent(htmlContent, {
+            removeScripts: true,
+            removeStyles: true,
+            removeComments: true,
+            removeEventHandlers: true
+          });
+        }
+      }
+
+      // Extract markdown if requested
+      if (options.extractMarkdown) {
+        if (!sanitizedHtmlContent) {
+          if (!htmlContent) {
+            // Get HTML first if we don't have it
+            const htmlResult = await this.scrapeContentCore(sessionId, {
+              extractHtml: true,
+              selector: options.selector
+            });
+            
+            if (htmlResult.success && htmlResult.content?.html) {
+              htmlContent = htmlResult.content.html;
+            }
+          }
+          
+          if (htmlContent) {
+            sanitizedHtmlContent = sanitizeHTMLContent(htmlContent, {
+              removeScripts: true,
+              removeStyles: true,
+              removeComments: true,
+              removeEventHandlers: true
+            });
+          }
+        }
+        
+        if (sanitizedHtmlContent) {
+          markdownContent = convertHTMLToMarkdown(sanitizedHtmlContent);
+        }
+      }
+
+      // Extract DOM JSON if requested
+      if (options.extractDomJson) {
+        try {
+          const domOptions: SerializationOptions = {
+            ...AI_OPTIMIZED_OPTIONS,
+            scope: options.selector || 'html',
+            maxDepth: 25
+          };
+          
+          domJsonContent = await serializeDOMWithPlaywright(
+            session.page,
+            options.selector || 'html',
+            domOptions
+          );
+        } catch (error) {
+          console.warn('Failed to extract DOM JSON:', error);
+          // Don't fail the entire indexing operation for DOM JSON extraction failure
+        }
+      }
+
+      // Capture screenshot if requested
+      if (options.captureScreenshot) {
+        const screenshotResult = await this.takeScreenshotCore(
+          sessionId,
+          undefined, // no filepath
+          {
+            fullPage: options.screenshotFullPage ?? true,
+            type: 'png',
+            returnForAI: true
+          }
+        );
+        
+        if (screenshotResult.success && screenshotResult.aiImage) {
+          screenshotBase64 = screenshotResult.aiImage.data;
+          screenshotMetadata = {
+            width: 1920, // These would ideally come from the actual screenshot
+            height: 1080,
+            deviceScaleFactor: 1.0,
+            timestamp: new Date().toISOString(),
+            fullPage: options.screenshotFullPage ?? true,
+            format: 'png' as const
+          };
+        }
+      }
+
+      // Generate content hash for change detection
+      const contentForHash = [
+        htmlContent || '',
+        sanitizedHtmlContent || '',
+        markdownContent || '',
+        JSON.stringify(domJsonContent) || '',
+        screenshotBase64 || ''
+      ].join('|');
+      
+      const contentHash = this.websitePagesRepository.generateContentHash(contentForHash);
+
+      // Create or update page entry
+      const pageData = {
+        id: randomUUID(),
+        websiteId: website.id,
+        url: normalizedUrl,
+        contentHash,
+        htmlContent,
+        sanitizedHtmlContent,
+        markdownContent,
+        domJsonContent,
+        screenshotBase64,
+        screenshotMetadata,
+        selector: options.selector,
+        title: options.title,
+        httpStatus: options.httpStatus,
+        errorMessage: options.errorMessage,
+        javascriptEnabled: true
+      };
+
+      const { page, isNew } = await this.websitePagesRepository.createOrUpdate(pageData);
+
+      return {
+        success: true,
+        websiteId: website.id,
+        pageId: page.id
+      };
+
+    } catch (error) {
+      console.error('Failed to index website page:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown indexing error'
+      };
+    }
+  }
+
   // ===================================
   // MCP Enhanced Methods
   // ===================================
@@ -789,6 +1048,130 @@ export class BrowserTools {
       );
     }
 
+    // Prepare enhanced content extraction for indexing
+    let enhancedContent: any = scrapeResult?.content || {};
+
+    // Extract additional content types if requested
+    if (params.extract_sanitized_html || params.extract_markdown || params.extract_dom_json || params.capture_screenshot) {
+      try {
+        // Get HTML content if we need it for sanitization/markdown
+        if ((params.extract_sanitized_html || params.extract_markdown) && !enhancedContent.html) {
+          const htmlResult = await this.scrapeContentCore(sessionId, {
+            extractHtml: true,
+            selector: params.selector
+          });
+          if (htmlResult.success && htmlResult.content?.html) {
+            enhancedContent.html = htmlResult.content.html;
+          }
+        }
+
+        // Extract sanitized HTML
+        if (params.extract_sanitized_html && enhancedContent.html) {
+          enhancedContent.sanitized_html = sanitizeHTMLContent(enhancedContent.html, {
+            removeScripts: true,
+            removeStyles: true,
+            removeComments: true,
+            removeEventHandlers: true
+          });
+        }
+
+        // Extract markdown
+        if (params.extract_markdown) {
+          const htmlForMarkdown = enhancedContent.sanitized_html || enhancedContent.html;
+          if (htmlForMarkdown) {
+            const sanitized = enhancedContent.sanitized_html || sanitizeHTMLContent(htmlForMarkdown, {
+              removeScripts: true,
+              removeStyles: true,
+              removeComments: true,
+              removeEventHandlers: true
+            });
+            enhancedContent.markdown = convertHTMLToMarkdown(sanitized);
+          }
+        }
+
+        // Extract DOM JSON
+        if (params.extract_dom_json) {
+          try {
+            const session = this.sessions.get(sessionId);
+            if (session) {
+              const domOptions: SerializationOptions = {
+                ...AI_OPTIMIZED_OPTIONS,
+                scope: params.selector || 'html',
+                maxDepth: 25
+              };
+              
+              enhancedContent.dom_json = await serializeDOMWithPlaywright(
+                session.page,
+                params.selector || 'html',
+                domOptions
+              );
+            }
+          } catch (error) {
+            console.warn('Failed to extract DOM JSON:', error);
+            // Don't fail the operation for DOM JSON extraction failure
+          }
+        }
+
+        // Capture screenshot
+        if (params.capture_screenshot) {
+          const screenshotResult = await this.takeScreenshotCore(
+            sessionId,
+            undefined, // no filepath
+            {
+              fullPage: params.screenshot_full_page ?? true,
+              type: 'png',
+              returnForAI: true
+            }
+          );
+          
+          if (screenshotResult.success && screenshotResult.aiImage) {
+            enhancedContent.screenshot_base64 = screenshotResult.aiImage.data;
+            enhancedContent.screenshot_metadata = {
+              width: 1920, // These would ideally come from the actual screenshot
+              height: 1080,
+              device_scale_factor: 1.0,
+              timestamp: new Date().toISOString(),
+              full_page: params.screenshot_full_page ?? true,
+              format: 'png' as const
+            };
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to extract enhanced content:', error);
+        // Don't fail the operation for enhanced content extraction failure
+      }
+    }
+
+    // Auto-index website if enabled
+    let indexingResult: { success: boolean; websiteId?: string; pageId?: string; error?: string } | null = null;
+    if (params.auto_index_website) {
+      try {
+        indexingResult = await this.indexWebsitePage(
+          sessionId,
+          navResult.url || params.url,
+          {
+            extractHtml: params.extract_html || params.extract_sanitized_html || params.extract_markdown,
+            extractSanitizedHtml: params.extract_sanitized_html,
+            extractMarkdown: params.extract_markdown,
+            extractDomJson: params.extract_dom_json,
+            captureScreenshot: params.capture_screenshot,
+            screenshotFullPage: params.screenshot_full_page,
+            selector: params.selector,
+            httpStatus: 200, // Assume success since navigation succeeded
+            title: navResult.title,
+            errorMessage: undefined
+          }
+        );
+      } catch (error) {
+        console.warn('Failed to index website page:', error);
+        // Don't fail the navigation for indexing failure
+        indexingResult = { 
+          success: false, 
+          error: error instanceof Error ? error.message : 'Unknown indexing error'
+        };
+      }
+    }
+
     // Auto-close session if it was created for this operation
     if (sessionCreated) {
       setTimeout(() => {
@@ -801,9 +1184,13 @@ export class BrowserTools {
       sessionId,
       sessionCreated,
       navigation: navResult,
-      content: scrapeResult?.content || null,
+      content: enhancedContent,
       url: navResult.url,
-      title: navResult.title
+      title: navResult.title,
+      website_indexed: indexingResult?.success || false,
+      website_id: indexingResult?.websiteId,
+      page_id: indexingResult?.pageId,
+      indexing_error: indexingResult?.error
     };
 
     return this.transformResultData(result, 'navigate_and_scrape');
@@ -835,10 +1222,11 @@ export class BrowserTools {
         case 'screenshot':
           result = await this.takeScreenshotCore(
             params.session_id,
-            action.filepath!,
+            action.filepath,
             {
-              fullPage: true,
-              type: 'png'
+              fullPage: action.full_page ?? true,
+              type: (action.image_format as 'png' | 'jpeg') || 'png',
+              returnForAI: action.return_for_ai ?? false
             }
           );
           break;
@@ -1211,6 +1599,11 @@ export class BrowserTools {
       data.screenshot_path = result.filepath;
     }
     
+    // Handle AI image format
+    if (result.aiImage) {
+      data.ai_image = result.aiImage;
+    }
+    
     // Handle navigation results
     if (result.navigation) {
       data.url = result.navigation.url;
@@ -1236,6 +1629,21 @@ export class BrowserTools {
         if (!data.metadata) data.metadata = {};
         data.metadata.cleaned_sessions = result.cleanedSessions;
       }
+    }
+    
+    // Handle website indexing results
+    if (result.website_indexed !== undefined) {
+      data.website_indexed = result.website_indexed;
+    }
+    if (result.website_id) {
+      data.website_id = result.website_id;
+    }
+    if (result.page_id) {
+      data.page_id = result.page_id;
+    }
+    if (result.indexing_error) {
+      if (!data.metadata) data.metadata = {};
+      data.metadata.indexing_error = result.indexing_error;
     }
     
     // Handle session configuration (for create_browser_session)
@@ -1385,7 +1793,8 @@ export class BrowserTools {
       {
         fullPage: params.full_page,
         quality: params.quality,
-        type: params.type
+        type: params.type,
+        returnForAI: params.return_for_ai ?? false
       }
     );
 

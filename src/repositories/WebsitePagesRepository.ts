@@ -95,11 +95,16 @@ export class WebsitePagesRepository extends BaseRepository<
         const updatedPage = await this.update(existingPage.id, {
           contentHash: data.contentHash,
           htmlContent: data.htmlContent,
+          sanitizedHtmlContent: data.sanitizedHtmlContent,
           markdownContent: data.markdownContent,
+          domJsonContent: data.domJsonContent,
+          screenshotBase64: data.screenshotBase64,
+          screenshotMetadata: data.screenshotMetadata,
           title: data.title,
           selector: data.selector,
           httpStatus: data.httpStatus,
           errorMessage: data.errorMessage,
+          javascriptEnabled: data.javascriptEnabled,
         });
 
         this.logger.debug("Updated website page with new content", { 
