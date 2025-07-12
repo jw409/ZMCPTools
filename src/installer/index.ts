@@ -409,6 +409,33 @@ async function addMcpServerHttp(port: number = 4269): Promise<boolean> {
   }
 }
 
+function updateGitignore(): void {
+  logStep('📄', 'Updating .gitignore...');
+  
+  const gitignorePath = path.join(process.cwd(), '.gitignore');
+  const treesummaryEntry = '.treesummary/';
+  
+  if (fs.existsSync(gitignorePath)) {
+    const content = fs.readFileSync(gitignorePath, 'utf8');
+    
+    // Check if .treesummary/ is already in .gitignore
+    if (!content.includes(treesummaryEntry)) {
+      // Add .treesummary/ to .gitignore
+      const updatedContent = content + (content.endsWith('\n') ? '' : '\n') + 
+        '\n# Project analysis cache\n' + treesummaryEntry + '\n';
+      fs.writeFileSync(gitignorePath, updatedContent);
+      logSuccess('Added .treesummary/ to .gitignore');
+    } else {
+      logSuccess('.treesummary/ already in .gitignore');
+    }
+  } else {
+    // Create .gitignore with .treesummary/ entry
+    const gitignoreContent = '# Project analysis cache\n.treesummary/\n';
+    fs.writeFileSync(gitignorePath, gitignoreContent);
+    logSuccess('Created .gitignore with .treesummary/');
+  }
+}
+
 function createClaudeMd(): void {
   logStep('📝', 'Setting up CLAUDE.md integration...');
   
@@ -756,6 +783,7 @@ export async function install(options: { globalOnly?: boolean; projectOnly?: boo
   // Set up project configuration (main purpose when running from global install)
   if (!options.globalOnly) {
     createProjectConfig();
+    updateGitignore();
     createClaudeMd();
     
     // Add MCP server using Claude CLI
