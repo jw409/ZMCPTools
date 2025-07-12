@@ -2,7 +2,8 @@ import { z } from "zod";
 
 export const BrowserCreateSessionSchema = z.object({
   browser_type: z.enum(["chromium", "firefox", "webkit"]).optional().describe("Browser engine to use. Chromium offers best compatibility and stealth features, Firefox for privacy, Webkit for Safari-like behavior"),
-  headless: z.boolean().default(true).describe("Whether to run browser in headless mode (no UI). Set to false for debugging or when visual interaction is needed"),
+  headless: z.boolean().default(true).describe("Browser runs in headless mode (no UI) for optimal performance and stealth. Always defaults to true for AI automation"),
+  javascript_enabled: z.boolean().default(true).describe("Whether to enable JavaScript execution for proper page rendering. Recommended to keep enabled for modern websites"),
   viewport_width: z.number().default(1920).describe("Browser viewport width in pixels. Affects how pages are rendered and responsive design"),
   viewport_height: z.number().default(1080).describe("Browser viewport height in pixels. Affects how pages are rendered and responsive design"),
   user_agent: z.string().optional().describe("Custom user agent string. If not provided, a realistic Chrome user agent will be generated automatically for better stealth"),
@@ -24,8 +25,14 @@ export const BrowserNavigateAndScrapeSchema = z.object({
   timeout: z.number().default(30000).describe("Navigation timeout in milliseconds. Increase for slow-loading pages"),
   extract_text: z.boolean().default(true).describe("Whether to extract text content from the page. Useful for content analysis and AI processing"),
   extract_html: z.boolean().default(false).describe("Whether to extract raw HTML content. Useful for detailed page analysis or when text extraction isn't sufficient"),
+  extract_sanitized_html: z.boolean().default(false).describe("Whether to extract sanitized HTML content with scripts and styles removed. Safer for AI processing"),
+  extract_markdown: z.boolean().default(false).describe("Whether to convert page content to markdown format. Clean format for AI analysis"),
+  extract_dom_json: z.boolean().default(false).describe("Whether to extract DOM structure as navigable JSON with inline styles. Enables AI navigation of page structure"),
   extract_links: z.boolean().default(false).describe("Whether to extract all links from the page. Returns array of {text, href} objects"),
   extract_images: z.boolean().default(false).describe("Whether to extract all images from the page. Returns array of {alt, src} objects"),
+  capture_screenshot: z.boolean().default(false).describe("Whether to capture a screenshot of the page and store as base64. Enables AI visual analysis"),
+  screenshot_full_page: z.boolean().default(false).describe("Whether to capture full page screenshot or just viewport. Only used if capture_screenshot is true"),
+  auto_index_website: z.boolean().default(true).describe("Whether to automatically index this page in the website database for future reference"),
   selector: z.string().optional().describe("CSS selector to limit extraction to specific elements. If provided, only content within matching elements will be extracted"),
   wait_for_selector: z.string().optional().describe("CSS selector to wait for before extracting content. Useful for dynamic content that loads after navigation"),
   auto_create_session: z.boolean().default(true).describe("Whether to automatically create a new session if session_id is not provided. Convenient for one-off operations"),
@@ -48,7 +55,10 @@ export const BrowserInteractWithPageSchema = z.object({
         ]).describe("Type of interaction to perform: 'click' for clicking elements, 'type' for entering text, 'hover' for mouse hover, 'select' for dropdown selection, 'screenshot' for capturing page, 'wait' for pausing/waiting, 'scroll' for page scrolling"),
         selector: z.string().optional().describe("CSS selector for the target element. Required for click, type, hover, select actions. Optional for scroll (scrolls to element if provided, otherwise scrolls to bottom)"),
         value: z.union([z.string(), z.array(z.string())]).optional().describe("Value to use for the action. For 'type': text to enter, for 'select': option value(s) to select"),
-        filepath: z.string().optional().describe("File path for screenshot action. Must be provided when type is 'screenshot'"), // for screenshots
+        filepath: z.string().optional().describe("File path for screenshot action. Must be provided when type is 'screenshot' and return_for_ai is false"), // for screenshots
+        return_for_ai: z.boolean().default(false).describe("Whether to return screenshot in AI-consumable format {type: 'image', data: 'base64', mimeType: 'image/png'} instead of saving to file"),
+        full_page: z.boolean().default(true).describe("Whether to capture full page screenshot or just viewport (for screenshot actions)"),
+        image_format: z.enum(["png", "jpeg"]).default("png").describe("Image format for screenshot (for screenshot actions)"),
         timeout: z.number().default(10000).describe("Timeout for the action in milliseconds. How long to wait for element to be available"),
         scroll_behavior: z.enum(["auto", "smooth"]).default("auto").describe("Scroll behavior for scroll actions: 'auto' for instant scrolling, 'smooth' for animated scrolling"),
       }).describe("Individual browser action to perform. Actions are executed in sequence and will stop on first failure")
@@ -90,7 +100,8 @@ export const BrowserLegacyScrapeSchema = z.object({
 
 export const BrowserScreenshotSchema = z.object({
   session_id: z.string().describe("Browser session ID to take screenshot from. Session must already exist"),
-  filepath: z.string().describe("File path where the screenshot will be saved. Should include file extension (.png or .jpeg)"),
+  filepath: z.string().optional().describe("File path where the screenshot will be saved. Should include file extension (.png or .jpeg). Required when return_for_ai is false"),
+  return_for_ai: z.boolean().default(false).describe("Whether to return screenshot in AI-consumable format {type: 'image', data: 'base64', mimeType: 'image/png'} instead of saving to file"),
   full_page: z.boolean().default(false).describe("Whether to capture the full page (including parts below the fold) or just the visible viewport"),
   quality: z.number().min(0).max(100).optional().describe("Image quality for JPEG format (0-100). Higher values mean better quality but larger file size. Not applicable for PNG format"),
   type: z.enum(["png", "jpeg"]).default("png").describe("Image format for the screenshot. PNG provides lossless compression, JPEG provides smaller file sizes"),
@@ -108,6 +119,40 @@ export const BrowserInteractSchema = z.object({
   selector: z.string().describe("CSS selector for the target element. Must uniquely identify the element to interact with"),
   value: z.union([z.string(), z.array(z.string())]).optional().describe("Value to use for the action. For 'type': text to enter, for 'select': option value(s) to select. Not used for 'click' or 'hover'"),
 }).describe("[LEGACY] Interact with a single element on the page. Use interact_with_page instead for multiple actions and better error handling.");
+
+// ===============================================
+// AI-Powered DOM Navigation Tools (AIDotNavigation Integration)
+// ===============================================
+
+export const BrowserAnalyzeDOMStructureSchema = z.object({
+  page_id: z.string().describe("Database ID of the website page to analyze. Must have DOM JSON content available"),
+  goal: z.string().describe("What you want to achieve by analyzing this page structure. Guides the AI exploration strategy"),
+  max_depth: z.number().default(4).describe("Maximum depth for DOM path traversal during analysis"),
+  focus_areas: z.array(z.string()).optional().describe("Specific areas to focus on (e.g., 'navigation', 'forms', 'content', 'buttons')")
+}).describe("Analyze a page's DOM structure using AI-guided exploration. Requires page to be indexed with DOM JSON content.");
+
+export const BrowserNavigateDOMPathSchema = z.object({
+  page_id: z.string().describe("Database ID of the website page with DOM JSON content"),
+  path: z.string().describe("Dot notation path to navigate through DOM structure (e.g., 'body.main.article[0].paragraphs[2]')"),
+  extract_keys: z.array(z.string()).optional().describe("Specific keys to extract from the target DOM node (e.g., ['textContent', 'href', 'src'])")
+}).describe("Navigate to a specific path in the DOM JSON structure and extract content. Uses dot notation like AIDotNavigation.");
+
+export const BrowserSearchDOMElementsSchema = z.object({
+  page_id: z.string().describe("Database ID of the website page with DOM JSON content"),
+  search_term: z.string().describe("Term to search for in DOM paths, element types, or content"),
+  element_types: z.array(z.string()).optional().describe("Filter by specific element types (e.g., ['button', 'a', 'input', 'form'])"),
+  has_content: z.boolean().optional().describe("Whether to only return elements that have text content")
+}).describe("Search for specific elements in the DOM JSON structure. Find buttons, links, forms, or content by type or keyword.");
+
+export const BrowserGetPageScreenshotSchema = z.object({
+  page_id: z.string().describe("Database ID of the website page to get screenshot from"),
+  return_base64: z.boolean().default(false).describe("Whether to return the full base64 screenshot data or just metadata")
+}).describe("Retrieve screenshot of an indexed webpage for AI visual analysis. Can return full base64 data or just metadata.");
+
+export const BrowserAnalyzeScreenshotSchema = z.object({
+  page_id: z.string().describe("Database ID of the website page with screenshot data"),
+  analysis_focus: z.string().describe("What to focus on when analyzing the screenshot (e.g., 'UI layout', 'navigation elements', 'content structure', 'visual design')")
+}).describe("Analyze a page screenshot using AI vision capabilities. Requires page to have screenshot data stored.");
 
 // ===============================================
 // Browser Tool Response Schemas
@@ -146,6 +191,18 @@ export const BrowserNavigateAndScrapeResponseSchema = z.object({
     content: z.object({
       text: z.string().optional().describe("Extracted text content from the page (if extract_text was enabled)"),
       html: z.string().optional().describe("Raw HTML content from the page (if extract_html was enabled)"),
+      sanitized_html: z.string().optional().describe("Sanitized HTML content with scripts and styles removed (if extract_sanitized_html was enabled)"),
+      markdown: z.string().optional().describe("Page content converted to markdown format (if extract_markdown was enabled)"),
+      dom_json: z.record(z.string(), z.any()).optional().describe("DOM structure as navigable JSON with inline styles (if extract_dom_json was enabled)"),
+      screenshot_base64: z.string().optional().describe("Base64-encoded screenshot of the page (if capture_screenshot was enabled)"),
+      screenshot_metadata: z.object({
+        width: z.number().describe("Screenshot width in pixels"),
+        height: z.number().describe("Screenshot height in pixels"),
+        device_scale_factor: z.number().describe("Device pixel ratio used for screenshot"),
+        timestamp: z.string().describe("ISO timestamp when screenshot was captured"),
+        full_page: z.boolean().describe("Whether screenshot captured full page or just viewport"),
+        format: z.enum(["png", "jpeg"]).describe("Image format of the screenshot")
+      }).optional().describe("Screenshot capture metadata (if capture_screenshot was enabled)"),
       links: z.array(z.object({
         text: z.string().describe("Visible text of the link"),
         href: z.string().describe("URL that the link points to")
@@ -155,6 +212,9 @@ export const BrowserNavigateAndScrapeResponseSchema = z.object({
         src: z.string().describe("Source URL of the image")
       })).optional().describe("Array of images found on the page (if extract_images was enabled)")
     }).optional().describe("Scraped content from the page based on extraction options specified"),
+    website_indexed: z.boolean().optional().describe("Whether the page was automatically indexed in the website database"),
+    website_id: z.string().optional().describe("Database ID of the indexed website (if auto_index_website was enabled)"),
+    page_id: z.string().optional().describe("Database ID of the indexed page (if auto_index_website was enabled)"),
     navigation: z.object({
       success: z.boolean().describe("Whether the navigation to the URL was successful"),
       url: z.string().describe("URL that was navigated to"),
@@ -179,7 +239,12 @@ export const BrowserInteractWithPageResponseSchema = z.object({
       result: z.object({
         success: z.boolean().describe("Whether this specific interaction was successful"),
         error: z.string().optional().describe("Error message if the interaction failed"),
-        screenshot_path: z.string().optional().describe("File path where screenshot was saved (for screenshot actions)")
+        screenshot_path: z.string().optional().describe("File path where screenshot was saved (for screenshot actions)"),
+        ai_image: z.object({
+          type: z.literal("image").describe("Type identifier for AI-consumable image format"),
+          data: z.string().describe("Base64-encoded image data"),
+          mimeType: z.enum(["image/png", "image/jpeg"]).describe("MIME type of the image")
+        }).optional().describe("AI-consumable image format (when return_for_ai is true for screenshot actions)")
       }).describe("Result details for this specific interaction")
     })).describe("Array of interaction results, executed in sequence until first failure"),
     auto_close_scheduled: z.boolean().optional().describe("Whether the session is scheduled to auto-close after this operation")
@@ -267,11 +332,16 @@ export const BrowserLegacyTakeScreenshotResponseSchema = z.object({
   execution_time_ms: z.number().optional().describe("Time taken to capture the screenshot in milliseconds"),
   data: z.object({
     session_id: z.string().describe("Browser session ID that was used for taking the screenshot"),
-    screenshot_path: z.string().describe("File path where the screenshot was saved"),
+    screenshot_path: z.string().optional().describe("File path where the screenshot was saved (when return_for_ai is false)"),
+    ai_image: z.object({
+      type: z.literal("image").describe("Type identifier for AI-consumable image format"),
+      data: z.string().describe("Base64-encoded image data"),
+      mimeType: z.enum(["image/png", "image/jpeg"]).describe("MIME type of the image")
+    }).optional().describe("AI-consumable image format (when return_for_ai is true)"),
     full_page: z.boolean().describe("Whether the screenshot captured the full page or just the visible viewport"),
     type: z.string().describe("Image format of the screenshot (png or jpeg)"),
     quality: z.number().optional().describe("Quality setting used for JPEG screenshots (0-100, higher is better quality)")
-  }).optional().describe("Screenshot capture results including session info, file path, and image settings")
+  }).optional().describe("Screenshot capture results including session info, file path or AI image, and image settings")
 }).describe("[LEGACY] Response returned after taking a screenshot of the current page in a browser session");
 
 // Legacy Execute Browser Script Response
@@ -335,6 +405,131 @@ export const BrowserLegacyListSessionsResponseSchema = z.object({
 }).describe("[LEGACY] Response returned after listing all active browser sessions");
 
 // ===============================================
+// AI-Powered DOM Navigation Response Schemas
+// ===============================================
+
+// DOM Structure Analysis Response
+export const BrowserAnalyzeDOMStructureResponseSchema = z.object({
+  success: z.boolean().describe("Whether the DOM structure analysis completed successfully"),
+  message: z.string().describe("Human-readable message describing the analysis result"),
+  timestamp: z.string().describe("ISO timestamp when the response was generated"),
+  execution_time_ms: z.number().optional().describe("Time taken to complete the analysis in milliseconds"),
+  data: z.object({
+    page_id: z.string().describe("Database ID of the analyzed page"),
+    goal: z.string().describe("The analysis goal that was specified"),
+    analysis_results: z.object({
+      structure_overview: z.object({
+        total_elements: z.number().describe("Total number of DOM elements found"),
+        max_depth: z.number().describe("Maximum depth of the DOM tree"),
+        element_types: z.record(z.string(), z.number()).describe("Count of elements by type (div, a, button, etc.)")
+      }).describe("High-level overview of the DOM structure"),
+      navigation_paths: z.array(z.string()).describe("Key navigation paths found in the DOM structure"),
+      interactive_elements: z.array(z.object({
+        path: z.string().describe("DOM path to the interactive element"),
+        type: z.string().describe("Element type (button, link, input, etc.)"),
+        description: z.string().describe("Description of what this element does"),
+        content: z.string().optional().describe("Text content or label of the element")
+      })).describe("Interactive elements that can be acted upon"),
+      content_areas: z.array(z.object({
+        path: z.string().describe("DOM path to the content area"),
+        type: z.string().describe("Type of content (article, navigation, sidebar, etc.)"),
+        description: z.string().describe("Description of the content area")
+      })).describe("Main content areas identified in the page"),
+      ai_insights: z.string().describe("AI-generated insights about the page structure and navigation opportunities")
+    }).describe("Comprehensive analysis results from AI exploration of the DOM structure")
+  }).optional().describe("DOM structure analysis results including paths, elements, and AI insights")
+}).describe("Response returned after AI-powered analysis of a page's DOM structure");
+
+// DOM Path Navigation Response
+export const BrowserNavigateDOMPathResponseSchema = z.object({
+  success: z.boolean().describe("Whether the DOM path navigation completed successfully"),
+  message: z.string().describe("Human-readable message describing the navigation result"),
+  timestamp: z.string().describe("ISO timestamp when the response was generated"),
+  execution_time_ms: z.number().optional().describe("Time taken to navigate the DOM path in milliseconds"),
+  data: z.object({
+    page_id: z.string().describe("Database ID of the page that was navigated"),
+    path: z.string().describe("The DOM path that was navigated"),
+    path_exists: z.boolean().describe("Whether the specified path exists in the DOM structure"),
+    extracted_data: z.record(z.string(), z.any()).optional().describe("Data extracted from the target DOM node"),
+    element_info: z.object({
+      tag_name: z.string().describe("HTML tag name of the target element"),
+      attributes: z.record(z.string(), z.any()).describe("HTML attributes of the target element"),
+      text_content: z.string().optional().describe("Text content of the target element"),
+      children_count: z.number().describe("Number of child elements"),
+      has_children: z.boolean().describe("Whether the element has child elements")
+    }).optional().describe("Detailed information about the target DOM element"),
+    suggestions: z.array(z.string()).optional().describe("Suggested similar paths if the specified path was not found")
+  }).optional().describe("DOM path navigation results including extracted data and element information")
+}).describe("Response returned after navigating to a specific path in the DOM JSON structure");
+
+// DOM Elements Search Response
+export const BrowserSearchDOMElementsResponseSchema = z.object({
+  success: z.boolean().describe("Whether the DOM elements search completed successfully"),
+  message: z.string().describe("Human-readable message describing the search result"),
+  timestamp: z.string().describe("ISO timestamp when the response was generated"),
+  execution_time_ms: z.number().optional().describe("Time taken to search DOM elements in milliseconds"),
+  data: z.object({
+    page_id: z.string().describe("Database ID of the page that was searched"),
+    search_term: z.string().describe("The search term that was used"),
+    total_matches: z.number().describe("Total number of matching elements found"),
+    matching_elements: z.array(z.object({
+      path: z.string().describe("DOM path to the matching element"),
+      element_type: z.string().describe("HTML tag name of the element"),
+      content_preview: z.string().optional().describe("Preview of the element's text content"),
+      attributes: z.record(z.string(), z.any()).optional().describe("Relevant HTML attributes of the element"),
+      match_reason: z.string().describe("Why this element matched the search criteria")
+    })).describe("Array of elements that matched the search criteria"),
+    element_type_summary: z.record(z.string(), z.number()).optional().describe("Count of matching elements by type")
+  }).optional().describe("DOM elements search results including matching paths and element details")
+}).describe("Response returned after searching for specific elements in the DOM JSON structure");
+
+// Page Screenshot Retrieval Response
+export const BrowserGetPageScreenshotResponseSchema = z.object({
+  success: z.boolean().describe("Whether the screenshot retrieval completed successfully"),
+  message: z.string().describe("Human-readable message describing the retrieval result"),
+  timestamp: z.string().describe("ISO timestamp when the response was generated"),
+  execution_time_ms: z.number().optional().describe("Time taken to retrieve the screenshot in milliseconds"),
+  data: z.object({
+    page_id: z.string().describe("Database ID of the page"),
+    has_screenshot: z.boolean().describe("Whether the page has screenshot data available"),
+    screenshot_base64: z.string().optional().describe("Base64-encoded screenshot data (if return_base64 was true)"),
+    screenshot_metadata: z.object({
+      width: z.number().describe("Screenshot width in pixels"),
+      height: z.number().describe("Screenshot height in pixels"),
+      device_scale_factor: z.number().describe("Device pixel ratio used for screenshot"),
+      timestamp: z.string().describe("ISO timestamp when screenshot was captured"),
+      full_page: z.boolean().describe("Whether screenshot captured full page or just viewport"),
+      format: z.enum(["png", "jpeg"]).describe("Image format of the screenshot"),
+      size_bytes: z.number().optional().describe("Size of the screenshot data in bytes")
+    }).optional().describe("Screenshot capture and storage metadata")
+  }).optional().describe("Screenshot retrieval results including data and metadata")
+}).describe("Response returned after retrieving a screenshot from an indexed webpage");
+
+// Screenshot Analysis Response
+export const BrowserAnalyzeScreenshotResponseSchema = z.object({
+  success: z.boolean().describe("Whether the screenshot analysis completed successfully"),
+  message: z.string().describe("Human-readable message describing the analysis result"),
+  timestamp: z.string().describe("ISO timestamp when the response was generated"),
+  execution_time_ms: z.number().optional().describe("Time taken to analyze the screenshot in milliseconds"),
+  data: z.object({
+    page_id: z.string().describe("Database ID of the analyzed page"),
+    analysis_focus: z.string().describe("The analysis focus that was specified"),
+    visual_analysis: z.object({
+      layout_description: z.string().describe("AI description of the overall page layout and structure"),
+      ui_elements: z.array(z.object({
+        type: z.string().describe("Type of UI element (button, menu, form, etc.)"),
+        description: z.string().describe("Description of the UI element and its purpose"),
+        location: z.string().describe("Approximate location on the page (top, center, sidebar, etc.)")
+      })).describe("UI elements identified through visual analysis"),
+      color_scheme: z.string().optional().describe("Description of the page's color scheme and visual style"),
+      accessibility_notes: z.string().optional().describe("Observations about accessibility and usability"),
+      mobile_responsiveness: z.string().optional().describe("Assessment of mobile responsiveness from the screenshot")
+    }).describe("Visual analysis results from AI examination of the screenshot"),
+    ai_insights: z.string().describe("AI-generated insights about the page design, usability, and visual structure")
+  }).optional().describe("Screenshot analysis results including visual elements and AI insights")
+}).describe("Response returned after AI-powered analysis of a page screenshot");
+
+// ===============================================
 // Export Types
 // ===============================================
 
@@ -363,6 +558,23 @@ export type BrowserExecuteScriptInput = z.infer<
 >;
 export type BrowserInteractInput = z.infer<typeof BrowserInteractSchema>;
 
+// AI-Powered DOM Navigation Input Types
+export type BrowserAnalyzeDOMStructureInput = z.infer<
+  typeof BrowserAnalyzeDOMStructureSchema
+>;
+export type BrowserNavigateDOMPathInput = z.infer<
+  typeof BrowserNavigateDOMPathSchema
+>;
+export type BrowserSearchDOMElementsInput = z.infer<
+  typeof BrowserSearchDOMElementsSchema
+>;
+export type BrowserGetPageScreenshotInput = z.infer<
+  typeof BrowserGetPageScreenshotSchema
+>;
+export type BrowserAnalyzeScreenshotInput = z.infer<
+  typeof BrowserAnalyzeScreenshotSchema
+>;
+
 // Response Types
 export type BrowserCreateSessionResponse = z.infer<typeof BrowserCreateSessionResponseSchema>;
 export type BrowserNavigateAndScrapeResponse = z.infer<typeof BrowserNavigateAndScrapeResponseSchema>;
@@ -375,3 +587,10 @@ export type BrowserLegacyExecuteScriptResponse = z.infer<typeof BrowserLegacyExe
 export type BrowserLegacyInteractWithElementResponse = z.infer<typeof BrowserLegacyInteractWithElementResponseSchema>;
 export type BrowserLegacyCloseSessionResponse = z.infer<typeof BrowserLegacyCloseSessionResponseSchema>;
 export type BrowserLegacyListSessionsResponse = z.infer<typeof BrowserLegacyListSessionsResponseSchema>;
+
+// AI-Powered DOM Navigation Response Types
+export type BrowserAnalyzeDOMStructureResponse = z.infer<typeof BrowserAnalyzeDOMStructureResponseSchema>;
+export type BrowserNavigateDOMPathResponse = z.infer<typeof BrowserNavigateDOMPathResponseSchema>;
+export type BrowserSearchDOMElementsResponse = z.infer<typeof BrowserSearchDOMElementsResponseSchema>;
+export type BrowserGetPageScreenshotResponse = z.infer<typeof BrowserGetPageScreenshotResponseSchema>;
+export type BrowserAnalyzeScreenshotResponse = z.infer<typeof BrowserAnalyzeScreenshotResponseSchema>;

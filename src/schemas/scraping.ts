@@ -141,11 +141,24 @@ export const websitePages = sqliteTable("website_pages", {
   url: text("url").notNull(), // Cleaned URL (no fragments, tracking params)
   contentHash: text("contentHash").notNull(), // Unique per domain for change detection
   htmlContent: text("htmlContent"), // Full HTML including JS-rendered content
+  sanitizedHtmlContent: text("sanitizedHtmlContent"), // HTML with scripts/styles removed
   markdownContent: text("markdownContent"), // Converted markdown (scripts/styles removed)
+  domJsonContent: text("domJsonContent", { mode: "json" }).$type<Record<string, any>>(), // DOM structure as navigable JSON
+  screenshotBase64: text("screenshotBase64"), // Base64-encoded screenshot of the page
+  screenshotMetadata: text("screenshotMetadata", { mode: "json" }).$type<{
+    width: number;
+    height: number;
+    deviceScaleFactor: number;
+    timestamp: string;
+    fullPage: boolean;
+    quality?: number;
+    format: 'png' | 'jpeg';
+  }>(), // Screenshot capture metadata
   selector: text("selector"), // Optional CSS selector used for extraction
   title: text("title"), // Page title
   httpStatus: integer("httpStatus"),
   errorMessage: text("errorMessage"),
+  javascriptEnabled: integer("javascriptEnabled", { mode: "boolean" }).default(true), // Whether JS was enabled during scraping
   createdAt: text("createdAt").notNull().default(sql`(current_timestamp)`),
   updatedAt: text("updatedAt").notNull().default(sql`(current_timestamp)`),
 });
@@ -287,11 +300,24 @@ export type WebsitePage = {
   url: string;
   contentHash: string;
   htmlContent?: string;
+  sanitizedHtmlContent?: string;
   markdownContent?: string;
+  domJsonContent?: Record<string, any>;
+  screenshotBase64?: string;
+  screenshotMetadata?: {
+    width: number;
+    height: number;
+    deviceScaleFactor: number;
+    timestamp: string;
+    fullPage: boolean;
+    quality?: number;
+    format: 'png' | 'jpeg';
+  };
   selector?: string;
   title?: string;
   httpStatus?: number;
   errorMessage?: string;
+  javascriptEnabled: boolean;
   createdAt: string;
   updatedAt: string;
 };
