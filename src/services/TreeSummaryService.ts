@@ -467,39 +467,50 @@ export class TreeSummaryService {
 
   /**
    * Find the project root by looking for common markers
+   * Always returns the TOPMOST project root, not the first one found
    */
   private findProjectRoot(filePath: string): string {
     let currentDir = path.dirname(path.resolve(filePath));
+    let topMostProjectRoot: string | null = null;
+    
+    // Common project markers in priority order (.git is most important)
+    const markers = [
+      '.git',
+      'package.json',
+      'pyproject.toml',
+      'Cargo.toml',
+      'go.mod',
+      'Makefile',
+      'pom.xml',
+      'build.gradle'
+    ];
     
     while (currentDir !== path.dirname(currentDir)) {
-      // Check for common project markers
-      const markers = [
-        'package.json',
-        'pyproject.toml',
-        'Cargo.toml',
-        'go.mod',
-        '.git',
-        'Makefile',
-        'pom.xml',
-        'build.gradle'
-      ];
+      // Check for any project markers in this directory
+      let hasProjectMarker = false;
       
       for (const marker of markers) {
         try {
           const markerPath = path.join(currentDir, marker);
           // Use synchronous check for simplicity in this case
           accessSync(markerPath);
-          return currentDir;
+          hasProjectMarker = true;
+          break; // Found at least one marker in this directory
         } catch {
-          // Continue searching
+          // Continue checking other markers
         }
+      }
+      
+      if (hasProjectMarker) {
+        // Update the topmost project root (always prefer higher up in the directory tree)
+        topMostProjectRoot = currentDir;
       }
       
       currentDir = path.dirname(currentDir);
     }
     
-    // Default to the directory containing the file
-    return path.dirname(path.resolve(filePath));
+    // Return the topmost project root found, or default to the directory containing the file
+    return topMostProjectRoot || path.dirname(path.resolve(filePath));
   }
 
   /**
