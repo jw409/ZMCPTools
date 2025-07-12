@@ -138,7 +138,7 @@ export class DependencyWaitingService {
         throw new Error(`Task ${taskId} not found`);
       }
 
-      const dependencies = task.dependencies || [];
+      const dependencies = (task.requirements?.dependencies as string[]) || [];
       if (dependencies.length === 0) {
         return {
           success: true,
@@ -240,25 +240,23 @@ export class DependencyWaitingService {
         }
       }, { repositoryPath });
 
-      // Listen for progress completion reports (secondary signal)
-      const progressSubscriptionId = eventBus.subscribe('progress_report', (data) => {
-        if (data.agentId === agentId && data.repositoryPath === repositoryPath) {
-          if (data.progressType === 'completion') {
-            clearTimeout(timeoutId);
-            eventBus.unsubscribe(statusSubscriptionId);
-            eventBus.unsubscribe(terminationSubscriptionId);
-            eventBus.unsubscribe(progressSubscriptionId);
-            
-            resolve({
-              id: agentId,
-              status: 'completed',
-              source: 'progress_report',
-              metadata: {
-                results: data.results,
-                message: data.message
-              }
-            });
-          }
+      // Listen for task completion reports (secondary signal)
+      const progressSubscriptionId = eventBus.subscribe('task_completed', (data: any) => {
+        if (data.completedBy === agentId && data.repositoryPath === repositoryPath) {
+          clearTimeout(timeoutId);
+          eventBus.unsubscribe(statusSubscriptionId);
+          eventBus.unsubscribe(terminationSubscriptionId);
+          eventBus.unsubscribe(progressSubscriptionId);
+          
+          resolve({
+            id: agentId,
+            status: 'completed',
+            source: 'progress_report',
+            metadata: {
+              results: data.results,
+              taskId: data.taskId
+            }
+          });
         }
       }, { repositoryPath });
     });
@@ -283,7 +281,7 @@ export class DependencyWaitingService {
         });
       }, timeout);
 
-      const taskSubscriptionId = eventBus.subscribe('task_completed', (data) => {
+      const taskSubscriptionId = eventBus.subscribe('task_completed', (data: any) => {
         if (data.taskId === taskId && data.repositoryPath === repositoryPath) {
           clearTimeout(timeoutId);
           eventBus.unsubscribe(taskSubscriptionId);
@@ -460,8 +458,8 @@ export class DependencyWaitingService {
             agentId,
             status: agent.status,
             lastHeartbeat: agent.lastHeartbeat,
-            currentTask: agent.agentMetadata?.currentTask?.description,
-            progress: agent.agentMetadata?.progress
+            currentTask: (agent.agentMetadata as any)?.currentTask?.description,
+            progress: (agent.agentMetadata as any)?.progress
           });
         } else {
           statusDetails.push({

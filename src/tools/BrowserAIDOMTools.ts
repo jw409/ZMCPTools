@@ -1,4 +1,4 @@
-import { CallToolRequest, CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { CallToolRequest, CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import type { McpTool } from '../schemas/tools/index.js';
@@ -562,16 +562,16 @@ export class BrowserAIDOMTools {
       logger.info(`Analyzing DOM structure for page: ${validatedArgs.page_id}`);
 
       // Load page data from database
-      const page = await this.pagesRepo.getPageById(validatedArgs.page_id);
+      const page = await this.pagesRepo.findById(validatedArgs.page_id);
       if (!page) {
         throw new Error(`Page with ID ${validatedArgs.page_id} not found`);
       }
 
-      if (!page.dom_content) {
+      if (!page.domJsonContent) {
         throw new Error(`No DOM content available for page ${validatedArgs.page_id}`);
       }
 
-      const domJson = JSON.parse(page.dom_content);
+      const domJson = page.domJsonContent;
 
       // Create navigation context
       const context: NavigationContext = {
@@ -612,16 +612,16 @@ export class BrowserAIDOMTools {
       logger.info(`Navigating DOM path: ${validatedArgs.path} for page: ${validatedArgs.page_id}`);
 
       // Load page data from database
-      const page = await this.pagesRepo.getPageById(validatedArgs.page_id);
+      const page = await this.pagesRepo.findById(validatedArgs.page_id);
       if (!page) {
         throw new Error(`Page with ID ${validatedArgs.page_id} not found`);
       }
 
-      if (!page.dom_content) {
+      if (!page.domJsonContent) {
         throw new Error(`No DOM content available for page ${validatedArgs.page_id}`);
       }
 
-      const domJson = JSON.parse(page.dom_content);
+      const domJson = page.domJsonContent;
 
       // Navigate to the specified path
       const targetElement = this.navigatePath(domJson, validatedArgs.path);
@@ -657,16 +657,16 @@ export class BrowserAIDOMTools {
       logger.info(`Searching DOM elements for page: ${validatedArgs.page_id}`);
 
       // Load page data from database
-      const page = await this.pagesRepo.getPageById(validatedArgs.page_id);
+      const page = await this.pagesRepo.findById(validatedArgs.page_id);
       if (!page) {
         throw new Error(`Page with ID ${validatedArgs.page_id} not found`);
       }
 
-      if (!page.dom_content) {
+      if (!page.domJsonContent) {
         throw new Error(`No DOM content available for page ${validatedArgs.page_id}`);
       }
 
-      const domJson = JSON.parse(page.dom_content);
+      const domJson = page.domJsonContent;
 
       // Search for elements matching criteria
       const searchResults = this.searchElements(domJson, validatedArgs.search_criteria);
@@ -699,19 +699,19 @@ export class BrowserAIDOMTools {
       logger.info(`Getting screenshot for page: ${validatedArgs.page_id}`);
 
       // Load page data from database
-      const page = await this.pagesRepo.getPageById(validatedArgs.page_id);
+      const page = await this.pagesRepo.findById(validatedArgs.page_id);
       if (!page) {
         throw new Error(`Page with ID ${validatedArgs.page_id} not found`);
       }
 
-      if (!page.screenshot_path) {
+      if (!page.screenshotBase64) {
         throw new Error(`No screenshot available for page ${validatedArgs.page_id}`);
       }
 
       if (validatedArgs.format === "file_path") {
         return {
           page_id: validatedArgs.page_id,
-          screenshot_path: page.screenshot_path,
+          screenshot_base64: page.screenshotBase64,
           format: "file_path"
         };
       } else {
@@ -719,7 +719,7 @@ export class BrowserAIDOMTools {
         // For now, return the file path with instructions
         return {
           page_id: validatedArgs.page_id,
-          screenshot_path: page.screenshot_path,
+          screenshot_base64: page.screenshotBase64,
           format: "file_path",
           note: "Base64 encoding not yet implemented. Use file_path format and read the file directly."
         };
@@ -737,19 +737,19 @@ export class BrowserAIDOMTools {
       logger.info(`Analyzing screenshot for page: ${validatedArgs.page_id}`);
 
       // Load page data from database
-      const page = await this.pagesRepo.getPageById(validatedArgs.page_id);
+      const page = await this.pagesRepo.findById(validatedArgs.page_id);
       if (!page) {
         throw new Error(`Page with ID ${validatedArgs.page_id} not found`);
       }
 
-      if (!page.screenshot_path) {
+      if (!page.screenshotBase64) {
         throw new Error(`No screenshot available for page ${validatedArgs.page_id}`);
       }
 
       // For now, return analysis structure - actual AI analysis would need image processing
       const result = {
         page_id: validatedArgs.page_id,
-        screenshot_path: page.screenshot_path,
+        screenshot_base64: page.screenshotBase64,
         analysis_prompt: validatedArgs.analysis_prompt,
         focus_region: validatedArgs.focus_region,
         analysis: {

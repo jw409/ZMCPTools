@@ -552,6 +552,7 @@ export class WebScrapingService {
             selector: selectorToUse || undefined,
             title: pageContent.title || new URL(url).pathname,
             httpStatus: 200,
+            javascriptEnabled: true,
           });
 
           // Smart vector indexing - handle both new and updated pages

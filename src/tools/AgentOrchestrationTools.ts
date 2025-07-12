@@ -2240,7 +2240,7 @@ SPECIALIST AGENT:
 
           const agent = await this.agentService.createAgent({
             agentName: agentSpec.agentType,
-            agentType: agentSpec.agentType,
+            agentType: agentSpec.agentType as any,
             repositoryPath,
             taskDescription: `Execute planned ${agentSpec.role} responsibilities: ${agentSpec.responsibilities.join(', ')}`,
             capabilities: agentSpec.requiredCapabilities,
