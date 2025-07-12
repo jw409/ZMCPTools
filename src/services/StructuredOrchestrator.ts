@@ -454,9 +454,17 @@ export class StructuredOrchestrator extends EventEmitter {
         relevanceScore: 0.9
       });
 
-      // Wait for research completion (simplified for this implementation)
-      // In practice, this would monitor the agent's progress
-      await new Promise(resolve => setTimeout(resolve, 5000));
+      // Wait for research agent to actually complete
+      const dependencyWaitingService = new (await import('./DependencyWaitingService.js')).DependencyWaitingService(this.db);
+      const researchCompletion = await dependencyWaitingService.waitForAgentDependencies(
+        [researcherAgent.id],
+        request.repositoryPath,
+        { timeout: 600000 } // 10 minutes for research
+      );
+
+      if (!researchCompletion.success) {
+        throw new Error(`Research phase failed: ${researchCompletion.message}`);
+      }
 
       return {
         success: true,

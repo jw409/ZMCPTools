@@ -88,6 +88,12 @@ export {
   type CoordinationStatus,
   type CoordinationEvent
 } from './AlternativeCoordinationService.js';
+export {
+  DependencyWaitingService,
+  type DependencyWaitResult,
+  type TaskDependencyWaitResult,
+  type CompletionEvent
+} from './DependencyWaitingService.js';
 
 // Repository exports
 export { AgentRepository } from '../repositories/AgentRepository.js';

@@ -7,6 +7,8 @@ import { AgentMonitoringService } from '../services/AgentMonitoringService.js';
 import { ProgressTracker } from '../services/ProgressTracker.js';
 import { ClaudeSpawner } from '../process/ClaudeSpawner.js';
 import { StructuredOrchestrator, type StructuredOrchestrationRequest } from '../services/index.js';
+import { DependencyWaitingService } from '../services/DependencyWaitingService.js';
+import { SequentialPlanningService, type PlanningRequest, type ExecutionPlan } from '../services/SequentialPlanningService.js';
 import type { TaskType, AgentStatus, MessageType, EntityType } from '../schemas/index.js';
 import type { McpTool } from '../schemas/tools/index.js';
 
@@ -54,6 +56,16 @@ import {
   GetCleanupConfigurationResponseSchema
 } from '../schemas/tools/cleanup.js';
 
+// Import sequential planning tool schemas
+import {
+  SequentialPlanningSchema,
+  GetExecutionPlanSchema,
+  ExecuteWithPlanSchema,
+  SequentialPlanningResponseSchema,
+  GetExecutionPlanResponseSchema,
+  ExecuteWithPlanResponseSchema
+} from '../schemas/tools/sequentialPlanning.js';
+
 // Legacy types for backward compatibility
 export const OrchestrationResultSchema = z.object({
   success: z.boolean(),
@@ -82,6 +94,8 @@ export class AgentOrchestrationTools {
   private monitoringService: AgentMonitoringService;
   private progressTracker: ProgressTracker;
   private structuredOrchestrator: StructuredOrchestrator;
+  private dependencyWaitingService: DependencyWaitingService;
+  private sequentialPlanningService: SequentialPlanningService;
 
   constructor(private db: DatabaseManager, repositoryPath: string) {
     this.agentService = new AgentService(db);
@@ -96,6 +110,8 @@ export class AgentOrchestrationTools {
     this.monitoringService = new AgentMonitoringService(db, repositoryPath);
     this.progressTracker = new ProgressTracker(db);
     this.structuredOrchestrator = new StructuredOrchestrator(db, repositoryPath);
+    this.dependencyWaitingService = new DependencyWaitingService(db);
+    this.sequentialPlanningService = new SequentialPlanningService(db);
   }
 
   private async initializeKnowledgeGraphService(db: DatabaseManager): Promise<void> {
@@ -202,6 +218,27 @@ export class AgentOrchestrationTools {
         inputSchema: zodToJsonSchema(GetCleanupConfigurationSchema),
         outputSchema: zodToJsonSchema(GetCleanupConfigurationResponseSchema),
         handler: this.getCleanupConfiguration.bind(this)
+      },
+      {
+        name: 'create_execution_plan',
+        description: 'Create comprehensive execution plan using sequential thinking before spawning agents',
+        inputSchema: zodToJsonSchema(SequentialPlanningSchema),
+        outputSchema: zodToJsonSchema(SequentialPlanningResponseSchema),
+        handler: this.createExecutionPlan.bind(this)
+      },
+      {
+        name: 'get_execution_plan',
+        description: 'Retrieve a previously created execution plan',
+        inputSchema: zodToJsonSchema(GetExecutionPlanSchema),
+        outputSchema: zodToJsonSchema(GetExecutionPlanResponseSchema),
+        handler: this.getExecutionPlan.bind(this)
+      },
+      {
+        name: 'execute_with_plan',
+        description: 'Execute an objective using a pre-created execution plan with well-defined agent tasks',
+        inputSchema: zodToJsonSchema(ExecuteWithPlanSchema),
+        outputSchema: zodToJsonSchema(ExecuteWithPlanResponseSchema),
+        handler: this.executeWithPlan.bind(this)
       }
     ];
   }
@@ -447,16 +484,48 @@ export class AgentOrchestrationTools {
         roomId
       } = options;
 
-      // 1. Check dependencies if any
+      // 1. Wait for dependencies if any (REAL WAITING, NOT JUST CHECKING!)
       if (dependsOn.length > 0) {
-        const depCheck = await this.checkDependencies(dependsOn);
-        if (!depCheck.success) {
+        logger.info(`Agent has ${dependsOn.length} dependencies, waiting for completion...`, {
+          agentType,
+          dependsOn,
+          repositoryPath
+        });
+
+        const dependencyResult = await this.dependencyWaitingService.waitForAgentDependencies(
+          dependsOn,
+          repositoryPath,
+          {
+            timeout: 600000, // 10 minutes
+            waitForAnyFailure: true
+          }
+        );
+
+        if (!dependencyResult.success) {
+          logger.warn('Dependency waiting failed', {
+            agentType,
+            dependencyResult,
+            failedAgents: dependencyResult.failedAgents,
+            timeoutAgents: dependencyResult.timeoutAgents
+          });
+
           return {
             success: false,
-            message: `Dependencies not met: ${depCheck.message}`,
-            data: { missingDependencies: depCheck.data }
+            message: `Dependencies failed or timed out: ${dependencyResult.message}`,
+            data: {
+              dependencyResult,
+              failedAgents: dependencyResult.failedAgents,
+              timeoutAgents: dependencyResult.timeoutAgents,
+              waitDuration: dependencyResult.waitDuration
+            }
           };
         }
+
+        logger.info(`All dependencies completed successfully, proceeding with agent spawn`, {
+          agentType,
+          completedAgents: dependencyResult.completedAgents,
+          waitDuration: dependencyResult.waitDuration
+        });
       }
 
       // 2. Generate specialized prompt
@@ -743,6 +812,17 @@ Use this tool systematically throughout your orchestration process:
 5. **Risk Assessment**: Consider potential challenges and mitigation strategies
 6. **Execution Strategy**: Plan coordination and monitoring approach
 7. **Iterative Refinement**: Revise and improve your approach as understanding deepens
+
+🎯 STRUCTURED PLANNING TOOLS:
+You also have access to structured planning tools for comprehensive orchestration:
+- create_execution_plan() - Create detailed execution plan using sequential thinking
+- get_execution_plan() - Retrieve previously created execution plans
+- execute_with_plan() - Execute objectives using pre-created plans with well-defined agent tasks
+
+RECOMMENDED WORKFLOW:
+1. Start with sequential_thinking() for initial analysis
+2. Use create_execution_plan() to create comprehensive structured plan
+3. Use execute_with_plan() to spawn agents with clear, specific tasks
 
 🎯 KNOWLEDGE GRAPH INTEGRATION:
 Before planning, always search for relevant knowledge and patterns:
@@ -1982,5 +2062,351 @@ SPECIALIST AGENT:
         'GET_CLEANUP_CONFIG_ERROR'
       );
     }
+  }
+
+  // =================== SEQUENTIAL PLANNING TOOLS ===================
+
+  /**
+   * Create comprehensive execution plan using sequential thinking before spawning agents
+   */
+  async createExecutionPlan(args: any): Promise<OrchestrationResult> {
+    // Map snake_case to camelCase for compatibility
+    const normalizedArgs = {
+      objective: args.objective,
+      repositoryPath: args.repositoryPath || args.repository_path,
+      foundationSessionId: args.foundationSessionId || args.foundation_session_id,
+      planningDepth: args.planningDepth || args.planning_depth,
+      includeRiskAnalysis: args.includeRiskAnalysis || args.include_risk_analysis,
+      includeResourceEstimation: args.includeResourceEstimation || args.include_resource_estimation,
+      preferredAgentTypes: args.preferredAgentTypes || args.preferred_agent_types,
+      constraints: args.constraints
+    };
+
+    try {
+      const planningRequest: PlanningRequest = {
+        objective: normalizedArgs.objective,
+        repositoryPath: normalizedArgs.repositoryPath,
+        foundationSessionId: normalizedArgs.foundationSessionId,
+        planningDepth: normalizedArgs.planningDepth || 'detailed',
+        includeRiskAnalysis: normalizedArgs.includeRiskAnalysis ?? true,
+        includeResourceEstimation: normalizedArgs.includeResourceEstimation ?? true,
+        preferredAgentTypes: normalizedArgs.preferredAgentTypes,
+        constraints: normalizedArgs.constraints
+      };
+
+      const result = await this.sequentialPlanningService.createExecutionPlan(planningRequest);
+
+      return {
+        success: result.success,
+        message: result.message,
+        data: {
+          planningId: result.planningId,
+          executionPlan: result.executionPlan,
+          planningInsights: result.planningInsights,
+          planningDuration: result.planningDuration,
+          error: result.error
+        }
+      };
+
+    } catch (error) {
+      return {
+        success: false,
+        message: `Failed to create execution plan: ${error}`,
+        data: { error: String(error) }
+      };
+    }
+  }
+
+  /**
+   * Retrieve a previously created execution plan
+   */
+  async getExecutionPlan(args: any): Promise<OrchestrationResult> {
+    const { planningId } = args;
+
+    try {
+      const executionPlan = await this.sequentialPlanningService.getExecutionPlan(planningId);
+
+      if (!executionPlan) {
+        return {
+          success: false,
+          message: `Execution plan ${planningId} not found`,
+          data: { planningId }
+        };
+      }
+
+      return {
+        success: true,
+        message: `Execution plan ${planningId} retrieved successfully`,
+        data: {
+          planningId,
+          executionPlan
+        }
+      };
+
+    } catch (error) {
+      return {
+        success: false,
+        message: `Failed to retrieve execution plan: ${error}`,
+        data: { error: String(error) }
+      };
+    }
+  }
+
+  /**
+   * Execute an objective using a pre-created execution plan with well-defined agent tasks
+   */
+  async executeWithPlan(args: any): Promise<OrchestrationResult> {
+    // Map snake_case to camelCase for compatibility
+    const normalizedArgs = {
+      planningId: args.planningId || args.planning_id,
+      repositoryPath: args.repositoryPath || args.repository_path,
+      foundationSessionId: args.foundationSessionId || args.foundation_session_id,
+      executeImmediately: args.executeImmediately || args.execute_immediately,
+      monitoring: args.monitoring
+    };
+
+    const { planningId, repositoryPath, foundationSessionId, executeImmediately = true, monitoring = true } = normalizedArgs;
+
+    try {
+      // Step 1: Retrieve the execution plan
+      const executionPlan = await this.sequentialPlanningService.getExecutionPlan(planningId);
+      if (!executionPlan) {
+        return {
+          success: false,
+          message: `Execution plan ${planningId} not found`,
+          data: { planningId }
+        };
+      }
+
+      // Step 2: Create coordination room
+      const executionId = `exec_plan_${Date.now()}`;
+      const coordinationRoomName = `execution_${executionId}`;
+      const coordinationRoom = await this.communicationService.createRoom({
+        name: coordinationRoomName,
+        description: `Execution with plan ${planningId}: ${executionPlan.objective}`,
+        repositoryPath,
+        metadata: {
+          executionId,
+          planningId,
+          objective: executionPlan.objective,
+          planBasedExecution: true,
+          foundationSessionId
+        }
+      });
+
+      const spawnedAgents: string[] = [];
+      const createdTasks: string[] = [];
+
+      if (executeImmediately) {
+        // Step 3: Create tasks based on execution plan
+        for (const taskSpec of executionPlan.tasks) {
+          const task = await this.taskService.createTask({
+            repositoryPath,
+            taskType: taskSpec.taskType as TaskType,
+            description: `${taskSpec.title}: ${taskSpec.description}`,
+            requirements: {
+              executionId,
+              planningId,
+              taskSpecId: taskSpec.id,
+              priority: taskSpec.priority,
+              estimatedDuration: taskSpec.estimatedDuration,
+              requiredCapabilities: taskSpec.requiredCapabilities,
+              deliverables: taskSpec.deliverables,
+              acceptanceCriteria: taskSpec.acceptanceCriteria,
+              complexity: taskSpec.complexity,
+              riskLevel: taskSpec.riskLevel,
+              planBasedExecution: true
+            },
+            priority: taskSpec.priority
+          });
+          createdTasks.push(task.id);
+        }
+
+        // Step 4: Spawn agents based on execution plan
+        for (const agentSpec of executionPlan.agents) {
+          const agentTaskAssignments = agentSpec.taskAssignments
+            .map(taskSpecId => {
+              const taskIndex = executionPlan.tasks.findIndex(t => t.id === taskSpecId);
+              return taskIndex >= 0 ? createdTasks[taskIndex] : null;
+            })
+            .filter(Boolean) as string[];
+
+          const agentPrompt = this.generatePlanBasedAgentPrompt(
+            agentSpec,
+            executionPlan,
+            agentTaskAssignments,
+            coordinationRoomName
+          );
+
+          const agent = await this.agentService.createAgent({
+            agentName: agentSpec.agentType,
+            agentType: agentSpec.agentType,
+            repositoryPath,
+            taskDescription: `Execute planned ${agentSpec.role} responsibilities: ${agentSpec.responsibilities.join(', ')}`,
+            capabilities: agentSpec.requiredCapabilities,
+            roomId: coordinationRoom.id,
+            metadata: {
+              executionId,
+              planningId,
+              agentSpecId: agentSpec.agentType,
+              role: agentSpec.role,
+              responsibilities: agentSpec.responsibilities,
+              taskAssignments: agentTaskAssignments,
+              estimatedWorkload: agentSpec.estimatedWorkload,
+              planBasedExecution: true,
+              executionPlan: {
+                objective: executionPlan.objective,
+                complexity: executionPlan.complexityAnalysis.complexityLevel,
+                totalTasks: executionPlan.tasks.length,
+                totalAgents: executionPlan.agents.length
+              }
+            },
+            claudeConfig: {
+              prompt: agentPrompt,
+              model: executionPlan.resourceEstimation.modelRecommendations[agentSpec.agentType] || 'claude-3-7-sonnet-latest'
+            }
+          });
+
+          spawnedAgents.push(agent.id);
+
+          // Assign tasks to agent
+          for (const taskId of agentTaskAssignments) {
+            await this.taskService.assignTask(taskId, agent.id);
+          }
+        }
+
+        // Step 5: Send coordination message with plan details
+        await this.communicationService.sendMessage({
+          roomName: coordinationRoomName,
+          agentName: 'system',
+          message: `🎯 Plan-Based Execution Started\n\nObjective: ${executionPlan.objective}\nPlanning ID: ${planningId}\nExecution ID: ${executionId}\n\nSpawned ${spawnedAgents.length} agents with ${createdTasks.length} planned tasks.\n\nAll agents have received detailed execution plans with specific responsibilities, deliverables, and acceptance criteria.`,
+          messageType: 'system' as MessageType
+        });
+      }
+
+      return {
+        success: true,
+        message: `Plan-based execution ${executeImmediately ? 'started' : 'prepared'} successfully`,
+        data: {
+          planningId,
+          executionId,
+          coordinationRoom: coordinationRoomName,
+          spawnedAgents: executeImmediately ? spawnedAgents : [],
+          createdTasks: executeImmediately ? createdTasks : [],
+          monitoringSetup: monitoring,
+          executionPlan: {
+            objective: executionPlan.objective,
+            totalTasks: executionPlan.tasks.length,
+            totalAgents: executionPlan.agents.length,
+            estimatedDuration: executionPlan.resourceEstimation.totalEstimatedDuration,
+            parallelExecutionTime: executionPlan.resourceEstimation.parallelExecutionTime,
+            confidenceScore: executionPlan.confidenceScore
+          }
+        }
+      };
+
+    } catch (error) {
+      return {
+        success: false,
+        message: `Failed to execute with plan: ${error}`,
+        data: { error: String(error) }
+      };
+    }
+  }
+
+  /**
+   * Generate specialized prompt for plan-based agent execution
+   */
+  private generatePlanBasedAgentPrompt(
+    agentSpec: any,
+    executionPlan: ExecutionPlan,
+    assignedTaskIds: string[],
+    coordinationRoomName: string
+  ): string {
+    const assignedTasks = executionPlan.tasks.filter(task => 
+      agentSpec.taskAssignments.includes(task.id)
+    );
+
+    return `🎯 PLAN-BASED ${agentSpec.role.toUpperCase()} AGENT - Executing Pre-Planned Objectives
+
+EXECUTION CONTEXT:
+- Planning ID: ${executionPlan.planningId}
+- Objective: ${executionPlan.objective}
+- Your Role: ${agentSpec.role}
+- Coordination Room: ${coordinationRoomName}
+- Planning Confidence: ${(executionPlan.confidenceScore * 100).toFixed(1)}%
+
+You are a specialized ${agentSpec.role} with COMPLETE CLAUDE CODE CAPABILITIES working within a comprehensive execution plan created through sequential thinking analysis.
+
+🧠 KEY ADVANTAGE - YOU KNOW EXACTLY WHAT TO DO:
+Unlike typical agents that figure things out as they go, you have been provided with a detailed execution plan that specifies:
+- Your exact responsibilities and deliverables
+- Task dependencies and coordination requirements  
+- Acceptance criteria and quality standards
+- Risk mitigation strategies and contingency plans
+- Resource allocations and timeline estimates
+
+🎯 YOUR PLANNED RESPONSIBILITIES:
+${agentSpec.responsibilities.map((resp: string, index: number) => `${index + 1}. ${resp}`).join('\n')}
+
+📋 YOUR ASSIGNED TASKS:
+${assignedTasks.map((task: any, index: number) => `
+TASK ${index + 1}: ${task.title}
+- Description: ${task.description}
+- Priority: ${task.priority}/10
+- Estimated Duration: ${task.estimatedDuration} minutes
+- Complexity: ${task.complexity}
+- Risk Level: ${task.riskLevel}
+- Dependencies: ${task.dependencies.length > 0 ? task.dependencies.join(', ') : 'None'}
+
+DELIVERABLES:
+${task.deliverables.map((deliverable: string) => `- ${deliverable}`).join('\n')}
+
+ACCEPTANCE CRITERIA:
+${task.acceptanceCriteria.map((criteria: string) => `- ${criteria}`).join('\n')}
+`).join('\n')}
+
+🤝 COORDINATION REQUIREMENTS:
+${agentSpec.coordinationRequirements.map((req: string) => `- ${req}`).join('\n')}
+
+🎯 EXECUTION STRATEGY:
+The execution plan includes these phases:
+${executionPlan.executionStrategy.phases.map((phase: any) => `- ${phase.name}: ${phase.description}`).join('\n')}
+
+Quality Gates: ${executionPlan.executionStrategy.qualityGates.join(', ')}
+Completion Criteria: ${executionPlan.executionStrategy.completionCriteria.join(', ')}
+
+⚠️ RISK AWARENESS:
+Identified risks and mitigation strategies:
+${executionPlan.riskAssessment.identifiedRisks.map((risk: any) => `- ${risk.type}: ${risk.description} (${risk.probability}/${risk.impact}) → ${risk.mitigationStrategy}`).join('\n')}
+
+🛠️ AVAILABLE TOOLS & CAPABILITIES:
+You have access to ALL Claude Code tools including:
+- File operations, code analysis, and development tools
+- Communication tools (send_message, join_room) for coordination
+- Knowledge graph tools (store_knowledge_memory, search_knowledge_graph)
+- Progress reporting tools (report_progress) for status updates
+
+🎯 EXECUTION GUIDELINES:
+1. **Follow the Plan**: Execute your assigned tasks according to the detailed specifications
+2. **Meet Quality Standards**: Ensure all deliverables meet the acceptance criteria  
+3. **Coordinate Actively**: Use the coordination room for status updates and issue resolution
+4. **Report Progress**: Use report_progress() to update task status and completion
+5. **Handle Dependencies**: Respect task dependencies and coordinate with other agents
+6. **Apply Risk Mitigation**: Be aware of identified risks and apply mitigation strategies
+7. **Store Insights**: Document learnings and discoveries in the knowledge graph
+
+🚀 SUCCESS METRICS:
+- All assigned tasks completed successfully
+- All deliverables meet acceptance criteria
+- All quality gates passed
+- Coordination requirements fulfilled
+- Progress properly reported and documented
+
+CRITICAL ADVANTAGE: You have a comprehensive roadmap created through sequential thinking analysis. 
+This eliminates the typical problem of agents not knowing what they're doing.
+Execute systematically according to your plan and coordinate effectively with other agents.
+
+Start by reviewing your assigned tasks and sending a status message to the coordination room confirming your understanding and planned approach.`;
   }
 }
