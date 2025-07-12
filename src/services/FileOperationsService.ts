@@ -287,12 +287,33 @@ export class FileOperationsService {
           }
 
           if (replacementCount > 0) {
+            let backupPath: string | null = null;
+            
             if (createBackup && !dryRun) {
-              await fs.copyFile(filePath, `${filePath}.backup`);
+              backupPath = `${filePath}.backup.${Date.now()}`;
+              await fs.copyFile(filePath, backupPath);
             }
 
             if (!dryRun) {
-              await fs.writeFile(filePath, newContent, 'utf-8');
+              try {
+                await fs.writeFile(filePath, newContent, 'utf-8');
+                
+                // Success: remove backup if it exists
+                if (backupPath) {
+                  await fs.unlink(backupPath);
+                }
+              } catch (writeError) {
+                // Failure: restore from backup if it exists, then delete backup
+                if (backupPath) {
+                  try {
+                    await fs.copyFile(backupPath, filePath);
+                    await fs.unlink(backupPath);
+                  } catch (restoreError) {
+                    console.error(`Failed to restore backup for ${filePath}:`, restoreError);
+                  }
+                }
+                throw writeError; // Re-throw the original write error
+              }
             }
 
             result.files.push(filePath);
