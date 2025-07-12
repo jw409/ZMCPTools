@@ -12,7 +12,7 @@ import * as path from 'path';
 import { promisify } from 'util';
 import { createHash } from 'crypto';
 import type { KnowledgeGraphService } from '../services/KnowledgeGraphService.js';
-import { TreeSitterParser } from '../services/TreeSitterParser.js';
+import { LezerParserService } from '../services/LezerParserService.js';
 import { FileOperationsService, type ListFilesOptions, type FindFilesOptions, type ReplaceOptions } from '../services/FileOperationsService.js';
 import { FoundationCacheService } from '../services/FoundationCacheService.js';
 import { TreeSummaryService, type DirectoryNode } from '../services/TreeSummaryService.js';
@@ -66,7 +66,7 @@ const access = promisify(fs.access);
 export class AnalysisMcpTools {
   private fileOpsService: FileOperationsService;
   private treeSummaryService: TreeSummaryService;
-  private treeSitterParser: TreeSitterParser;
+  private lezerParserService: LezerParserService;
 
   constructor(
     private knowledgeGraphService: KnowledgeGraphService,
@@ -75,7 +75,7 @@ export class AnalysisMcpTools {
   ) {
     this.fileOpsService = new FileOperationsService();
     this.treeSummaryService = new TreeSummaryService(foundationCache);
-    this.treeSitterParser = new TreeSitterParser();
+    this.lezerParserService = new LezerParserService();
   }
 
   /**
@@ -367,9 +367,9 @@ export class AnalysisMcpTools {
     
     const filePath = path.resolve(params.file_path);
     
-    // Use TreeSitterParser for robust symbol extraction
+    // Use LezerParserService for robust symbol extraction
     const content = await readFile(filePath, 'utf8');
-    const parseResult = await this.treeSitterParser.parseFile(filePath, content);
+    const parseResult = await this.lezerParserService.parseFile(filePath, content);
     
     if (!parseResult.parseSuccess) {
       // Fallback to regex-based parsing for unsupported files
@@ -424,8 +424,8 @@ export class AnalysisMcpTools {
    * Generate file analyses for all source files in a project structure
    */
   private async generateFileAnalyses(projectPath: string, structure: DirectoryNode): Promise<void> {
-    // Get supported extensions from TreeSitterParser
-    const supportedExtensions = new Set(this.treeSitterParser.getSupportedExtensions());
+    // Get supported extensions from LezerParserService
+    const supportedExtensions = new Set(this.lezerParserService.getSupportedExtensions());
     
     const processNode = async (node: DirectoryNode, currentPath: string): Promise<void> => {
       for (const child of node.children || []) {
@@ -435,8 +435,8 @@ export class AnalysisMcpTools {
           const ext = path.extname(child.name).toLowerCase();
           if (supportedExtensions.has(ext)) {
             try {
-              // Use TreeSitterParser for comprehensive analysis
-              const analysis = await this.treeSitterParser.analyzeFile(childPath);
+              // Use LezerParserService for comprehensive analysis
+              const analysis = await this.lezerParserService.analyzeFile(childPath);
               
               if (analysis) {
                 // Store the analysis using TreeSummaryService

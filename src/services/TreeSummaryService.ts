@@ -189,13 +189,9 @@ export class TreeSummaryService {
       
       // Create atomic file write with directory structure preservation
       const relativeFilePath = path.relative(projectPath, filePath);
-      const relativeDirPath = path.dirname(relativeFilePath);
-      const fileName = path.basename(relativeFilePath);
       
-      // Create directory-separated structure: .treesummary/dirname/files/filename.json
-      const analysisFile = relativeDirPath === '.' 
-        ? path.join(treeSummaryPath, 'files', fileName + '.json')
-        : path.join(treeSummaryPath, relativeDirPath, 'files', fileName + '.json');
+      // Create clean mirror structure: .treesummary/files/path/to/file.ext.json
+      const analysisFile = path.join(treeSummaryPath, 'files', relativeFilePath + '.json');
       
       // Ensure files directory exists
       await fs.mkdir(path.dirname(analysisFile), { recursive: true });
@@ -226,13 +222,9 @@ export class TreeSummaryService {
       const treeSummaryPath = path.join(projectPath, this.treeSummaryDir);
       
       const relativeFilePath = path.relative(projectPath, filePath);
-      const relativeDirPath = path.dirname(relativeFilePath);
-      const fileName = path.basename(relativeFilePath);
       
-      // Use directory-separated structure: .treesummary/dirname/files/filename.json
-      const analysisFile = relativeDirPath === '.' 
-        ? path.join(treeSummaryPath, 'files', fileName + '.json')
-        : path.join(treeSummaryPath, relativeDirPath, 'files', fileName + '.json');
+      // Use clean mirror structure: .treesummary/files/path/to/file.ext.json
+      const analysisFile = path.join(treeSummaryPath, 'files', relativeFilePath + '.json');
       
       // Check if file exists before attempting to delete
       try {
@@ -401,15 +393,16 @@ export class TreeSummaryService {
                 let originalFilePath: string;
                 
                 if (relativePath.startsWith('files/')) {
-                  // Root level file: .treesummary/files/filename.json
-                  const fileName = path.basename(relativePath, '.json');
-                  originalFilePath = path.join(projectPath, fileName);
+                  // Clean mirror structure: .treesummary/files/path/to/file.ext.json
+                  const relativeSourcePath = relativePath.substring(6); // Remove 'files/' prefix
+                  const originalFileName = path.basename(relativeSourcePath, '.json'); // Remove .json suffix
+                  const originalDirPath = path.dirname(relativeSourcePath);
+                  originalFilePath = originalDirPath === '.' 
+                    ? path.join(projectPath, originalFileName)
+                    : path.join(projectPath, originalDirPath, path.basename(originalFileName));
                 } else {
-                  // Directory file: .treesummary/dirname/files/filename.json
-                  const parts = relativePath.split(path.sep);
-                  const fileName = path.basename(parts[parts.length - 1], '.json');
-                  const dirPath = parts.slice(0, -2).join(path.sep); // Remove 'files' and filename
-                  originalFilePath = path.join(projectPath, dirPath, fileName);
+                  // Skip non-files directory entries
+                  continue;
                 }
                 
                 try {
