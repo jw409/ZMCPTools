@@ -32,6 +32,7 @@ import type {
   Tool,
   CallToolResult,
   TextContent,
+  ImageContent,
   Resource,
   TextResourceContents,
   Prompt,
@@ -63,6 +64,7 @@ import {
   SessionConfigSchema,
   SessionMetadataSchema,
 } from "../tools/BrowserTools.js";
+import { BrowserAIDOMTools } from "../tools/BrowserAIDOMTools.js";
 import { WebScrapingService } from "../services/WebScrapingService.js";
 import {
   AgentService,
@@ -101,6 +103,7 @@ export class McpToolsServer {
   private orchestrationTools: AgentOrchestrationTools;
   private communicationTools: CommunicationTools;
   private browserTools: BrowserTools;
+  private browserAIDOMTools: BrowserAIDOMTools;
   private webScrapingMcpTools: WebScrapingMcpTools;
   private webScrapingService: WebScrapingService;
   private analysisMcpTools: AnalysisMcpTools;
@@ -142,6 +145,135 @@ export class McpToolsServer {
    */
   private updateClientActivity(): void {
     this.lastClientActivity = Date.now();
+  }
+
+  /**
+   * Check if result contains AI image format
+   */
+  private hasAIImageInResult(result: any): boolean {
+    if (!result || typeof result !== 'object') return false;
+    
+    // Check for AI image in nested data structures
+    const checkForAIImage = (obj: any): boolean => {
+      if (!obj || typeof obj !== 'object') return false;
+      
+      // Check if this object is an AI image
+      if (obj.type === 'image' && obj.data && obj.mimeType) {
+        return true;
+      }
+      
+      // Check ai_image field specifically
+      if (obj.ai_image && obj.ai_image.type === 'image' && obj.ai_image.data && obj.ai_image.mimeType) {
+        return true;
+      }
+      
+      // Recursively check nested objects and arrays
+      for (const key in obj) {
+        if (obj.hasOwnProperty(key)) {
+          const value = obj[key];
+          if (Array.isArray(value)) {
+            for (const item of value) {
+              if (checkForAIImage(item)) return true;
+            }
+          } else if (typeof value === 'object') {
+            if (checkForAIImage(value)) return true;
+          }
+        }
+      }
+      
+      return false;
+    };
+    
+    return checkForAIImage(result);
+  }
+
+  /**
+   * Extract AI image from result
+   */
+  private extractAIImageFromResult(result: any): { type: 'image'; data: string; mimeType: string } {
+    const extractImage = (obj: any): { type: 'image'; data: string; mimeType: string } | null => {
+      if (!obj || typeof obj !== 'object') return null;
+      
+      // Check if this object is an AI image
+      if (obj.type === 'image' && obj.data && obj.mimeType) {
+        return { type: 'image', data: obj.data, mimeType: obj.mimeType };
+      }
+      
+      // Check ai_image field specifically
+      if (obj.ai_image && obj.ai_image.type === 'image' && obj.ai_image.data && obj.ai_image.mimeType) {
+        return { type: 'image', data: obj.ai_image.data, mimeType: obj.ai_image.mimeType };
+      }
+      
+      // Recursively check nested objects and arrays
+      for (const key in obj) {
+        if (obj.hasOwnProperty(key)) {
+          const value = obj[key];
+          if (Array.isArray(value)) {
+            for (const item of value) {
+              const found = extractImage(item);
+              if (found) return found;
+            }
+          } else if (typeof value === 'object') {
+            const found = extractImage(value);
+            if (found) return found;
+          }
+        }
+      }
+      
+      return null;
+    };
+    
+    const found = extractImage(result);
+    if (!found) {
+      throw new Error('AI image not found in result');
+    }
+    
+    return found;
+  }
+
+  /**
+   * Remove AI image from result to avoid duplication in text content
+   */
+  private removeAIImageFromResult(result: any): any {
+    if (!result || typeof result !== 'object') return result;
+    
+    const removeImage = (obj: any): any => {
+      if (!obj || typeof obj !== 'object') return obj;
+      
+      // Handle arrays
+      if (Array.isArray(obj)) {
+        return obj.map(item => removeImage(item));
+      }
+      
+      // Handle objects
+      const cleaned: any = {};
+      for (const key in obj) {
+        if (obj.hasOwnProperty(key)) {
+          const value = obj[key];
+          
+          // Skip ai_image fields
+          if (key === 'ai_image') {
+            continue;
+          }
+          
+          // Skip objects that are AI images
+          if (typeof value === 'object' && value.type === 'image' && value.data && value.mimeType) {
+            continue;
+          }
+          
+          // Recursively clean nested objects
+          if (typeof value === 'object') {
+            cleaned[key] = removeImage(value);
+          } else {
+            cleaned[key] = value;
+          }
+        }
+      }
+      
+      return cleaned;
+    };
+    
+    return removeImage(result);
   }
 
   /**
@@ -222,6 +354,7 @@ export class McpToolsServer {
       this.repositoryPath,
       this.db
     );
+    this.browserAIDOMTools = new BrowserAIDOMTools();
     this.webScrapingMcpTools = new WebScrapingMcpTools(
       this.webScrapingService,
       knowledgeGraphService,
@@ -331,7 +464,31 @@ export class McpToolsServer {
 
         const result = await tool.handler(handlerArgs);
 
-        // Return proper CallToolResult format
+        // Check if result contains AI image format
+        const hasAIImage = this.hasAIImageInResult(result);
+        
+        if (hasAIImage) {
+          // Extract AI image and return mixed content
+          const aiImage = this.extractAIImageFromResult(result);
+          const textResult = this.removeAIImageFromResult(result);
+          
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify(textResult, null, 2),
+              },
+              {
+                type: "image" as const,
+                data: aiImage.data,
+                mimeType: aiImage.mimeType,
+              },
+            ],
+            isError: false,
+          };
+        }
+
+        // Return proper CallToolResult format for non-image results
         return {
           content: [
             {
@@ -431,6 +588,8 @@ export class McpToolsServer {
     return [
       // Browser automation tools
       ...this.browserTools.getTools(),
+      // Browser AI DOM navigation tools
+      ...this.browserAIDOMTools.getTools(),
       // Web scraping tools
       ...this.webScrapingMcpTools.getTools(),
       // Analysis and file operation tools
