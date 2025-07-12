@@ -117,6 +117,30 @@ export interface ScreenshotOptions {
   returnForAI?: boolean;
 }
 
+// Content size limits for MCP token management
+interface ContentSizeLimits {
+  maxContentLength: number;
+  maxDomElements: number;
+  truncationMessage: string;
+  domGuidanceMessage: string;
+}
+
+// DOM analysis results
+interface DOMAnalysis {
+  elementCount: number;
+  maxDepth: number;
+  hasNavigation: boolean;
+  hasForms: boolean;
+  hasInteractiveElements: boolean;
+  structure: {
+    headings: number;
+    links: number;
+    buttons: number;
+    inputs: number;
+    images: number;
+  };
+}
+
 // AI-compatible image format
 export interface AIImageFormat {
   type: 'image';
@@ -515,7 +539,7 @@ export class BrowserTools {
    */
   private async scrapeContentCore(
     sessionId: string,
-    options: ScrapeOptions = {}
+    options: ScrapeOptions & { truncateForMcp?: boolean; pageId?: string } = {}
   ): Promise<{ 
     success: boolean; 
     content?: {
@@ -582,6 +606,17 @@ export class BrowserTools {
             src: img.src
           }));
         });
+      }
+
+      // Apply content size limits before returning (only for MCP responses)
+      if (options.truncateForMcp !== false) {
+        const pageId = options.pageId; // Pass page ID for guidance message
+        if (content.text) {
+          content.text = this.truncateContent(content.text, 'text', pageId);
+        }
+        if (content.html) {
+          content.html = this.truncateContent(content.html, 'HTML', pageId);
+        }
       }
 
       return { success: true, content };
@@ -715,6 +750,301 @@ export class BrowserTools {
     }));
   }
 
+  // ===================================
+  // Content Size Management Helpers
+  // ===================================
+
+  /**
+   * Get content size limits for different content types
+   */
+  private getContentSizeLimits(): ContentSizeLimits {
+    return {
+      maxContentLength: 6000,
+      maxDomElements: 500, // Threshold for providing DOM overview instead of full content
+      truncationMessage: '\n\n[Content truncated due to size limits. Full content stored in database. Use DOM navigation tools for detailed exploration:]\n- analyze_dom_structure: Get page structure overview\n- navigate_dom_path: Navigate to specific elements\n- search_dom_elements: Find elements by criteria',
+      domGuidanceMessage: 'DOM structure indexed in database. Use DOM navigation tools to explore specific paths: analyze_dom_structure, navigate_dom_path, search_dom_elements'
+    };
+  }
+
+  /**
+   * Truncate content to size limits with helpful message including page_id
+   */
+  private truncateContent(content: string, contentType: string, pageId?: string): string {
+    if (!content || typeof content !== 'string') {
+      return content;
+    }
+    
+    const limits = this.getContentSizeLimits();
+    
+    if (content.length <= limits.maxContentLength) {
+      return content;
+    }
+    
+    const truncated = content.substring(0, limits.maxContentLength);
+    const pageInfo = pageId ? ` Use page_id: ${pageId} with DOM navigation tools.` : '';
+    const message = `${limits.truncationMessage}${pageInfo}\n\nTruncated ${contentType} content (${content.length} chars -> ${limits.maxContentLength} chars)`;
+    
+    return truncated + message;
+  }
+
+  /**
+   * Count total elements in DOM JSON structure
+   */
+  private countDOMElements(domJson: any): number {
+    if (!domJson || typeof domJson !== 'object') {
+      return 0;
+    }
+    
+    let count = 1; // Count current element
+    
+    // Count children recursively
+    if (domJson.children && Array.isArray(domJson.children)) {
+      for (const child of domJson.children) {
+        count += this.countDOMElements(child);
+      }
+    }
+    
+    return count;
+  }
+
+  /**
+   * Calculate maximum depth of DOM tree
+   */
+  private calculateDOMDepth(domJson: any, currentDepth: number = 0): number {
+    if (!domJson || typeof domJson !== 'object') {
+      return currentDepth;
+    }
+    
+    let maxDepth = currentDepth;
+    
+    if (domJson.children && Array.isArray(domJson.children)) {
+      for (const child of domJson.children) {
+        const childDepth = this.calculateDOMDepth(child, currentDepth + 1);
+        maxDepth = Math.max(maxDepth, childDepth);
+      }
+    }
+    
+    return maxDepth;
+  }
+
+  /**
+   * Detect navigation elements in DOM JSON
+   */
+  private hasNavigation(domJson: any): boolean {
+    if (!domJson || typeof domJson !== 'object') {
+      return false;
+    }
+    
+    // Check current element
+    if (domJson.tagName) {
+      const tag = domJson.tagName.toLowerCase();
+      if (tag === 'nav') return true;
+      
+      // Check for navigation-related classes/IDs
+      const navKeywords = ['nav', 'menu', 'header', 'sidebar', 'breadcrumb'];
+      const className = domJson.attributes?.class || '';
+      const id = domJson.attributes?.id || '';
+      
+      if (navKeywords.some(keyword => 
+        className.toLowerCase().includes(keyword) || 
+        id.toLowerCase().includes(keyword)
+      )) {
+        return true;
+      }
+    }
+    
+    // Check children recursively
+    if (domJson.children && Array.isArray(domJson.children)) {
+      return domJson.children.some((child: any) => this.hasNavigation(child));
+    }
+    
+    return false;
+  }
+
+  /**
+   * Detect form elements in DOM JSON
+   */
+  private hasForms(domJson: any): boolean {
+    if (!domJson || typeof domJson !== 'object') {
+      return false;
+    }
+    
+    // Check current element
+    if (domJson.tagName) {
+      const tag = domJson.tagName.toLowerCase();
+      if (['form', 'input', 'textarea', 'select', 'button'].includes(tag)) {
+        return true;
+      }
+    }
+    
+    // Check children recursively
+    if (domJson.children && Array.isArray(domJson.children)) {
+      return domJson.children.some((child: any) => this.hasForms(child));
+    }
+    
+    return false;
+  }
+
+  /**
+   * Detect interactive elements in DOM JSON
+   */
+  private hasInteractiveElements(domJson: any): boolean {
+    if (!domJson || typeof domJson !== 'object') {
+      return false;
+    }
+    
+    // Check current element
+    if (domJson.tagName) {
+      const tag = domJson.tagName.toLowerCase();
+      const interactiveTags = ['button', 'input', 'select', 'textarea', 'a', 'details', 'summary'];
+      
+      if (interactiveTags.includes(tag)) {
+        return true;
+      }
+      
+      // Check for click handlers or interactive attributes
+      const attributes = domJson.attributes || {};
+      if (attributes.onclick || attributes.href || attributes.tabindex) {
+        return true;
+      }
+    }
+    
+    // Check children recursively
+    if (domJson.children && Array.isArray(domJson.children)) {
+      return domJson.children.some((child: any) => this.hasInteractiveElements(child));
+    }
+    
+    return false;
+  }
+
+  /**
+   * Analyze DOM JSON structure and provide overview
+   */
+  private analyzeDOMStructure(domJson: any): DOMAnalysis {
+    const analysis: DOMAnalysis = {
+      elementCount: this.countDOMElements(domJson),
+      maxDepth: this.calculateDOMDepth(domJson),
+      hasNavigation: this.hasNavigation(domJson),
+      hasForms: this.hasForms(domJson),
+      hasInteractiveElements: this.hasInteractiveElements(domJson),
+      structure: {
+        headings: 0,
+        links: 0,
+        buttons: 0,
+        inputs: 0,
+        images: 0
+      }
+    };
+    
+    // Count specific element types
+    this.countElementTypes(domJson, analysis.structure);
+    
+    return analysis;
+  }
+
+  /**
+   * Recursively count specific element types
+   */
+  private countElementTypes(domJson: any, counts: DOMAnalysis['structure']): void {
+    if (!domJson || typeof domJson !== 'object') {
+      return;
+    }
+    
+    if (domJson.tagName) {
+      const tag = domJson.tagName.toLowerCase();
+      
+      switch (tag) {
+        case 'h1':
+        case 'h2':
+        case 'h3':
+        case 'h4':
+        case 'h5':
+        case 'h6':
+          counts.headings++;
+          break;
+        case 'a':
+          counts.links++;
+          break;
+        case 'button':
+          counts.buttons++;
+          break;
+        case 'input':
+        case 'textarea':
+        case 'select':
+          counts.inputs++;
+          break;
+        case 'img':
+          counts.images++;
+          break;
+      }
+    }
+    
+    // Process children
+    if (domJson.children && Array.isArray(domJson.children)) {
+      for (const child of domJson.children) {
+        this.countElementTypes(child, counts);
+      }
+    }
+  }
+
+  /**
+   * Get simple DOM overview stats
+   */
+  private getDOMOverview(domJson: any): any {
+    const analysis = this.analyzeDOMStructure(domJson);
+    const limits = this.getContentSizeLimits();
+    
+    return {
+      elementCount: analysis.elementCount,
+      maxDepth: analysis.maxDepth,
+      hasNavigation: analysis.hasNavigation,
+      hasForms: analysis.hasForms,
+      hasInteractiveElements: analysis.hasInteractiveElements,
+      structure: analysis.structure,
+      guidance: limits.domGuidanceMessage
+    };
+  }
+
+  /**
+   * Create DOM overview for large structures with page_id guidance
+   */
+  private createDOMOverview(domJson: any, pageId?: string): any {
+    const analysis = this.analyzeDOMStructure(domJson);
+    const limits = this.getContentSizeLimits();
+    const pageInfo = pageId ? ` Use page_id: ${pageId} with DOM navigation tools.` : '';
+    
+    return {
+      overview: {
+        message: `DOM structure is large (${analysis.elementCount} elements). Providing overview instead of full content. Full DOM stored in database.${pageInfo}`,
+        guidance: limits.domGuidanceMessage,
+        toolRecommendations: [
+          "Use 'analyze_dom_structure' for detailed structure analysis",
+          "Use 'navigate_dom_path' to explore specific element paths",
+          "Use 'search_dom_elements' to find elements by criteria"
+        ],
+        analysis: {
+          elementCount: analysis.elementCount,
+          maxDepth: analysis.maxDepth,
+          hasNavigation: analysis.hasNavigation,
+          hasForms: analysis.hasForms,
+          hasInteractiveElements: analysis.hasInteractiveElements,
+          structure: analysis.structure
+        }
+      },
+      rootElement: {
+        tagName: domJson.tagName || 'unknown',
+        attributes: domJson.attributes || {},
+        childrenCount: domJson.children ? domJson.children.length : 0
+      },
+      topLevelChildren: domJson.children ? domJson.children.slice(0, 5).map((child: any) => ({
+        tagName: child.tagName || 'unknown',
+        attributes: child.attributes || {},
+        childrenCount: child.children ? child.children.length : 0,
+        textContent: child.textContent ? child.textContent.substring(0, 100) + (child.textContent.length > 100 ? '...' : '') : undefined
+      })) : []
+    };
+  }
+
   /**
    * Index a website page in the database with all content types
    */
@@ -769,7 +1099,8 @@ export class BrowserTools {
       if (options.extractHtml) {
         const htmlResult = await this.scrapeContentCore(sessionId, {
           extractHtml: true,
-          selector: options.selector
+          selector: options.selector,
+          truncateForMcp: false // Store full content in database
         });
         
         if (htmlResult.success && htmlResult.content?.html) {
@@ -783,7 +1114,8 @@ export class BrowserTools {
           // Get HTML first if we don't have it
           const htmlResult = await this.scrapeContentCore(sessionId, {
             extractHtml: true,
-            selector: options.selector
+            selector: options.selector,
+            truncateForMcp: false // Store full content in database
           });
           
           if (htmlResult.success && htmlResult.content?.html) {
@@ -808,7 +1140,8 @@ export class BrowserTools {
             // Get HTML first if we don't have it
             const htmlResult = await this.scrapeContentCore(sessionId, {
               extractHtml: true,
-              selector: options.selector
+              selector: options.selector,
+              truncateForMcp: false // Store full content in database
             });
             
             if (htmlResult.success && htmlResult.content?.html) {
@@ -1032,7 +1365,37 @@ export class BrowserTools {
       return navResult;
     }
 
-    // Scrape content if any extraction options are enabled
+    // Auto-index website first if enabled (store full content)
+    let indexingResult: { success: boolean; websiteId?: string; pageId?: string; error?: string } | null = null;
+    if (params.auto_index_website) {
+      try {
+        indexingResult = await this.indexWebsitePage(
+          sessionId,
+          navResult.url || params.url,
+          {
+            extractHtml: params.extract_html || params.extract_sanitized_html || params.extract_markdown,
+            extractSanitizedHtml: params.extract_sanitized_html,
+            extractMarkdown: params.extract_markdown,
+            extractDomJson: params.extract_dom_json,
+            captureScreenshot: params.capture_screenshot,
+            screenshotFullPage: params.screenshot_full_page,
+            selector: params.selector,
+            httpStatus: 200, // Assume success since navigation succeeded
+            title: navResult.title,
+            errorMessage: undefined
+          }
+        );
+      } catch (error) {
+        console.warn('Failed to index website page:', error);
+        // Don't fail the navigation for indexing failure
+        indexingResult = { 
+          success: false, 
+          error: error instanceof Error ? error.message : 'Unknown indexing error'
+        };
+      }
+    }
+
+    // Scrape content if any extraction options are enabled (for MCP response with truncation)
     let scrapeResult = null;
     if (params.extract_text || params.extract_html || params.extract_links || params.extract_images) {
       scrapeResult = await this.scrapeContentCore(
@@ -1043,12 +1406,14 @@ export class BrowserTools {
           extractText: params.extract_text,
           extractHtml: params.extract_html,
           extractLinks: params.extract_links,
-          extractImages: params.extract_images
+          extractImages: params.extract_images,
+          truncateForMcp: true, // Truncate for MCP response
+          pageId: indexingResult?.pageId
         }
       );
     }
 
-    // Prepare enhanced content extraction for indexing
+    // Prepare enhanced content extraction for MCP response
     let enhancedContent: any = scrapeResult?.content || {};
 
     // Extract additional content types if requested
@@ -1058,34 +1423,63 @@ export class BrowserTools {
         if ((params.extract_sanitized_html || params.extract_markdown) && !enhancedContent.html) {
           const htmlResult = await this.scrapeContentCore(sessionId, {
             extractHtml: true,
-            selector: params.selector
+            selector: params.selector,
+            truncateForMcp: true, // This is for MCP response, so truncate
+            pageId: indexingResult?.pageId
           });
           if (htmlResult.success && htmlResult.content?.html) {
-            enhancedContent.html = htmlResult.content.html;
+            enhancedContent.html = htmlResult.content.html; // Already truncated
           }
         }
 
         // Extract sanitized HTML
         if (params.extract_sanitized_html && enhancedContent.html) {
-          enhancedContent.sanitized_html = sanitizeHTMLContent(enhancedContent.html, {
+          // Use full HTML content for sanitization
+          const fullHtmlResult = await this.scrapeContentCore(sessionId, {
+            extractHtml: true,
+            selector: params.selector,
+            truncateForMcp: false, // Get full content for processing
+            pageId: indexingResult?.pageId
+          });
+          
+          const htmlToSanitize = fullHtmlResult.success && fullHtmlResult.content?.html 
+            ? fullHtmlResult.content.html 
+            : enhancedContent.html;
+            
+          const sanitizedHtml = sanitizeHTMLContent(htmlToSanitize, {
             removeScripts: true,
             removeStyles: true,
             removeComments: true,
             removeEventHandlers: true
           });
+          // Truncate for MCP response only
+          enhancedContent.sanitized_html = this.truncateContent(sanitizedHtml, 'sanitized HTML', indexingResult?.pageId);
         }
 
         // Extract markdown
         if (params.extract_markdown) {
-          const htmlForMarkdown = enhancedContent.sanitized_html || enhancedContent.html;
+          // Get full HTML for markdown conversion
+          const fullHtmlResult = await this.scrapeContentCore(sessionId, {
+            extractHtml: true,
+            selector: params.selector,
+            truncateForMcp: false, // Get full content for processing
+            pageId: indexingResult?.pageId
+          });
+          
+          const htmlForMarkdown = fullHtmlResult.success && fullHtmlResult.content?.html 
+            ? fullHtmlResult.content.html 
+            : enhancedContent.html;
+            
           if (htmlForMarkdown) {
-            const sanitized = enhancedContent.sanitized_html || sanitizeHTMLContent(htmlForMarkdown, {
+            const sanitized = sanitizeHTMLContent(htmlForMarkdown, {
               removeScripts: true,
               removeStyles: true,
               removeComments: true,
               removeEventHandlers: true
             });
-            enhancedContent.markdown = convertHTMLToMarkdown(sanitized);
+            const markdown = convertHTMLToMarkdown(sanitized);
+            // Truncate for MCP response only
+            enhancedContent.markdown = this.truncateContent(markdown, 'Markdown', indexingResult?.pageId);
           }
         }
 
@@ -1097,14 +1491,28 @@ export class BrowserTools {
               const domOptions: SerializationOptions = {
                 ...AI_OPTIMIZED_OPTIONS,
                 scope: params.selector || 'html',
-                maxDepth: 25
+                maxDepth: 25 // No limits on DOM processing - store everything
               };
               
-              enhancedContent.dom_json = await serializeDOMWithPlaywright(
+              const rawDomJson = await serializeDOMWithPlaywright(
                 session.page,
                 params.selector || 'html',
                 domOptions
               );
+              
+              // Check if DOM is too large for MCP response
+              const elementCount = this.countDOMElements(rawDomJson);
+              const limits = this.getContentSizeLimits();
+              
+              if (elementCount > limits.maxDomElements) {
+                // Provide overview in MCP response, full DOM stored in database
+                enhancedContent.dom_json = this.createDOMOverview(rawDomJson, indexingResult?.pageId);
+              } else {
+                // Small DOM can be included in MCP response
+                enhancedContent.dom_json = rawDomJson;
+              }
+              
+              // Note: Full DOM is still stored in database during indexing regardless of response size
             }
           } catch (error) {
             console.warn('Failed to extract DOM JSON:', error);
@@ -1142,35 +1550,7 @@ export class BrowserTools {
       }
     }
 
-    // Auto-index website if enabled
-    let indexingResult: { success: boolean; websiteId?: string; pageId?: string; error?: string } | null = null;
-    if (params.auto_index_website) {
-      try {
-        indexingResult = await this.indexWebsitePage(
-          sessionId,
-          navResult.url || params.url,
-          {
-            extractHtml: params.extract_html || params.extract_sanitized_html || params.extract_markdown,
-            extractSanitizedHtml: params.extract_sanitized_html,
-            extractMarkdown: params.extract_markdown,
-            extractDomJson: params.extract_dom_json,
-            captureScreenshot: params.capture_screenshot,
-            screenshotFullPage: params.screenshot_full_page,
-            selector: params.selector,
-            httpStatus: 200, // Assume success since navigation succeeded
-            title: navResult.title,
-            errorMessage: undefined
-          }
-        );
-      } catch (error) {
-        console.warn('Failed to index website page:', error);
-        // Don't fail the navigation for indexing failure
-        indexingResult = { 
-          success: false, 
-          error: error instanceof Error ? error.message : 'Unknown indexing error'
-        };
-      }
-    }
+    // Indexing was already performed above before content extraction
 
     // Auto-close session if it was created for this operation
     if (sessionCreated) {
