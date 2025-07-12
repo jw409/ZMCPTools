@@ -56,6 +56,9 @@ importers:
       tree-sitter-c:
         specifier: ^0.24.1
         version: 0.24.1(tree-sitter@0.25.0)
+      tree-sitter-cli:
+        specifier: ^0.25.6
+        version: 0.25.6
       tree-sitter-cpp:
         specifier: ^0.23.4
         version: 0.23.4(tree-sitter@0.25.0)
@@ -89,9 +92,6 @@ importers:
       tree-sitter-lua:
         specifier: ^2.1.3
         version: 2.1.3
-      tree-sitter-markdown:
-        specifier: ^0.7.1
-        version: 0.7.1
       tree-sitter-php:
         specifier: ^0.23.12
         version: 0.23.12(tree-sitter@0.25.0)
@@ -139,10 +139,10 @@ importers:
         version: 3.24.6(zod@3.25.76)
     devDependencies:
       '@types/better-sqlite3':
-        specifier: ^7.6.13
+        specifier: latest
         version: 7.6.13
       '@types/node':
-        specifier: ^24.0.13
+        specifier: latest
         version: 24.0.13
       '@types/turndown':
         specifier: ^5.0.5
@@ -2599,6 +2599,11 @@ packages:
     engines: {node: '>=12.0.0'}
     hasBin: true
 
+  tree-sitter-cli@0.25.6:
+    resolution: {integrity: sha512-UhkXRkMPtBgE4OatZtYVtDsT3HFUliqAJcs49XQaZv8d2sbeTzEhpJVpMaCqBR3HGhb1WpyoodaFXQaMuOLPEg==}
+    engines: {node: '>=12.0.0'}
+    hasBin: true
+
   tree-sitter-cpp@0.23.4:
     resolution: {integrity: sha512-qR5qUDyhZ5jJ6V8/umiBxokRbe89bCGmcq/dk94wI4kN86qfdV8k0GHIUEKaqWgcu42wKal5E97LKpLeVW8sKw==}
     peerDependencies:
@@ -2672,9 +2677,6 @@ packages:
 
   tree-sitter-lua@2.1.3:
     resolution: {integrity: sha512-BmRSRI0Y4J47cE2cODyXsPiueDSAnIrFLJqOP/gKIJhGa4HoGpvEccmNuhAEVGtCrgaHGhaIkWeqiMGCgQ0cfw==}
-
-  tree-sitter-markdown@0.7.1:
-    resolution: {integrity: sha512-hB3sEm1JtfoRUzGvknL9RQrS/LJvbrdI9WfGbU8gE6xMjbbAKHfHrNzh4Oo9JxksfUf6UEMxy91acRajEIOnGQ==}
 
   tree-sitter-php@0.23.12:
     resolution: {integrity: sha512-VwkBVOahhC2NYXK/Fuqq30NxuL/6c2hmbxEF4jrB7AyR5rLc7nT27mzF3qoi+pqx9Gy2AbXnGezF7h4MeM6YRA==}
@@ -5251,6 +5253,8 @@ snapshots:
 
   tree-sitter-cli@0.23.2: {}
 
+  tree-sitter-cli@0.25.6: {}
+
   tree-sitter-cpp@0.23.4(tree-sitter@0.25.0):
     dependencies:
       node-addon-api: 8.4.0
@@ -5314,10 +5318,6 @@ snapshots:
       tree-sitter: 0.25.0
 
   tree-sitter-lua@2.1.3:
-    dependencies:
-      nan: 2.23.0
-
-  tree-sitter-markdown@0.7.1:
     dependencies:
       nan: 2.23.0
 

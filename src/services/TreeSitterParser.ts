@@ -97,12 +97,17 @@ export class TreeSitterParser {
    * Register a language parser for specific file extensions
    */
   private registerLanguage(extensions: string[], language: any, languageName: string): void {
-    const parser = new Parser();
-    parser.setLanguage(language);
-    
-    for (const ext of extensions) {
-      this.parsers.set(ext.toLowerCase(), parser);
-      this.languageMap.set(ext.toLowerCase(), languageName);
+    try {
+      const parser = new Parser();
+      parser.setLanguage(language);
+      
+      for (const ext of extensions) {
+        this.parsers.set(ext.toLowerCase(), parser);
+        this.languageMap.set(ext.toLowerCase(), languageName);
+      }
+    } catch (error) {
+      console.warn(`Failed to register language ${languageName}:`, error);
+      // Skip this language - it will fall back to unsupported parsing
     }
   }
 
