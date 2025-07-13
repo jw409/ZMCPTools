@@ -1,14 +1,14 @@
 {
-  "name": "claude-mcp-tools",
+  "name": "zmcp-tools",
   "version": "0.1.0",
-  "description": "TypeScript implementation of ClaudeMcpTools with enhanced MCP tools and multi-agent orchestration",
+  "description": "TypeScript implementation of ZMCPTools with enhanced MCP tools and multi-agent orchestration",
   "main": "dist/server/index.js",
   "types": "dist/server/index.d.ts",
   "type": "module",
   "bin": {
-    "claude-mcp-tools": "dist/cli/index.js",
-    "claude-mcp-server": "dist/server/index.js",
-    "claude-mcp-cli": "dist/cli/index.js"
+    "zmcp-tools": "dist/cli/index.js",
+    "zmcp-server": "dist/server/index.js",
+    "zmcp-cli": "dist/cli/index.js"
   },
   "exports": {
     ".": {
@@ -64,7 +64,7 @@
     "development-tools",
     "cli"
   ],
-  "author": "ClaudeMcpTools",
+  "author": "ZMCPTools",
   "license": "MIT",
   "packageManager": "pnpm@10.11.1",
   "dependencies": {

@@ -436,6 +436,79 @@ function updateGitignore(): void {
   }
 }
 
+function setupGitCommitProtection(): void {
+  logStep('🔒', 'Setting up git commit protection...');
+  
+  const gitHooksDir = path.join(process.cwd(), '.git', 'hooks');
+  const preCommitPath = path.join(gitHooksDir, 'pre-commit');
+  
+  // Check if .git directory exists
+  if (!fs.existsSync(path.join(process.cwd(), '.git'))) {
+    logWarning('Not a git repository - skipping commit protection setup');
+    return;
+  }
+  
+  // Create hooks directory if it doesn't exist
+  fs.mkdirSync(gitHooksDir, { recursive: true });
+  
+  const preCommitContent = `#!/usr/bin/env bash
+
+# Pre-commit hook to prevent Claude from committing directly
+AUTHOR_EMAIL=$(git config user.email)
+
+if [ "$AUTHOR_EMAIL" = "claude@anthropic.com" ]; then
+    echo "🚫 ERROR: Claude Code Assistant cannot commit directly to this repository."
+    echo "   Please use explicit commit instructions or create a feature branch."
+    echo "   Current author: $AUTHOR_EMAIL"
+    echo ""
+    echo "   To allow this commit, either:"
+    echo "   1. Use explicit commit instructions in your prompt"
+    echo "   2. Create a feature branch first"
+    echo "   3. Temporarily change git user: git config user.email 'your@email.com'"
+    exit 1
+fi
+
+exit 0`;
+
+  fs.writeFileSync(preCommitPath, preCommitContent);
+  
+  // Make the hook executable
+  try {
+    fs.chmodSync(preCommitPath, 0o755);
+    logSuccess('Git commit protection configured');
+  } catch (error) {
+    logWarning(`Failed to make pre-commit hook executable: ${error}`);
+  }
+  
+  // Set up git commit template
+  const gitMessagePath = path.join(process.cwd(), '.gitmessage');
+  const gitMessageContent = `# Commit Template for ZMCPTools
+# 
+# Please specify the author and purpose:
+# 
+# [FEATURE/FIX/DOCS/REFACTOR]: Brief description
+# 
+# Detailed description:
+# - What was changed
+# - Why it was changed
+# - How to test the changes
+#
+# Author: [Specify if not original author]
+# Co-authored-by: Claude <claude@anthropic.com> (if applicable)
+#
+# ⚠️  This commit should only be made with explicit instructions`;
+
+  fs.writeFileSync(gitMessagePath, gitMessageContent);
+  
+  try {
+    execSync('git config commit.template .gitmessage', { stdio: 'pipe' });
+    execSync('git config user.useConfigOnly true', { stdio: 'pipe' });
+    logSuccess('Git commit template configured');
+  } catch (error) {
+    logWarning(`Failed to configure git commit template: ${error}`);
+  }
+}
+
 function createClaudeMd(): void {
   logStep('📝', 'Setting up CLAUDE.md integration...');
   
@@ -784,6 +857,7 @@ export async function install(options: { globalOnly?: boolean; projectOnly?: boo
   if (!options.globalOnly) {
     createProjectConfig();
     updateGitignore();
+    setupGitCommitProtection();
     createClaudeMd();
     
     // Add MCP server using Claude CLI
@@ -826,7 +900,8 @@ export async function install(options: { globalOnly?: boolean; projectOnly?: boo
   if (!options.globalOnly) {
     console.log(`│ • Project config: ./.claude/settings.local.json  │`);
     console.log(`│ • Project integration: ./CLAUDE.md               │`);
-    console.log(`│ • ALL 44 MCP tools: Fully enabled               │`);
+    console.log(`│ • Git commit protection: Pre-commit hook active  │`);
+    console.log(`│ • ALL 61 MCP tools: Fully enabled               │`);
     console.log(`│ • Bash permissions: Full autonomous access       │`);
     console.log(`│ • 80+ commands: Pre-authorized for operation     │`);
     console.log(`│ • Patchright browsers: Chromium, Firefox, WebKit │`);

@@ -1,115 +1,99 @@
-# ClaudeMcpTools
+# ZMCPTools
 
-🚀 **TypeScript MCP Tools for Claude Code** - Complete multi-agent orchestration with enhanced CLI, documentation intelligence, and advanced file operations. Built with TypeScript for type safety and performance.
+[![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.8+-blue.svg)](https://www.typescriptlang.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)](https://nodejs.org/)
+[![MCP Protocol](https://img.shields.io/badge/MCP-1.15.0-purple.svg)](https://modelcontextprotocol.io/)
 
-## ✨ Features
+🚀 **TypeScript MCP Tools for Claude Code** - Professional multi-agent orchestration platform with 61 enhanced tools, documentation intelligence, and advanced automation capabilities.
 
-### 🎯 **Architect-Led Multi-Agent Orchestration**
-- **Intelligent Coordination**: Architect agents analyze objectives and spawn specialized teams
-- **Agent Dependencies**: Backend → Frontend → Testing → Documentation workflows
-- **Real-Time Communication**: Agents coordinate through dedicated chat rooms
-- **Foundation Sessions**: 85-90% cost reduction through shared context (automatic)
-- **43 Enhanced Tools**: Complete orchestration with seamless Claude Code integration
+## ✨ Key Features
 
-### 🎨 **TypeScript CLI Experience**
-- **Type-Safe Interface**: Built with Commander.js for robust command handling
-- **Development Setup**: `pnpm install && pnpm run install:global` and you're ready!
-- **Structured Commands**: Organized command hierarchy for agent, task, and memory management
-- **Binary Access**: Available via `claude-mcp-tools` and `claude-mcp-server`
-- **Development Tools**: Hot-reload development with tsx
+### 🎯 **Multi-Agent Orchestration**
+- **Architect-Led Coordination**: AI architect automatically spawns and coordinates specialized agent teams
+- **Intelligent Dependencies**: Agents work in proper order (Backend → Frontend → Testing → Documentation)
+- **Real-Time Communication**: Agents collaborate through dedicated chat rooms with message broadcasting
+- **Foundation Session Caching**: 85-90% cost reduction through automatic shared context management
+- **Professional Task Management**: Create, assign, track, and monitor complex development workflows
 
-### 🎛️ **CLI Management**
-- **Agent Operations**: Command-line agent spawning and monitoring
-- **Task Management**: CLI-based task creation and tracking
-- **Memory Operations**: Search and manage shared agent memory
-- **Room Communication**: Join and manage agent communication rooms
-- **Status Reporting**: System health and component status
+### 🎨 **TypeScript-First Architecture** 
+- **Type-Safe MCP Server**: Built with Zod schemas and strict TypeScript for reliability
+- **Modern CLI Interface**: Commander.js-powered CLI with structured command hierarchy
+- **Development Ready**: One-command setup with hot-reload development via tsx
+- **Binary Distribution**: Global access via `claude-mcp-tools` and `claude-mcp-server` commands
+- **Professional Build System**: tsup-based compilation with dual CLI/server binaries
 
-### 📂 Enhanced File Operations (3 tools)
-- **Smart File Listing**: Hierarchical ignore patterns with `.claudeignore` and `.gitignore` support
-- **Pattern-Based Search**: Advanced glob pattern matching with ignore pattern respect
-- **Fuzzy String Replacement**: Whitespace-normalized matching with similarity thresholds
+### 🌐 **Advanced Browser Automation**
+- **Playwright Integration**: Professional web automation with session management
+- **AI-Powered DOM Analysis**: Intelligent page structure analysis and navigation
+- **Screenshot Analysis**: AI-driven visual page analysis with region focusing
+- **Smart Session Management**: Auto-cleanup, session persistence, and connection pooling
+- **Legacy Support**: Comprehensive tool migration with backward compatibility
 
-### 🌳 Project Analysis (7 tools)  
-- **Project Structure Analysis**: Generate AI-optimized `.treesummary` files with TypeScript parsing
-- **File Symbol Extraction**: Advanced code analysis with function, class, and variable detection
-- **Tree Summary Generation**: Comprehensive project overviews with metadata tracking
-- **File Analysis Management**: Update, remove, and cleanup project analysis data
-- **Project Metadata**: Store and retrieve project-specific configuration and insights
+### 📚 **Documentation Intelligence & Vector Search**
+- **LanceDB Vector Database**: Local, high-performance semantic search with multiple embedding providers
+- **Intelligent Web Scraping**: Multi-page documentation collection with automatic vectorization
+- **Advanced Content Processing**: Smart URL filtering, pattern matching, and content extraction
+- **Job Management**: Background worker system with status monitoring and job control
+- **Documentation Sources**: Track and manage multiple documentation repositories
 
-### 📚 Documentation Intelligence with LanceDB (9 tools)
-- **Browser Automation**: Playwright-powered web scraping with session management
-- **LanceDB Vector Storage**: Advanced semantic search with local vector database
-- **Multi-Provider Embeddings**: Support for OpenAI, HuggingFace, and local models
-- **Advanced Web Scraping**: Multi-page documentation collection with automatic vectorization
-- **Content Navigation**: Intelligent page interaction and content extraction
-- **Vector Search**: High-performance similarity search with configurable thresholds
-- **Scraping Orchestration**: Job management with start/stop worker capabilities
-- **Documentation Sources**: Track and manage scraped documentation repositories
-- **Local Storage**: All data stored at `~/.mcptools/data/` with LanceDB at `~/.mcptools/lancedb/`
-
-### 🧠 Foundation Cache System (Automatic)
-- **Foundation Sessions**: Automatically created for 85-90% cost reduction
-- **Session Derivation**: Seamlessly managed by agent orchestration
-- **Analysis Caching**: Built-in caching for expensive analysis operations
-- **Cache Statistics**: Internal monitoring and optimization
-- **Cache Maintenance**: Automated cleanup and management (no manual tools needed)
-
-### 🤖 Multi-Agent Orchestration (14 tools)
-- **Agent Spawning**: Specialized development agents with real-time communication
-- **Task Management**: Create, assign, and track complex development tasks
-- **Shared Memory**: Cross-agent collaboration and knowledge sharing
-- **Error Learning**: Pattern recognition for improved reliability
-- **SQLite Coordination**: Persistent state management
+### 🧠 **Knowledge Graph & Memory Systems**
+- **Graph-Based Knowledge Storage**: Entity-relationship modeling for cross-agent learning
+- **Semantic Search**: Vector-powered knowledge discovery and relationship traversal
+- **Shared Memory**: Persistent agent collaboration and insight sharing
+- **Project Analysis**: Comprehensive code structure analysis with symbol extraction
+- **Smart File Operations**: Pattern-based file operations with fuzzy matching
 
 ## 🚀 Quick Installation
 
 ### Prerequisites
-- **Node.js 18+**: Required for TypeScript runtime and LanceDB native bindings
+- **Node.js 18+**: Required for TypeScript runtime and LanceDB native bindings  
+- **Claude Code CLI**: [Anthropic's Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code)
 - **Package Manager**: npm (included), yarn, pnpm, or bun
-- **Claude CLI**: Anthropic's Claude Code CLI
 
-### Installation for Users (npm package)
-
-```bash
-# Single command installation via npx (recommended)
-npx claude-mcp-tools@latest install
-
-# Or with other package managers
-pnpx claude-mcp-tools@latest install
-yarn dlx claude-mcp-tools@latest install
-bunx claude-mcp-tools@latest install
-```
-
-**That's it!** This single command will:
-- ✅ Install the MCP server to `~/.mcptools/server/`
-- ✅ Configure Claude Code settings in `./.claude/settings.local.json`
-- ✅ Set up project permissions and CLAUDE.md documentation
-- ✅ Initialize SQLite database for agent coordination
-- ✅ Initialize LanceDB vector database for semantic search
-
-### Development Installation (from source)
+### Production Installation (Recommended)
 
 ```bash
-# Clone the repository
-git clone https://github.com/zachhandley/ClaudeMcpTools
-cd ClaudeMcpTools
+# Single command installation via npx
+npx zmcp-tools@latest install
 
-# Option 1: Automated (recommended)
-./install.sh
-
-# Option 2: Manual steps
-pnpm install          # Install dependencies (or npm/yarn/bun)
-pnpm build            # Build TypeScript
-pnpm link --global    # Make claude-mcp-tools command available
-claude-mcp-tools install  # Configure MCP server and project
+# Alternative package managers
+pnpx zmcp-tools@latest install    # pnpm
+yarn dlx zmcp-tools@latest install  # yarn  
+bunx zmcp-tools@latest install      # bun
 ```
 
-**After development installation, you'll have:**
-- ✅ `claude-mcp-tools` command available globally
-- ✅ MCP server running from your development directory
-- ✅ Hot-reload development with `pnpm dev`
-- ✅ Full access to modify and test the codebase
+**This automatically:**
+- ✅ Installs MCP server to `~/.mcptools/server/`
+- ✅ Configures Claude Code in `./.claude/settings.local.json`
+- ✅ Sets up project permissions and CLAUDE.md integration
+- ✅ Initializes SQLite database for agent coordination
+- ✅ Initializes LanceDB vector database for semantic search
+- ✅ Creates 61 professional MCP tools ready for use
+
+### Development Installation
+
+```bash
+# Clone and setup development environment
+git clone https://github.com/zachhandley/ZMCPTools
+cd ZMCPTools
+
+# Quick automated setup
+pnpm install && pnpm run install:global
+
+# Or manual setup
+pnpm install              # Install dependencies
+pnpm build               # Compile TypeScript  
+pnpm link --global       # Create global symlink
+zmcp-tools install       # Configure MCP integration
+```
+
+**Development features:**
+- ✅ Global `zmcp-tools` command
+- ✅ Hot-reload development: `pnpm dev`
+- ✅ TypeScript compilation: `pnpm build`
+- ✅ Test suite: `pnpm test`
+- ✅ Full source code access and modification
 
 ### MCP Server Configuration
 
@@ -119,7 +103,7 @@ The installer automatically configures the MCP server in your Claude Code settin
 // Automatically added to .claude/settings.local.json
 {
   "mcpServers": {
-    "claude-mcp-tools": {
+    "zmcp-tools": {
       "command": "node",
       "args": ["/home/user/.mcptools/server/index.js"]
     }
@@ -152,51 +136,82 @@ ClaudeMcpTools TypeScript requires the following:
 
 **Note**: This TypeScript implementation includes native LanceDB vector database with no Python dependencies required.
 
-## 🎯 Architect-Led Orchestration
+## 🎯 Multi-Agent Orchestration
 
-### Core Workflow
+### Architect-Led Coordination
+
+ClaudeMcpTools features an AI architect that automatically analyzes objectives and spawns coordinated agent teams:
 
 ```javascript
-// Let the architect coordinate multiple specialized agents
+// AI architect coordinates complete feature development
 await orchestrate_objective({
-    objective: "Implement OAuth login with comprehensive tests and documentation",
+    objective: "Implement OAuth authentication with comprehensive testing and documentation",
     repository_path: ".",
-    foundation_session_id: "shared-context-123"  // 85-90% cost reduction
+    foundation_session_id: "oauth-feature-2024"  // 85-90% cost reduction
 });
 ```
 
-**The architect will:**
-1. **Analyze** the objective and break it into specialized tasks
-2. **Spawn** coordinated agents (backend → frontend → testing → documentation)
-3. **Coordinate** agent dependencies and communication
-4. **Monitor** progress through real-time agent chat
+**Automatic workflow:**
+1. **Analysis**: Architect breaks down objectives into specialized tasks
+2. **Spawning**: Creates coordinated agent teams with proper dependencies  
+3. **Coordination**: Manages inter-agent communication and task dependencies
+4. **Monitoring**: Real-time progress tracking through EventBus system
 
-### Example Multi-Agent Workflows
+### Professional Workflows
 
-**Full-Stack Feature Development:**
+**Full-Stack Development:**
 ```javascript
-// Architect spawns: Backend Agent → Frontend Agent → Testing Agent → Docs Agent
+// Coordinated backend → frontend → testing → documentation pipeline
 await orchestrate_objective({
-    objective: "Add user authentication with JWT, login UI, tests, and API docs",
+    objective: "Build user authentication system with JWT tokens, React UI, comprehensive tests, and API documentation",
     repository_path: "."
 });
 ```
 
-**Development Environment Setup:**
-```javascript
-// Architect spawns: Dev Server Agent + Playwright Testing Agent (parallel)
+**Infrastructure Setup:**
+```javascript  
+// Parallel development server and testing infrastructure
 await orchestrate_objective({
-    objective: "Set up development server and end-to-end testing pipeline",
+    objective: "Configure development environment with hot-reload server and Playwright E2E testing",
     repository_path: "."
 });
 ```
 
 **Documentation-Driven Development:**
 ```javascript
-// Architect spawns: Docs Scraper → Analyzer → Implementation Agents
+// Research-first implementation following best practices
 await orchestrate_objective({
-    objective: "Study React docs and implement component library following best practices",
+    objective: "Study Next.js documentation and implement application following official patterns and conventions",
     repository_path: "."
+});
+```
+
+### Manual Agent Control
+
+For precise control, spawn individual specialized agents:
+
+```javascript
+// Backend implementation agent
+const backendAgent = await spawn_agent({
+    agent_type: "backend",
+    repository_path: ".",
+    task_description: "Implement REST API endpoints for user management"
+});
+
+// Frontend agent that waits for backend completion
+const frontendAgent = await spawn_agent({
+    agent_type: "frontend", 
+    repository_path: ".",
+    task_description: "Create React components for user interface",
+    depends_on: [backendAgent.agent_id]
+});
+
+// Testing agent that waits for both
+const testAgent = await spawn_agent({
+    agent_type: "testing",
+    repository_path: ".",
+    task_description: "Create comprehensive test suite for authentication flow",
+    depends_on: [backendAgent.agent_id, frontendAgent.agent_id]
 });
 ```
 
@@ -206,30 +221,30 @@ await orchestrate_objective({
 
 ```bash
 # Show help and available commands
-claude-mcp-tools --help
+zmcp-tools --help
 
 # Show system status
-claude-mcp-tools status
+zmcp-tools status
 
 # Start the MCP server
-claude-mcp-server
+zmcp-server
 
 # Agent management
-claude-mcp-tools agent list
-claude-mcp-tools agent spawn -t <type> -r <repository> -d <description>
-claude-mcp-tools agent terminate -i <agent-id>
+zmcp-tools agent list
+zmcp-tools agent spawn -t <type> -r <repository> -d <description>
+zmcp-tools agent terminate -i <agent-id>
 
 # Task management
-claude-mcp-tools task list
-claude-mcp-tools task create -t <title> -d <description>
+zmcp-tools task list
+zmcp-tools task create -t <title> -d <description>
 
 # Memory operations
-claude-mcp-tools memory search -q <query>
-claude-mcp-tools memory store -t <title> -c <content>
+zmcp-tools memory search -q <query>
+zmcp-tools memory store -t <title> -c <content>
 
 # Communication rooms
-claude-mcp-tools room list
-claude-mcp-tools room join -n <name>
+zmcp-tools room list
+zmcp-tools room join -n <name>
 ```
 
 ### 🛠️ Development Commands
@@ -240,9 +255,9 @@ pnpm install                   # Install dependencies first
 pnpm run install:global       # Build, link globally, and configure everything
 
 # Alternative package managers
-npm install && npm run build && npm link && claude-mcp-tools install
-yarn install && yarn build && yarn link && claude-mcp-tools install
-bun install && bun run build && bun link && claude-mcp-tools install
+npm install && npm run build && npm link && zmcp-tools install
+yarn install && yarn build && yarn link && zmcp-tools install
+bun install && bun run build && bun link && zmcp-tools install
 
 # Development with hot-reload
 pnpm dev          # Start MCP server with tsx
@@ -263,14 +278,14 @@ pnpm start        # Start compiled MCP server
 pnpm start:cli    # Start compiled CLI
 
 # Management
-claude-mcp-tools install    # Install/reinstall MCP server
-claude-mcp-tools uninstall  # Remove MCP server and settings
-claude-mcp-tools status     # Check system status
-claude-mcp-tools help       # Show all commands
+zmcp-tools install    # Install/reinstall MCP server
+zmcp-tools uninstall  # Remove MCP server and settings
+zmcp-tools status     # Check system status
+zmcp-tools help       # Show all commands
 
 # For users who installed via npx
-npx claude-mcp-tools@latest status     # Check status
-npx claude-mcp-tools@latest uninstall  # Remove installation
+npx zmcp-tools@latest status     # Check status
+npx zmcp-tools@latest uninstall  # Remove installation
 ```
 
 **🌟 TypeScript Features:**
@@ -304,9 +319,9 @@ npx claude-mcp-tools@latest uninstall  # Remove installation
 The following aliases are available (add to `~/.zshrc`):
 
 ```bash
-alias mcp-tools="claude-mcp-tools"
-alias mcp-server="claude-mcp-server"
-alias mcp-status="claude-mcp-tools status"
+alias mcp-tools="zmcp-tools"
+alias mcp-server="zmcp-server"
+alias mcp-status="zmcp-tools status"
 alias mcp-dev="npm run dev"
 ```
 
@@ -352,7 +367,7 @@ The installer automatically configures the MCP server, but if you need to manual
 # Configuration is automatic in .claude/settings.local.json
 
 # For development install
-claude mcp add claude-mcp-tools $(pwd)/dist/server/index.js
+claude mcp add zmcp-tools $(pwd)/dist/server/index.js
 
 # Verify installation
 claude mcp list
@@ -608,16 +623,16 @@ node dist/cli/index.js   # CLI interface
 ### Status Display
 
 ```bash
-$ claude-mcp-tools status
+$ zmcp-tools status
 ```
 
 ```
-ClaudeMcpTools Status:
+ZMCPTools Status:
 ✅ TypeScript Build: dist/ directory exists
 ✅ Data Directory: ~/.mcptools/data/
 ✅ SQLite Database: claude_mcp_tools.db
 ✅ LanceDB Vector Database: ~/.mcptools/lancedb/
-✅ MCP Server: claude-mcp-server binary available
+✅ MCP Server: zmcp-server binary available
 ✅ Dependencies: @modelcontextprotocol/sdk, @lancedb/lancedb, better-sqlite3
 ```
 
@@ -699,8 +714,8 @@ pnpm install
 pnpm build
 
 # Development installation
-git clone https://github.com/zachhandley/ClaudeMcpTools
-cd ClaudeMcpTools
+git clone https://github.com/zachhandley/ZMCPTools
+cd ZMCPTools
 pnpm install && pnpm run install:global
 ```
 
@@ -734,8 +749,8 @@ pnpm dev
 
 # Check MCP configuration
 claude mcp list
-claude mcp remove claude-mcp-tools
-claude mcp add claude-mcp-tools $(pwd)/dist/index.js
+claude mcp remove zmcp-tools
+claude mcp add zmcp-tools $(pwd)/dist/index.js
 ```
 
 ### TypeScript Issues
@@ -758,23 +773,35 @@ rm -rf node_modules pnpm-lock.yaml
 pnpm install                        # Clean dependency install
 ```
 
-## 📈 Performance & Optimization
+## 📈 Performance & Architecture
 
-### Current Metrics
-- **42 Tools**: Comprehensive MCP tool suite with LanceDB vector capabilities and full type safety
-- **Database**: SQLite with WAL mode for optimal performance
-- **Vector Storage**: LanceDB with native TypeScript bindings for high-performance similarity search
-- **Memory Footprint**: < 75MB baseline with efficient connection pooling and vector index caching
-- **Response Time**: < 200ms average for tool execution, < 100ms for vector search queries
-- **Foundation Cache**: 85-90% cost reduction for repeated operations
+### Production Metrics
+- **61 MCP Tools**: Complete tool suite with full type safety and MCP 1.15.0 compliance
+- **Database Performance**: SQLite with WAL mode and optimized connection pooling
+- **Vector Search**: LanceDB native TypeScript bindings for <100ms semantic search
+- **Memory Efficiency**: <75MB baseline with intelligent caching and cleanup
+- **Response Time**: <200ms average tool execution, <50ms for cached operations
+- **Cost Optimization**: 85-90% reduction through automatic foundation session management
 
-### Optimization Roadmap
-Our comprehensive MCP optimization analysis (see `MCP_OPTIMIZATION_ANALYSIS.md`) identifies key areas:
+### Technical Architecture
 
-1. **Enhanced Error Handling**: MCP-compliant error taxonomy and better user feedback
-2. **Resource Implementation**: MCP resources for project data and agent status
-3. **Performance Monitoring**: Tool metrics, response times, and usage analytics
-4. **Transport Extensions**: HTTP transport support for remote MCP capabilities
+**TypeScript-First Design:**
+- Strict TypeScript with Zod schemas for runtime validation
+- Modern ES modules with tree-shaking optimization
+- Dual binary system (CLI + MCP server)
+- Hot-reload development with tsx
+
+**Database Layer:**
+- SQLite with Write-Ahead Logging for performance
+- Drizzle ORM for type-safe database operations  
+- Automatic schema migrations and connection pooling
+- LanceDB vector database for semantic search
+
+**MCP Compliance:**
+- Full MCP 1.15.0 protocol implementation
+- JSON-RPC 2.0 with proper error handling
+- Stdio and HTTP transport support
+- Resource and prompt management
 
 ## 🤝 Contributing
 
@@ -796,4 +823,4 @@ MIT License - see LICENSE file for details.
 
 ---
 
-**🚀 Supercharge your Claude Code workflows with TypeScript-powered multi-agent orchestration, LanceDB vector search, type-safe development, enhanced performance, and intelligent development assistance!**
+**🚀 Supercharge your Claude Code workflows with ZMCPTools - TypeScript-powered multi-agent orchestration, LanceDB vector search, type-safe development, enhanced performance, and intelligent development assistance!**
