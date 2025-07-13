@@ -1,0 +1,33 @@
+# Global code ownership for ZMCPTools
+# All changes require approval from @zachhandley
+
+# Default owner for everything
+* @zachhandley
+
+# Core source code - requires owner approval
+/src/ @zachhandley
+
+# Package configuration - critical files
+package.json @zachhandley
+tsconfig.json @zachhandley
+pnpm-lock.yaml @zachhandley
+
+# Database and migrations - sensitive changes
+/src/database/ @zachhandley
+/drizzle/ @zachhandley
+
+# Installer and CLI - user-facing changes
+/src/installer/ @zachhandley
+/src/cli/ @zachhandley
+
+# Documentation - maintain quality
+README.md @zachhandley
+TOOL_LIST.md @zachhandley
+CLAUDE.md @zachhandley
+
+# GitHub configuration
+/.github/ @zachhandley
+
+# Build and deployment
+/scripts/ @zachhandley
+Dockerfile @zachhandley

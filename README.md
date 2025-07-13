@@ -54,11 +54,16 @@
 ### Production Installation (Recommended)
 
 ```bash
-# Single command installation via npx
-npx zmcp-tools@latest install
+# Install globally first (recommended for WSL/Linux compatibility)
+pnpm add -g zmcp-tools
+# If requested, approve build scripts for native dependencies
+pnpm approve-builds -g
 
-# Alternative package managers
-pnpx zmcp-tools@latest install    # pnpm
+# Then install MCP integration
+zmcp-tools install
+
+# Alternative: Direct installation (may have issues with Sharp in WSL)
+npx zmcp-tools@latest install     # npm
 yarn dlx zmcp-tools@latest install  # yarn  
 bunx zmcp-tools@latest install      # bun
 ```
