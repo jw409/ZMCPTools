@@ -7,6 +7,14 @@
 
 🚀 **TypeScript MCP Tools for Claude Code** - Professional multi-agent orchestration platform with 61 enhanced tools, documentation intelligence, and advanced automation capabilities.
 
+## ⚠️ Important Setup Note
+
+**Before spawning agents**, run this command once to enable proper agent permissions:
+```bash
+claude --dangerously-skip-permissions
+```
+Agents run on daemon threads and need this permission to execute properly.
+
 ## ✨ Key Features
 
 ### 🎯 **Multi-Agent Orchestration**
@@ -70,7 +78,7 @@ bunx zmcp-tools@latest install      # bun
 
 **This automatically:**
 - ✅ Installs MCP server to `~/.mcptools/server/`
-- ✅ Configures Claude Code in `./.claude/settings.local.json`
+- ✅ Configures Claude Code with `claude mcp add --scope local` (current directory only)
 - ✅ Sets up project permissions and CLAUDE.md integration
 - ✅ Initializes SQLite database for agent coordination
 - ✅ Initializes LanceDB vector database for semantic search
@@ -102,18 +110,11 @@ zmcp-tools install       # Configure MCP integration
 
 ### MCP Server Configuration
 
-The installer automatically configures the MCP server in your Claude Code settings. The server runs directly with Node.js:
+The installer automatically configures the MCP server using `claude mcp add --scope local`. The server runs directly with Node.js:
 
-```json
-// Automatically added to .claude/settings.local.json
-{
-  "mcpServers": {
-    "zmcp-tools": {
-      "command": "node",
-      "args": ["/home/user/.mcptools/server/index.js"]
-    }
-  }
-}
+```bash
+# Automatically executed during installation
+claude mcp add --scope local zmcp-tools node ~/.mcptools/server/index.js
 ```
 
 **This provides:**
@@ -140,6 +141,75 @@ ClaudeMcpTools TypeScript requires the following:
 - **TSX**: For development hot-reload (included in devDependencies)
 
 **Note**: This TypeScript implementation includes native LanceDB vector database with no Python dependencies required.
+
+## 📝 Example Commands
+
+Here are some common workflows you can achieve with ZMCPTools:
+
+### 🎨 Brand & Style Analysis
+```
+"Using the zmcp server, find the styles and generate me a brand guide called THEWEBSITE_BRAND.md"
+```
+
+### 📚 Documentation Scraping
+```
+"Scrape https://modelcontextprotocol.io/introduction -- use the selector #content-area (by ID), don't allow any subdomains, and nothing ignored (though we can ask it to ignore regex, glob, patterns to *not* get some docs), update it weekly"
+```
+
+### 🤖 Multi-Agent Orchestration
+```
+"Create a multi-agent orchestration to design and architect a ModelContextProtocol TypeScript server to do XYZ"
+```
+
+### 🔍 Project Analysis
+```
+"Analyze the project structure, and then search the .treesummary directory to see what's there"
+```
+
+### 👥 Agent Management
+```
+"Spawn an agent to do X, and then monitor its progress"
+```
+
+### 🔎 Documentation Search
+```
+"Search the documentation for X"
+```
+
+### 🌐 Browser Automation
+```
+"Create a browser session, navigate to https://example.com, take a screenshot, and analyze the page structure for accessibility issues"
+```
+
+### 🧠 Knowledge Graph Operations
+```
+"Store this implementation pattern in the knowledge graph and find related patterns we've used before"
+```
+
+### 💾 Foundation Session Optimization
+```
+"Create a multi-agent team with foundation session 'auth-refactor-2024' to refactor authentication across frontend and backend with 90% cost savings"
+```
+
+### 🔄 Development Workflow
+```
+"Start a dev server, run the test suite, and spawn an agent to fix any failing tests while monitoring progress in real-time"
+```
+
+### 📊 Cross-Agent Learning
+```
+"Analyze recent agent errors, identify patterns, and spawn a debugging agent that learns from previous failures"
+```
+
+### 🎯 Structured Planning
+```
+"Create an execution plan for implementing OAuth, then execute it with coordinated agents following the plan"
+```
+
+### 📊 Data Scope
+- **Documentation & Websites**: Shared project-wide across all repositories
+- **Agents, Tasks, Memory**: Scoped per repository_path for isolation
+- **Prompts & Resources**: Available globally for all projects
 
 ## 🎯 Multi-Agent Orchestration
 
@@ -369,7 +439,7 @@ The installer automatically configures the MCP server, but if you need to manual
 ```bash
 # For production install (via npx)
 # Server is installed at ~/.mcptools/server/index.js
-# Configuration is automatic in .claude/settings.local.json
+# Configuration is automatic via 'claude mcp add --scope local'
 
 # For development install
 claude mcp add zmcp-tools $(pwd)/dist/server/index.js
@@ -584,7 +654,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 claude-mcp-tools install --project
 
 # Creates/updates:
-# • ./.claude/settings.local.json (permissions)
+# • MCP server registration via 'claude mcp add --scope local'
 # • ./.claude/commands/ (Claude commands)  
 # • ./CLAUDE.md (integration guide with architect examples)
 ```
