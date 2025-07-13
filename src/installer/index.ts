@@ -264,7 +264,7 @@ function createProjectConfig(): void {
     "Task",
     "exit_plan_mode",
 
-    // ALL 44 MCP tools for full autonomous operation
+    // ALL 45 MCP tools for full autonomous operation
     // Agent Orchestration Tools (17 tools)
     "mcp__claude-mcp-tools__orchestrate_objective",
     "mcp__claude-mcp-tools__spawn_agent",
@@ -318,6 +318,14 @@ function createProjectConfig(): void {
     "mcp__claude-mcp-tools__update_project_metadata",
     "mcp__claude-mcp-tools__get_project_overview",
     "mcp__claude-mcp-tools__cleanup_stale_analyses",
+
+    // Plan Tools (6 tools)
+    "mcp__claude-mcp-tools__create_execution_plan",
+    "mcp__claude-mcp-tools__get_execution_plan",
+    "mcp__claude-mcp-tools__execute_with_plan",
+    "mcp__claude-mcp-tools__list_execution_plans",
+    "mcp__claude-mcp-tools__delete_execution_plan",
+    "mcp__claude-mcp-tools__update_execution_plan",
 
     // Foundation Cache Tools - Now automatically integrated (no manual tools needed)
   ];

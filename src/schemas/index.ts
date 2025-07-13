@@ -5,6 +5,7 @@ export * from './logs';
 export * from './memories';
 export * from './scraping';
 export * from './tasks';
+export * from './plans';
 export * from './knowledge-graph';
 
 // Re-export commonly used types for convenience
@@ -41,6 +42,22 @@ export type {
   TaskFilter,
   TaskCreateRequest,
 } from './tasks';
+
+export type {
+  // Plan types
+  Plan,
+  NewPlan,
+  PlanUpdate,
+  PlanSection,
+  PlanMetadata,
+  PlanStatus,
+  PlanPriority,
+  SectionType,
+  PlanFilter,
+  PlanCreateRequest,
+  PlanSectionUpdate,
+  PlanTodoUpdate,
+} from './plans';
 
 export type {
   // Communication types
@@ -174,6 +191,22 @@ export {
 } from './tasks';
 
 export {
+  // Plan schemas
+  planStatusSchema,
+  planPrioritySchema,
+  sectionTypeSchema,
+  planSectionSchema,
+  planMetadataSchema,
+  insertPlanSchema,
+  selectPlanSchema,
+  updatePlanSchema,
+  planFilterSchema,
+  planCreateRequestSchema,
+  planSectionUpdateSchema,
+  planTodoUpdateSchema,
+} from './plans';
+
+export {
   // Communication schemas
   messageTypeSchema,
   participantStatusSchema,
@@ -274,6 +307,7 @@ export {
 export { memories } from './memories';
 export { agentSessions } from './agents';
 export { tasks, taskDependencies } from './tasks';
+export { plans } from './plans';
 export { chatRooms, chatMessages, roomParticipants } from './communication';
 export { documentationSources, scrapeJobs, websites, websitePages } from './scraping';
 export { errorLogs, toolCallLogs } from './logs';
@@ -301,6 +335,12 @@ import {
   insertTaskDependencySchema,
   selectTaskDependencySchema
 } from './tasks';
+import {
+  plans,
+  insertPlanSchema,
+  selectPlanSchema,
+  updatePlanSchema
+} from './plans';
 import { 
   chatRooms, 
   chatMessages,
@@ -362,6 +402,7 @@ export const allTables = {
   agentSessions,
   tasks,
   taskDependencies,
+  plans,
   memories,
   
   
@@ -391,6 +432,7 @@ export const insertSchemas = {
   agentSessions: insertAgentSessionSchema,
   tasks: insertTaskSchema,
   taskDependencies: insertTaskDependencySchema,
+  plans: insertPlanSchema,
   memories: insertMemorySchema,
   chatRooms: insertChatRoomSchema,
   chatMessages: insertChatMessageSchema,
@@ -410,6 +452,7 @@ export const selectSchemas = {
   agentSessions: selectAgentSessionSchema,
   tasks: selectTaskSchema,
   taskDependencies: selectTaskDependencySchema,
+  plans: selectPlanSchema,
   memories: selectMemorySchema,
   chatRooms: selectChatRoomSchema,
   chatMessages: selectChatMessageSchema,
@@ -428,6 +471,7 @@ export const selectSchemas = {
 export const updateSchemas = {
   agentSessions: updateAgentSessionSchema,
   tasks: updateTaskSchema,
+  plans: updatePlanSchema,
   memories: updateMemorySchema,
   chatRooms: updateChatRoomSchema,
   roomParticipants: updateRoomParticipantSchema,

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { DatabaseManager } from '../database/index.js';
 import { AgentService, TaskService, CommunicationService, KnowledgeGraphService } from '../services/index.js';
+import { PlanRepository } from '../repositories/index.js';
 import { WebScrapingService } from '../services/WebScrapingService.js';
 import { AgentMonitoringService } from '../services/AgentMonitoringService.js';
 import { ProgressTracker } from '../services/ProgressTracker.js';
@@ -90,6 +91,7 @@ export class AgentOrchestrationTools {
   private taskService: TaskService;
   private communicationService: CommunicationService;
   private knowledgeGraphService: KnowledgeGraphService;
+  private planRepository: PlanRepository;
   private webScrapingService: WebScrapingService;
   private monitoringService: AgentMonitoringService;
   private progressTracker: ProgressTracker;
@@ -101,6 +103,7 @@ export class AgentOrchestrationTools {
     this.agentService = new AgentService(db);
     this.taskService = new TaskService(db);
     this.communicationService = new CommunicationService(db);
+    this.planRepository = new PlanRepository(db);
     // Initialize KnowledgeGraphService with VectorSearchService
     this.initializeKnowledgeGraphService(db);
     this.webScrapingService = new WebScrapingService(
@@ -259,7 +262,25 @@ export class AgentOrchestrationTools {
     
     const { title, objective, repositoryPath, foundationSessionId } = normalizedArgs;
     try {
-      // 1. Create coordination room (orchestration always needs room)
+      // 1. Create plan FIRST (before any other orchestration steps)
+      const plan = await this.planRepository.createPlan({
+        repositoryPath,
+        title: `Plan: ${title}`,
+        description: `Generated plan for orchestration objective: ${objective}`,
+        objectives: objective,
+        priority: 'high',
+        createdByAgent: 'orchestrateObjective',
+        sections: this.generateBasicPlanSections(objective),
+        metadata: {
+          estimatedTotalHours: 8,
+          riskLevel: 'medium',
+          technologies: [],
+          dependencies: []
+        },
+        status: 'approved' // Auto-approve for orchestration
+      });
+
+      // 2. Create coordination room (orchestration always needs room)
       const roomName = `objective_${Date.now()}`;
       const room = await this.communicationService.createRoom({
         name: roomName,
@@ -269,11 +290,12 @@ export class AgentOrchestrationTools {
           objective,
           foundationSessionId,
           orchestrationMode: true,
+          planId: plan.id,
           createdAt: new Date().toISOString()
         }
       });
 
-      // 2. AUTO-CREATE MASTER TASK for the objective
+      // 3. AUTO-CREATE MASTER TASK for the objective (linked to plan)
       const masterTask = await this.taskService.createTask({
         repositoryPath,
         taskType: 'feature' as TaskType,
@@ -282,6 +304,7 @@ export class AgentOrchestrationTools {
           objective,
           roomId: room.id,
           roomName,
+          planId: plan.id,
           foundationSessionId,
           isOrchestrationTask: true,
           createdBy: 'orchestrateObjective'
@@ -289,15 +312,15 @@ export class AgentOrchestrationTools {
         priority: 10 // High priority for orchestration tasks
       });
 
-      // 3. Store objective in knowledge graph with task reference
+      // 4. Store objective in knowledge graph with task and plan references
       try {
         await this.knowledgeGraphService.createEntity({
           id: `orchestration-${Date.now()}`,
           repositoryPath,
           entityType: 'insight',
           name: title,
-          description: `Objective: ${objective}\n\nMulti-agent objective coordination started.\nRoom: ${roomName}\nFoundation Session: ${foundationSessionId || 'none'}\nMaster Task: ${masterTask.id}`,
-          properties: { tags: ['objective', 'orchestration', 'coordination', 'task-creation'] },
+          description: `Objective: ${objective}\n\nMulti-agent objective coordination started.\nPlan: ${plan.id}\nRoom: ${roomName}\nFoundation Session: ${foundationSessionId || 'none'}\nMaster Task: ${masterTask.id}`,
+          properties: { tags: ['objective', 'orchestration', 'coordination', 'task-creation', 'plan'] },
           discoveredBy: 'system',
           discoveredDuring: 'orchestration',
           importanceScore: 0.9,
@@ -351,8 +374,9 @@ export class AgentOrchestrationTools {
 
       return {
         success: true,
-        message: 'Architect agent spawned successfully with master task',
+        message: 'Plan created and architect agent spawned successfully with master task',
         data: {
+          planId: plan.id,
           architectAgentId: architectAgent.id,
           roomName,
           objective,
@@ -2408,5 +2432,88 @@ This eliminates the typical problem of agents not knowing what they're doing.
 Execute systematically according to your plan and coordinate effectively with other agents.
 
 Start by reviewing your assigned tasks and sending a status message to the coordination room confirming your understanding and planned approach.`;
+  }
+
+  /**
+   * Generate basic plan sections from an objective for orchestration - simplified to task templates
+   */
+  private generateBasicPlanSections(objective: string): any[] {
+    const now = new Date().toISOString();
+    const { ulid } = require('ulidx');
+    
+    return [
+      {
+        id: ulid(),
+        type: 'analysis',
+        title: 'Analysis & Planning',
+        description: 'Analyze requirements and create detailed implementation plan',
+        agentResponsibility: 'analysis',
+        estimatedHours: 2,
+        priority: 1,
+        prerequisites: [],
+        taskTemplates: [
+          {
+            description: 'Analyze objective and break down into specific requirements',
+            taskType: 'analysis',
+            estimatedHours: 1
+          },
+          {
+            description: 'Create detailed implementation plan with task breakdown',
+            taskType: 'analysis',
+            estimatedHours: 1
+          }
+        ],
+        createdAt: now,
+        updatedAt: now
+      },
+      {
+        id: ulid(),
+        type: 'backend',
+        title: 'Implementation',
+        description: 'Core implementation work',
+        agentResponsibility: 'implementer',
+        estimatedHours: 4,
+        priority: 2,
+        prerequisites: [],
+        taskTemplates: [
+          {
+            description: 'Implement core functionality as defined in requirements',
+            taskType: 'feature',
+            estimatedHours: 3
+          },
+          {
+            description: 'Handle edge cases and error scenarios',
+            taskType: 'feature',
+            estimatedHours: 1
+          }
+        ],
+        createdAt: now,
+        updatedAt: now
+      },
+      {
+        id: ulid(),
+        type: 'testing',
+        title: 'Testing & Validation',
+        description: 'Comprehensive testing of implementation',
+        agentResponsibility: 'testing',
+        estimatedHours: 2,
+        priority: 3,
+        prerequisites: [],
+        taskTemplates: [
+          {
+            description: 'Create and run comprehensive tests',
+            taskType: 'testing',
+            estimatedHours: 1.5
+          },
+          {
+            description: 'Validate implementation meets all requirements',
+            taskType: 'testing',
+            estimatedHours: 0.5
+          }
+        ],
+        createdAt: now,
+        updatedAt: now
+      }
+    ];
   }
 }

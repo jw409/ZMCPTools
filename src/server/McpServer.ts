@@ -49,6 +49,7 @@ import {
   type OrchestrationResult,
 } from "../tools/AgentOrchestrationTools.js";
 import { CommunicationTools } from "../tools/CommunicationTools.js";
+import { PlanTools } from "../tools/PlanTools.js";
 import { WebScrapingMcpTools } from "../tools/WebScrapingMcpTools.js";
 import { AnalysisMcpTools } from "../tools/AnalysisMcpTools.js";
 import {
@@ -102,6 +103,7 @@ export class McpToolsServer {
   private db: DatabaseManager;
   private orchestrationTools: AgentOrchestrationTools;
   private communicationTools: CommunicationTools;
+  private planTools: PlanTools;
   private browserTools: BrowserTools;
   private browserAIDOMTools: BrowserAIDOMTools;
   private webScrapingMcpTools: WebScrapingMcpTools;
@@ -345,6 +347,11 @@ export class McpToolsServer {
     );
     
     this.communicationTools = new CommunicationTools(
+      this.db,
+      this.repositoryPath
+    );
+    
+    this.planTools = new PlanTools(
       this.db,
       this.repositoryPath
     );
@@ -600,6 +607,8 @@ export class McpToolsServer {
       ...this.treeSummaryTools.getTools(),
       // Communication tools
       ...this.communicationTools.getTools(),
+      // Plan management tools
+      ...this.planTools.getTools(),
       // Agent orchestration tools
       ...this.orchestrationTools.getTools(),
       // Progress reporting tool

@@ -1,6 +1,6 @@
 {
   "name": "zmcp-tools",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "TypeScript implementation of ZMCPTools with enhanced MCP tools and multi-agent orchestration",
   "main": "dist/server/index.js",
   "types": "dist/server/index.d.ts",
@@ -108,6 +108,7 @@
     "@types/node": "latest",
     "@types/turndown": "^5.0.5",
     "@types/user-agents": "^1.0.4",
+    "@types/uuid": "^10.0.0",
     "@types/xml2js": "^0.4.14",
     "@typescript-eslint/eslint-plugin": "^8.36.0",
     "@typescript-eslint/parser": "^8.36.0",

@@ -201,10 +201,18 @@ Here are some common workflows you can achieve with ZMCPTools:
 "Analyze recent agent errors, identify patterns, and spawn a debugging agent that learns from previous failures"
 ```
 
-### 🎯 Structured Planning
+### 🎯 Streamlined Plan System
 ```
 "Create an execution plan for implementing OAuth, then execute it with coordinated agents following the plan"
 ```
+
+The Plan system provides 4 streamlined tools for orchestration:
+- **`create_execution_plan`** - Create high-level execution plans from objectives
+- **`get_execution_plan`** - Retrieve plans with progress tracking via linked Tasks
+- **`execute_with_plan`** - Execute plans by creating coordinated Tasks for agents
+- **`list_execution_plans`** - List and monitor execution plans
+
+Plans create Tasks for implementation - Plans are high-level orchestration templates while Tasks are specific work items assigned to agents.
 
 ### 📊 Data Scope
 - **Documentation & Websites**: Shared project-wide across all repositories

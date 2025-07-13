@@ -73,6 +73,7 @@ export function createRepositoryConfig<TTable extends SQLiteTable>(
 export { MemoryRepository } from './MemoryRepository.js';
 export { AgentRepository } from './AgentRepository.js';
 export { TaskRepository } from './TaskRepository.js';
+export { PlanRepository } from './PlanRepository.js';
 export { CommunicationRepository } from './CommunicationRepository.js';
 export { DocumentationRepository } from './DocumentationRepository.js';
 export { ScrapeJobRepository } from './ScrapeJobRepository.js';

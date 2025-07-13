@@ -5,6 +5,27 @@ All notable changes to ClaudeMcpTools will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2025-01-13
+
+### Added
+- 🎯 **Streamlined Plan System** - Consolidated planning tools from 10+ to 4 essential tools:
+  - `create_execution_plan` - Create high-level execution plans from objectives  
+  - `get_execution_plan` - Retrieve plans with progress tracking via linked Tasks
+  - `execute_with_plan` - Execute plans by creating coordinated Tasks for agents
+  - `list_execution_plans` - List and monitor execution plans
+- 📋 **Enhanced Task-Plan Integration** - Plans now create Tasks for implementation, providing clear separation between high-level orchestration (Plans) and specific work items (Tasks)
+- 🧹 **Tool Consolidation** - Reduced tool bloat by streamlining plan management while maintaining full functionality
+
+### Changed
+- **Plan System Architecture** - Plans are now high-level orchestration templates that generate Tasks for execution
+- **Progress Tracking** - Plan progress is now derived from linked Task completion status
+- **Tool Naming** - Clarified distinction between Plans (orchestration templates) and Tasks (work items)
+
+### Technical Details
+- Simplified plan execution flow: Plan → Task creation → Agent assignment
+- Improved separation of concerns between orchestration and task management
+- Enhanced progress tracking through Task-Plan relationships
+
 ## [0.1.0] - 2025-01-02
 
 ### Added

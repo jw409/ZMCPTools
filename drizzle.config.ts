@@ -13,6 +13,7 @@ const config = defineConfig({
     join(projectRoot, 'src', 'schemas', 'knowledge-graph.ts'),
     join(projectRoot, 'src', 'schemas', 'logs.ts'),
     join(projectRoot, 'src', 'schemas', 'memories.ts'),
+    join(projectRoot, 'src', 'schemas', 'plans.ts'),
     join(projectRoot, 'src', 'schemas', 'scraping.ts'),
     join(projectRoot, 'src', 'schemas', 'tasks.ts'),
   ],
