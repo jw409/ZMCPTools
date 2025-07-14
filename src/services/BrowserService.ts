@@ -538,7 +538,7 @@ export class BrowserService {
     this.config = {
       headless: true,
       timeout: 30000,
-      userAgent: 'Mozilla/5.0 (compatible; ClaudeMcpTools/1.0; +https://github.com/ClaudeMcpTools)',
+      userAgent: 'Mozilla/5.0 (compatible; ZMCPTools/1.0; +https://github.com/ZMCPTools)',
       viewport: {
         width: 1920,
         height: 1080

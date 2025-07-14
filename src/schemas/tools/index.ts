@@ -1,7 +1,7 @@
 /**
  * Comprehensive McpTool typedef based on analysis of all MCP tool files
  * 
- * This interface standardizes tool definitions across the ClaudeMcpTools project
+ * This interface standardizes tool definitions across the ZMCPTools project
  * and provides type safety for MCP tool registration and handling.
  */
 

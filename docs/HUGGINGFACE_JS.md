@@ -1,6 +1,6 @@
 # HuggingFace.js Transformers Integration Guide
 
-This document provides comprehensive guidance for integrating HuggingFace.js Transformers library (@xenova/transformers) for semantic text embeddings in ClaudeMcpTools.
+This document provides comprehensive guidance for integrating HuggingFace.js Transformers library (@xenova/transformers) for semantic text embeddings in ZMCPTools.
 
 ## Table of Contents
 
@@ -533,11 +533,11 @@ export class HuggingFaceEmbeddingFunction {
 }
 ```
 
-This implementation provides a solid foundation for semantic embeddings in ClaudeMcpTools, replacing the simple hash-based approach with real neural embeddings that capture semantic meaning.
+This implementation provides a solid foundation for semantic embeddings in ZMCPTools, replacing the simple hash-based approach with real neural embeddings that capture semantic meaning.
 
 ## Implementation Status
 
-✅ **IMPLEMENTED**: The `LanceDBService` in ClaudeMcpTools now uses real HuggingFace Transformers embeddings!
+✅ **IMPLEMENTED**: The `LanceDBService` in ZMCPTools now uses real HuggingFace Transformers embeddings!
 
 ### What was changed:
 

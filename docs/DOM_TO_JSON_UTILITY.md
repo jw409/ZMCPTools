@@ -1,6 +1,6 @@
 # DOM-to-JSON Utility Documentation
 
-The DOM-to-JSON utility (`/src/utils/domToJson.ts`) provides comprehensive DOM element serialization for AI navigation and analysis within the ClaudeMcpTools project.
+The DOM-to-JSON utility (`/src/utils/domToJson.ts`) provides comprehensive DOM element serialization for AI navigation and analysis within the ZMCPTools project.
 
 ## 🎯 Overview
 
@@ -396,4 +396,4 @@ When extending the utility:
 
 ## 🎉 Summary
 
-The DOM-to-JSON utility provides a comprehensive solution for converting web page DOM structures into AI-navigable JSON format. It includes advanced features like interactive element detection, style optimization, HTML sanitization, and seamless Playwright integration, making it ideal for AI-driven web automation and analysis tasks within the ClaudeMcpTools ecosystem.
+The DOM-to-JSON utility provides a comprehensive solution for converting web page DOM structures into AI-navigable JSON format. It includes advanced features like interactive element detection, style optimization, HTML sanitization, and seamless Playwright integration, making it ideal for AI-driven web automation and analysis tasks within the ZMCPTools ecosystem.

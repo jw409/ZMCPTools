@@ -1,6 +1,6 @@
 # LanceDB Vector Database Integration
 
-ClaudeMcpTools includes native LanceDB integration for high-performance vector search and semantic analysis. This document covers setup, configuration, and usage of the vector database features.
+ZMCPTools includes native LanceDB integration for high-performance vector search and semantic analysis. This document covers setup, configuration, and usage of the vector database features.
 
 ## Overview
 
@@ -438,4 +438,4 @@ await tbl.search(Array(128).fill(1.2)).limit(10).toArray();
 
 ---
 
-**Note**: LanceDB integration is included in ClaudeMcpTools v0.2.0+ with no additional setup required. The vector database is automatically initialized on first use. Uses the modern @lancedb/lancedb Rust-backed client for maximum performance.
+**Note**: LanceDB integration is included in ZMCPTools v0.2.0+ with no additional setup required. The vector database is automatically initialized on first use. Uses the modern @lancedb/lancedb Rust-backed client for maximum performance.

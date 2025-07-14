@@ -24,14 +24,46 @@ export default defineConfig([
     banner: {
       js: '#!/usr/bin/env node'
     },
-    // Ensure server binary is executable
+    // Ensure server binary is executable and copy hooks
     onSuccess: async () => {
       const { execSync } = await import('child_process');
+      const fs = await import('fs');
+      const path = await import('path');
+      
       try {
         execSync('chmod +x dist/server/index.js', { stdio: 'ignore' });
         console.log('✅ Made server binary executable');
       } catch (error) {
         console.warn('⚠️  Failed to make server binary executable:', error);
+      }
+      
+      // Copy hooks directory to dist with Unix line endings
+      try {
+        const srcHooksDir = path.resolve('src/hooks');
+        const distHooksDir = path.resolve('dist/hooks');
+        
+        if (fs.existsSync(srcHooksDir)) {
+          // Create dist hooks directory
+          fs.mkdirSync(distHooksDir, { recursive: true });
+          
+          // Copy each hook file and fix line endings
+          const hookFiles = fs.readdirSync(srcHooksDir);
+          for (const file of hookFiles) {
+            const srcFile = path.join(srcHooksDir, file);
+            const destFile = path.join(distHooksDir, file);
+            
+            let content = fs.readFileSync(srcFile, 'utf8');
+            // Ensure Unix line endings
+            content = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+            
+            fs.writeFileSync(destFile, content);
+            fs.chmodSync(destFile, 0o755); // Make executable
+          }
+          
+          console.log('✅ Copied hooks to dist with Unix line endings');
+        }
+      } catch (error) {
+        console.warn('⚠️  Failed to copy hooks:', error);
       }
     }
   },

@@ -471,4 +471,4 @@ When contributing to the FileProcessor utility:
 
 ## License
 
-This utility is part of the ClaudeMcpTools project and follows the project's licensing terms.
+This utility is part of the ZMCPTools project and follows the project's licensing terms.

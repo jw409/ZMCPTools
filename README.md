@@ -129,7 +129,7 @@ claude mcp add --scope local zmcp-tools node ~/.mcptools/server/index.js
 
 ## 📋 Prerequisites
 
-ClaudeMcpTools TypeScript requires the following:
+ZMCPTools TypeScript requires the following:
 
 ### Required
 - **[Node.js 18+](https://nodejs.org/)** - JavaScript runtime and LanceDB native bindings
@@ -223,7 +223,7 @@ Plans create Tasks for implementation - Plans are high-level orchestration templ
 
 ### Architect-Led Coordination
 
-ClaudeMcpTools features an AI architect that automatically analyzes objectives and spawns coordinated agent teams with proper dependencies and real-time communication.
+ZMCPTools features an AI architect that automatically analyzes objectives and spawns coordinated agent teams with proper dependencies and real-time communication.
 
 ## 🎯 Usage
 
@@ -430,20 +430,28 @@ Full TypeScript implementation with MCP SDK, proper error handling, and tool man
 ### Enhanced Project Integration
 
 **Automatic CLAUDE.md Integration:**
-- Unique delimiters: `<!-- zzClaudeMcpToolszz START/END -->`
+- Unique delimiters: `<!-- zzZMCPToolszz START/END -->`
 - Intelligent replacement of existing sections
 - Architect-led workflow guidance
 - Multi-agent examples with dependencies
 - Documentation-driven development patterns
 
+**Automatic Claude Hooks Integration:**
+- Session start context injection for instant MCP tools awareness
+- Knowledge graph and core tools reminders (analyze_project_structure(), search_knowledge_graph(), plan tools)
+- One-time per session to avoid context bloat
+- Non-destructive settings.json merging
+
 **Per-Project Setup:**
 ```bash
 # Automatic integration during project setup
-claude-mcp-tools install --project
+zmcp-tools install --project
 
 # Creates/updates:
 # • MCP server registration via 'claude mcp add --scope local'
-# • ./.claude/commands/ (Claude commands)  
+# • ./.claude/commands/ (Claude commands)
+# • ./.claude/hooks/ (session start context injection)
+# • ./.claude/settings.json (hook configuration)  
 # • ./CLAUDE.md (integration guide with architect examples)
 ```
 
@@ -461,8 +469,8 @@ claude-mcp-tools install --project
 
 ```bash
 # Clone and setup development environment
-git clone https://github.com/zachhandley/ClaudeMcpTools
-cd ClaudeMcpTools
+git clone https://github.com/zachhandley/ZMCPTools
+cd ZMCPTools
 pnpm install
 
 # Quick setup

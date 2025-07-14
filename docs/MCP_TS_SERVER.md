@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-This document provides comprehensive documentation for our TypeScript implementation of the Model Context Protocol (MCP) server, which powers ClaudeMcpTools with agent orchestration capabilities. Our implementation showcases advanced MCP capabilities including 50+ specialized tools, LanceDB vector search, agent orchestration, foundation caching, and multi-agent coordination systems.
+This document provides comprehensive documentation for our TypeScript implementation of the Model Context Protocol (MCP) server, which powers ZMCPTools with agent orchestration capabilities. Our implementation showcases advanced MCP capabilities including 50+ specialized tools, LanceDB vector search, agent orchestration, foundation caching, and multi-agent coordination systems.
 
 ## Table of Contents
 
@@ -711,7 +711,7 @@ interface BrowserSessionPool {
     "claude-mcp-tools-ts": {
       "command": "node",
       "args": ["dist/index.js"],
-      "cwd": "/path/to/ClaudeMcpTools",
+      "cwd": "/path/to/ZMCPTools",
       "env": {
         "MCPTOOLS_DATA_DIR": "~/.mcptools/data"
       }
@@ -1173,7 +1173,7 @@ Our TypeScript MCP server implementation represents a sophisticated and comprehe
 
 The implementation showcases the full potential of MCP for creating intelligent, context-aware AI applications while providing a solid foundation for future enhancements and enterprise deployment.
 
-For the latest updates and contribution guidelines, visit our [GitHub repository](https://github.com/your-org/ClaudeMcpTools).
+For the latest updates and contribution guidelines, visit our [GitHub repository](https://github.com/your-org/ZMCPTools).
 
 ---
 

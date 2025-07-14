@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide documents the correct usage of Drizzle ORM with the drizzle-zod plugin for ClaudeMcpTools, based on official documentation research.
+This guide documents the correct usage of Drizzle ORM with the drizzle-zod plugin for ZMCPTools, based on official documentation research.
 
 ## Core Principles
 

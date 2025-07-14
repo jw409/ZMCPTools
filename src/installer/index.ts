@@ -221,6 +221,81 @@ function buildAndLink(packageManager: PackageManager): boolean {
 
 
 
+function copyProjectHooks(): void {
+  logStep('🔗', 'Setting up Claude hooks...');
+  
+  const projectClaudeDir = path.join(process.cwd(), '.claude');
+  const hooksDir = path.join(projectClaudeDir, 'hooks');
+  fs.mkdirSync(hooksDir, { recursive: true });
+  
+  // Copy hook files from src/hooks to .claude/hooks
+  const srcHooksDir = path.join(__dirname, '..', 'hooks');
+  
+  if (fs.existsSync(srcHooksDir)) {
+    const hookFiles = fs.readdirSync(srcHooksDir).filter(file => file.endsWith('.sh'));
+    
+    hookFiles.forEach(hookFile => {
+      const srcPath = path.join(srcHooksDir, hookFile);
+      const destPath = path.join(hooksDir, hookFile);
+      
+      try {
+        fs.copyFileSync(srcPath, destPath);
+        fs.chmodSync(destPath, 0o755); // Make executable
+        logSuccess(`Copied hook: ${hookFile}`);
+      } catch (error) {
+        logWarning(`Failed to copy hook ${hookFile}: ${error}`);
+      }
+    });
+  } else {
+    logWarning('Source hooks directory not found, skipping hook installation');
+  }
+}
+
+function updateHookConfiguration(): void {
+  logStep('⚙️', 'Configuring Claude hooks...');
+  
+  const projectClaudeDir = path.join(process.cwd(), '.claude');
+  const settingsPath = path.join(projectClaudeDir, 'settings.json');
+  
+  // Load existing settings.json if it exists
+  let existingSettings: any = {};
+  if (fs.existsSync(settingsPath)) {
+    try {
+      const existingContent = fs.readFileSync(settingsPath, 'utf8');
+      existingSettings = JSON.parse(existingContent);
+    } catch (error) {
+      logWarning('Failed to parse existing settings.json, creating new');
+    }
+  }
+  
+  // Hook configuration for session start context injection
+  const hookConfig = {
+    "Notification": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/context-injection.sh"
+          }
+        ]
+      }
+    ]
+  };
+  
+  // Non-destructively merge hook configuration
+  const mergedSettings = {
+    ...existingSettings,
+    hooks: {
+      ...existingSettings.hooks,
+      ...hookConfig
+    }
+  };
+  
+  fs.writeFileSync(settingsPath, JSON.stringify(mergedSettings, null, 2));
+  logSuccess('Hook configuration updated');
+}
+
 function createProjectConfig(): void {
   logStep('🔒', 'Setting up project configuration...');
   
@@ -240,7 +315,7 @@ function createProjectConfig(): void {
     }
   }
   
-  // Required permissions for ClaudeMcpTools
+  // Required permissions for ZMCPTools
   const requiredPermissions = [
     // Core Claude Code tools
     "Bash(find:*)",
@@ -520,10 +595,10 @@ exit 0`;
 function createClaudeMd(): void {
   logStep('📝', 'Setting up CLAUDE.md integration...');
   
-  const claudeSection = `<!-- zzClaudeMcpToolsTypescriptzz START -->
-# ClaudeMcpTools Agent Operations Guide
+  const claudeSection = `<!-- zzZMCPToolsTypescriptzz START -->
+# ZMCPTools Agent Operations Guide
 
-This guide provides actionable workflows for Claude agents using the ClaudeMcpTools MCP toolset for autonomous development.
+This guide provides actionable workflows for Claude agents using the ZMCPTools MCP toolset for autonomous development.
 
 ## 🧠 Agent Decision Framework
 
@@ -748,7 +823,7 @@ For any new complex task:
 **Data Location**: \`~/.mcptools/data/\` (SQLite databases with agent coordination, shared memory, and knowledge graphs)
 
 🎯 **Core Principle**: Always use multi-agent orchestration for complex tasks. Single agents are for investigation and simple operations only.
-<!-- zzClaudeMcpToolsTypescriptzz END -->`;
+<!-- zzZMCPToolsTypescriptzz END -->`;
 
   const claudeMdPath = path.join(process.cwd(), 'CLAUDE.md');
   
@@ -756,9 +831,9 @@ For any new complex task:
     let content = fs.readFileSync(claudeMdPath, 'utf8');
     
     // Replace existing section or append
-    if (content.includes('<!-- zzClaudeMcpToolsTypescriptzz START -->')) {
-      const startMarker = '<!-- zzClaudeMcpToolsTypescriptzz START -->';
-      const endMarker = '<!-- zzClaudeMcpToolsTypescriptzz END -->';
+    if (content.includes('<!-- zzZMCPToolsTypescriptzz START -->')) {
+      const startMarker = '<!-- zzZMCPToolsTypescriptzz START -->';
+      const endMarker = '<!-- zzZMCPToolsTypescriptzz END -->';
       
       const startIndex = content.indexOf(startMarker);
       const endIndex = content.indexOf(endMarker);
@@ -834,7 +909,7 @@ async function initializeDatabase(): Promise<void> {
 export async function install(options: { globalOnly?: boolean; projectOnly?: boolean; skipMcp?: boolean } = {}): Promise<void> {
   console.log(`${colors.bold}${colors.blue}`);
   console.log('╭─────────────────────────────────────────╮');
-  console.log('│ 🚀 ClaudeMcpTools TypeScript Installer  │');
+  console.log('│ 🚀 ZMCPTools TypeScript Installer  │');
   console.log('│ Enhanced MCP Tools for Claude Code      │');
   console.log('╰─────────────────────────────────────────╯');
   console.log(colors.reset);
@@ -864,6 +939,8 @@ export async function install(options: { globalOnly?: boolean; projectOnly?: boo
   // Set up project configuration (main purpose when running from global install)
   if (!options.globalOnly) {
     createProjectConfig();
+    copyProjectHooks();
+    updateHookConfiguration();
     updateGitignore();
     setupGitCommitProtection();
     createClaudeMd();
@@ -932,7 +1009,7 @@ export async function install(options: { globalOnly?: boolean; projectOnly?: boo
 }
 
 export function uninstall(): void {
-  logStep('🗑️', 'Uninstalling ClaudeMcpTools...');
+  logStep('🗑️', 'Uninstalling ZMCPTools...');
   
   // Detect package manager for unlinking
   const packageManager = detectPackageManager();
@@ -971,4 +1048,4 @@ export function uninstall(): void {
 }
 
 // Note: CLI interface removed to prevent duplicate execution
-// The installer should only be called through the main CLI (claude-mcp-tools install)
+// The installer should only be called through the main CLI (zmcp-tools install)

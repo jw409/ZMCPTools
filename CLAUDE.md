@@ -1,7 +1,7 @@
-<!-- zzClaudeMcpToolszz START -->
-# ClaudeMcpTools Integration
+<!-- zzZMCPToolszz START -->
+# ZMCPTools Integration
 
-This project uses ClaudeMcpTools with enhanced MCP tools and architect-led multi-agent orchestration.
+This project uses ZMCPTools with enhanced MCP tools and architect-led multi-agent orchestration.
 
 ## 🎯 Architect-Led Orchestration (Recommended)
 
@@ -159,13 +159,13 @@ orchestrate_objective(
 🎯 **Recommended**: Always start with `orchestrate_objective()` for multi-step tasks. The architect will intelligently break down work and coordinate specialized agents with proper dependencies and shared context.
 
 Data stored locally at `~/.mcptools/data/` with LanceDB vector storage at `~/.mcptools/lancedb/`, intelligent caching and cross-agent memory sharing.
-<!-- zzClaudeMcpToolszz END -->
+<!-- zzZMCPToolszz END -->
 
 
-<!-- zzClaudeMcpToolsTypescriptzz START -->
-# ClaudeMcpTools Agent Operations Guide
+<!-- zzZMCPToolsTypescriptzz START -->
+# ZMCPTools Agent Operations Guide
 
-This guide provides actionable workflows for Claude agents using the ClaudeMcpTools MCP toolset for autonomous development.
+This guide provides actionable workflows for Claude agents using the ZMCPTools MCP toolset for autonomous development.
 
 ## 🧠 Agent Decision Framework
 
@@ -390,4 +390,4 @@ For any new complex task:
 **Data Location**: `~/.mcptools/data/` (SQLite databases with agent coordination, shared memory, and knowledge graphs)
 
 🎯 **Core Principle**: Always use multi-agent orchestration for complex tasks. Single agents are for investigation and simple operations only.
-<!-- zzClaudeMcpToolsTypescriptzz END -->
+<!-- zzZMCPToolsTypescriptzz END -->

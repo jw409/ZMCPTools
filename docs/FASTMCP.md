@@ -1,6 +1,6 @@
 # FastMCP Integration Guide
 
-This document outlines key information about FastMCP configuration and best practices for the ClaudeMcpTools project.
+This document outlines key information about FastMCP configuration and best practices for the ZMCPTools project.
 
 ## Key Findings
 
@@ -83,7 +83,7 @@ Instead of the current `register_*_tools(app)` pattern, consider:
 2. **Compose in main server**:
    ```python
    # main_server.py
-   main_mcp = FastMCP("ClaudeMcpTools")
+   main_mcp = FastMCP("ZMCPTools")
    main_mcp.import_server(memory_mcp)
    main_mcp.import_server(documentation_mcp)
    main_mcp.import_server(communication_mcp)
@@ -401,13 +401,13 @@ client = Client(config)
 
 When running in uvx tool mode, FastMCP can use UVX Stdio transport for **client connections**:
 
-**Note**: UVX transport is typically used when creating a **client** that connects to a UVX-packaged server, not when **running** the server itself. For ClaudeMcpTools:
+**Note**: UVX transport is typically used when creating a **client** that connects to a UVX-packaged server, not when **running** the server itself. For ZMCPTools:
 
 - **Server Side**: Uses default stdio transport (handled by Claude Code launcher)
-- **Client Side**: Can use UVX transport when connecting to ClaudeMcpTools from other applications
+- **Client Side**: Can use UVX transport when connecting to ZMCPTools from other applications
 
 ```python
-# UVX-specific CLIENT configuration (for connecting TO ClaudeMcpTools)
+# UVX-specific CLIENT configuration (for connecting TO ZMCPTools)
 client = Client(
     "uvx://claude-mcp-tools",
     args=["--debug"],  # Additional uvx arguments
@@ -415,8 +415,8 @@ client = Client(
     keep_alive=True  # Maintain connection
 )
 
-# SERVER configuration (ClaudeMcpTools itself) - uses stdio by default
-app = FastMCP("ClaudeMcpTools Orchestration Server")
+# SERVER configuration (ZMCPTools itself) - uses stdio by default
+app = FastMCP("ZMCPTools Orchestration Server")
 app.run()  # Uses stdio transport automatically when called by Claude Code
 ```
 
@@ -432,11 +432,11 @@ app.run()  # Uses stdio transport automatically when called by Claude Code
 - `keep_alive`: Whether to maintain persistent connections
 - `interpreter`: Specific Python version (if needed)
 
-## 🚨 CRITICAL FINDINGS: Transport Issues in ClaudeMcpTools
+## 🚨 CRITICAL FINDINGS: Transport Issues in ZMCPTools
 
 ### Root Cause of ClosedResourceError Crashes
 
-**DISCOVERED**: The `ClosedResourceError` crashes in ClaudeMcpTools are caused by **async context conflicts**, NOT database issues.
+**DISCOVERED**: The `ClosedResourceError` crashes in ZMCPTools are caused by **async context conflicts**, NOT database issues.
 
 #### Key Finding: `server.run()` Async Context Issue
 
@@ -468,7 +468,7 @@ def main():
 - Server must run in non-async context
 - Client connections work from async context
 
-#### Impact on ClaudeMcpTools Architecture
+#### Impact on ZMCPTools Architecture
 
 The orchestration server crashes because:
 
@@ -511,7 +511,7 @@ uv run python test_fastmcp_client.py
 from fastmcp import FastMCP, Context
 
 app = FastMCP(
-    name="ClaudeMcpTools",
+    name="ZMCPTools",
     instructions="Advanced MCP server with orchestration capabilities",
     tags={"orchestration", "documentation", "memory"},
     dependencies=["redis>=5.0.0", "aiohttp>=3.8.0"],  # Optional package specs
@@ -776,7 +776,7 @@ async def cleanup_resources():
     logger.info("Server resources cleaned up successfully")
 
 # Apply lifespan to server
-app = FastMCP("ClaudeMcpTools", lifespan=lifespan)
+app = FastMCP("ZMCPTools", lifespan=lifespan)
 ```
 
 ### Resource Cleanup Patterns
@@ -1013,7 +1013,7 @@ async def start_background_process(params: BackgroundSchema, ctx: Context) -> di
 | **HTTP** | ⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | Web services, REST APIs |
 | **SSE** | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐ | Real-time updates, streaming |
 
-### STDIO Transport (Recommended for ClaudeMcpTools)
+### STDIO Transport (Recommended for ZMCPTools)
 
 **Advantages**:
 - Highest reliability - direct process communication
@@ -1023,8 +1023,8 @@ async def start_background_process(params: BackgroundSchema, ctx: Context) -> di
 
 **Configuration**:
 ```python
-# STDIO transport (default for ClaudeMcpTools)
-app = FastMCP("ClaudeMcpTools")
+# STDIO transport (default for ZMCPTools)
+app = FastMCP("ZMCPTools")
 
 # Server runs automatically when called by Claude Code
 if __name__ == "__main__":
@@ -1069,7 +1069,7 @@ from fastmcp import FastMCP
 import uvicorn
 import asyncio
 
-app = FastMCP("ClaudeMcpTools")
+app = FastMCP("ZMCPTools")
 
 # Production HTTP server configuration
 async def run_production_server():
@@ -1119,7 +1119,7 @@ from fastmcp import FastMCP
 import redis.asyncio as redis
 import json
 
-app = FastMCP("ClaudeMcpTools")
+app = FastMCP("ZMCPTools")
 
 class SSETransport:
     """SSE transport with Redis backend for reliability."""
@@ -1245,7 +1245,7 @@ class MonitoringMiddleware:
             MEMORY_USAGE.set(psutil.Process().memory_info().rss)
 
 # Apply monitoring middleware
-app = FastMCP("ClaudeMcpTools")
+app = FastMCP("ZMCPTools")
 monitoring_app = MonitoringMiddleware(app)
 ```
 
@@ -1829,7 +1829,7 @@ This comprehensive update to the FastMCP documentation provides detailed guidanc
 5. **Production deployment patterns** with monitoring, health checks, and graceful shutdown
 6. **Stability improvements** addressing ClosedResourceError and connection management issues
 
-The documentation now provides actionable guidance for improving server stability and resolving orchestration crashes in the ClaudeMcpTools project.
+The documentation now provides actionable guidance for improving server stability and resolving orchestration crashes in the ZMCPTools project.
 
 ## Configuration Examples
 

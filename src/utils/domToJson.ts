@@ -1,5 +1,5 @@
 /**
- * domToJson.ts - Comprehensive DOM-to-JSON utility for ClaudeMcpTools
+ * domToJson.ts - Comprehensive DOM-to-JSON utility for ZMCPTools
  * 
  * Converts DOM elements to navigable JSON structure for AI navigation and analysis.
  * Includes computed CSS styles, bounding box information, interactivity detection,

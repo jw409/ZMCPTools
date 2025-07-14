@@ -534,9 +534,9 @@ export class ClaudeProcess extends EventEmitter {
   }
 
   private buildSystemPrompt(): string {
-    // Base ClaudeMcpTools system prompt
+    // Base ZMCPTools system prompt
     const baseSystemPrompt = `
-  You are a specialized Claude agent with access to the ClaudeMcpTools system. You have access to enhanced MCP tools for development, coordination, and knowledge management.
+  You are a specialized Claude agent with access to the ZMCPTools system. You have access to enhanced MCP tools for development, coordination, and knowledge management.
   
   ## 🎯 Best Practices
   

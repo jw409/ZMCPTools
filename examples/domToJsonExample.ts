@@ -38,7 +38,7 @@ async function demonstrateDOMSerialization() {
       </head>
       <body>
         <div class="container">
-          <h1 id="main-title">Welcome to ClaudeMcpTools</h1>
+          <h1 id="main-title">Welcome to ZMCPTools</h1>
           <p>This is a demonstration of DOM-to-JSON serialization.</p>
           
           <nav>
@@ -60,7 +60,7 @@ async function demonstrateDOMSerialization() {
           <div class="hidden">This content is hidden</div>
           
           <footer>
-            <p>&copy; 2024 ClaudeMcpTools</p>
+            <p>&copy; 2024 ZMCPTools</p>
           </footer>
         </div>
         

@@ -438,7 +438,7 @@ roomCmd
       try {
         await commService.joinRoom(options.name, options.agent);
         console.log(`✅ Joined room '${options.name}' as ${options.agent}`);
-        console.log(`💡 Use 'claude-mcp-tools room send' to send messages`);
+        console.log(`💡 Use 'zmcp-tools room send' to send messages`);
       } catch (error) {
         console.log(`⚠️  Failed to join room '${options.name}': ${error}`);
       }
@@ -451,13 +451,13 @@ roomCmd
 // Installation commands
 program
   .command("install")
-  .description("Install ClaudeMcpTools globally and configure MCP server")
+  .description("Install ZMCPTools globally and configure MCP server")
   .option("--global-only", "Global installation only, skip project setup")
   .option("--project-only", "Project setup only, skip global installation")
   .option("-y, --yes", "Accept all defaults, skip prompts")
   .action(async (options) => {
     try {
-      console.log("🚀 Starting ClaudeMcpTools installation...\n");
+      console.log("🚀 Starting ZMCPTools installation...\n");
 
       // Import and run the installer
       const { install } = await import("../installer/index.js");
@@ -474,13 +474,13 @@ program
 
 program
   .command("uninstall")
-  .description("Remove ClaudeMcpTools global installation and MCP server")
+  .description("Remove ZMCPTools global installation and MCP server")
   .option("-y, --yes", "Skip confirmation prompts")
   .action(async (options) => {
     try {
       if (!options.yes) {
         console.log(
-          "🗑️  This will remove ClaudeMcpTools global installation and MCP server configuration."
+          "🗑️  This will remove ZMCPTools global installation and MCP server configuration."
         );
         console.log("❓ Are you sure? (y/N)");
 
@@ -522,7 +522,7 @@ program
       const taskService = new TaskService(db);
       const memoryService = new MemoryService(db);
 
-      console.log(`\n📊 ClaudeMcpTools TypeScript Status:\n`);
+      console.log(`\n📊 ZMCPTools TypeScript Status:\n`);
       console.log(`   🔗 Database: Connected`);
       console.log(`   📁 Data Directory: ${options.dataDir}`);
       console.log(`   📦 Version: 1.0.0 (TypeScript)`);
@@ -537,7 +537,7 @@ program
           console.log(`   ✅ MCP Server: Configured`);
         } else {
           console.log(
-            `   ⚠️  MCP Server: Not configured (run: claude-mcp-tools install)`
+            `   ⚠️  MCP Server: Not configured (run: zmcp-tools install)`
           );
         }
       } catch {
@@ -560,54 +560,54 @@ program
   .description("Show detailed help and usage examples")
   .action(() => {
     console.log(`
-🚀 ${colors.bold}ClaudeMcpTools TypeScript${colors.reset} - Enhanced MCP Tools for Claude Code\n`);
+🚀 ${colors.bold}ZMCPTools TypeScript${colors.reset} - Enhanced MCP Tools for Claude Code\n`);
 
     console.log(`${colors.cyan}📦 Installation:${colors.reset}`);
     console.log(
-      `   claude-mcp-tools install              # Full setup (global + project)`
+      `   zmcp-tools install              # Full setup (global + project)`
     );
     console.log(
-      `   claude-mcp-tools install --global-only # Global installation only`
+      `   zmcp-tools install --global-only # Global installation only`
     );
     console.log(
-      `   claude-mcp-tools uninstall            # Remove installation\n`
+      `   zmcp-tools uninstall            # Remove installation\n`
     );
 
     console.log(`${colors.cyan}🤖 Agent Management:${colors.reset}`);
-    console.log(`   claude-mcp-tools agent list`);
+    console.log(`   zmcp-tools agent list`);
     console.log(
-      `   claude-mcp-tools agent spawn -t backend -r . -d "API development"`
+      `   zmcp-tools agent spawn -t backend -r . -d "API development"`
     );
-    console.log(`   claude-mcp-tools agent terminate -i <agent-id>\n`);
+    console.log(`   zmcp-tools agent terminate -i <agent-id>\n`);
 
     console.log(`${colors.cyan}📋 Task Management:${colors.reset}`);
-    console.log(`   claude-mcp-tools task list`);
+    console.log(`   zmcp-tools task list`);
     console.log(
-      `   claude-mcp-tools task create -t "User Auth" -d "Implement authentication"\n`
+      `   zmcp-tools task create -t "User Auth" -d "Implement authentication"\n`
     );
 
     console.log(`${colors.cyan}🧠 Memory Operations:${colors.reset}`);
-    console.log(`   claude-mcp-tools memory search -q "authentication"`);
+    console.log(`   zmcp-tools memory search -q "authentication"`);
     console.log(
-      `   claude-mcp-tools memory store -t "API Design" -c "REST endpoints implemented"\n`
+      `   zmcp-tools memory store -t "API Design" -c "REST endpoints implemented"\n`
     );
 
     console.log(`${colors.cyan}💬 Communication:${colors.reset}`);
-    console.log(`   claude-mcp-tools room list`);
-    console.log(`   claude-mcp-tools room join -n "dev-team"\n`);
+    console.log(`   zmcp-tools room list`);
+    console.log(`   zmcp-tools room join -n "dev-team"\n`);
 
     console.log(`${colors.cyan}📊 System:${colors.reset}`);
-    console.log(`   claude-mcp-tools status               # System status`);
-    console.log(`   claude-mcp-tools server               # Start MCP server`);
+    console.log(`   zmcp-tools status               # System status`);
+    console.log(`   zmcp-tools server               # Start MCP server`);
     console.log(
-      `   claude-mcp-tools migrate              # Migrate to Drizzle ORM`
+      `   zmcp-tools migrate              # Migrate to Drizzle ORM`
     );
     console.log(
-      `   claude-mcp-tools migrate status       # Check migration status\n`
+      `   zmcp-tools migrate status       # Check migration status\n`
     );
 
     console.log(
-      `${colors.yellow}💡 For more details: claude-mcp-tools <command> --help${colors.reset}`
+      `${colors.yellow}💡 For more details: zmcp-tools <command> --help${colors.reset}`
     );
     console.log(
       `${colors.yellow}📖 Check CLAUDE.md for TypeScript usage examples${colors.reset}\n`
@@ -621,9 +621,9 @@ program.parse();
 if (!process.argv.slice(2).length) {
   program.outputHelp();
   console.log(
-    `\n💡 ${colors.yellow}Run 'claude-mcp-tools help' for detailed usage examples${colors.reset}`
+    `\n💡 ${colors.yellow}Run 'zmcp-tools help' for detailed usage examples${colors.reset}`
   );
   console.log(
-    `🚀 ${colors.yellow}Quick start: claude-mcp-tools install${colors.reset}`
+    `🚀 ${colors.yellow}Quick start: zmcp-tools install${colors.reset}`
   );
 }

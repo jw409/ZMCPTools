@@ -1,6 +1,6 @@
 # Sequential Thinking Prompt Templates
 
-This document provides prompt templates that demonstrate how to use sequential thinking effectively within the ClaudeMcpTools framework.
+This document provides prompt templates that demonstrate how to use sequential thinking effectively within the ZMCPTools framework.
 
 ## Architect Agent Prompt Template
 
