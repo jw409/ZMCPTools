@@ -1,6 +1,6 @@
 {
   "name": "zmcp-tools",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "TypeScript implementation of ZMCPTools with enhanced MCP tools and multi-agent orchestration",
   "main": "dist/server/index.js",
   "types": "dist/server/index.d.ts",

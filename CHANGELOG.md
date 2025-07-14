@@ -5,6 +5,35 @@ All notable changes to ZMCPTools will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2025-01-14
+
+### Added
+- 🔗 **Claude Hooks Integration** - Automatic session start context injection
+  - Reminds Claude about available MCP tools and knowledge graph capabilities
+  - Session-scoped injection prevents context bloat
+  - Non-destructive settings.json merging
+- 🎯 **Smart Context Awareness** - Automatic awareness of core tools including:
+  - `analyze_project_structure()` for codebase understanding
+  - `search_knowledge_graph()` for cross-session learning
+  - Plan creation tools for task orchestration
+
+### Fixed
+- Fixed ESM module `__dirname` compatibility issue in installer
+- Hooks now copy correctly from dist during installation
+
+### Changed
+- **Global Rebranding** - All references updated from "ClaudeMcpTools" to "ZMCPTools"
+- **Command Updates** - CLI commands now use `zmcp-tools` consistently
+- **Enhanced Installation** - Installer now configures:
+  - `.claude/hooks/` directory with context injection
+  - `.claude/settings.json` with hook configuration
+  - Automatic MCP tools awareness on session start
+
+## [0.2.1] - 2025-01-14
+
+### Added
+- Initial Claude Hooks foundation
+
 ## [0.2.0] - 2025-01-13
 
 ### Added

@@ -228,8 +228,8 @@ function copyProjectHooks(): void {
   const hooksDir = path.join(projectClaudeDir, 'hooks');
   fs.mkdirSync(hooksDir, { recursive: true });
   
-  // Copy hook files from src/hooks to .claude/hooks
-  const srcHooksDir = path.join(__dirname, '..', 'hooks');
+  // Copy hook files from dist/hooks to .claude/hooks (hooks are copied to dist during build)
+  const srcHooksDir = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..', 'hooks');
   
   if (fs.existsSync(srcHooksDir)) {
     const hookFiles = fs.readdirSync(srcHooksDir).filter(file => file.endsWith('.sh'));
