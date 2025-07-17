@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/zachhandley-zmcptools-badge.png)](https://mseep.ai/app/zachhandley-zmcptools)
+
 # ZMCPTools
 
 [![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
