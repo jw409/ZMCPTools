@@ -255,16 +255,16 @@ function updateHookConfiguration(): void {
   logStep('⚙️', 'Configuring Claude hooks...');
   
   const projectClaudeDir = path.join(process.cwd(), '.claude');
-  const settingsPath = path.join(projectClaudeDir, 'settings.json');
+  const settingsPath = path.join(projectClaudeDir, 'settings.local.json');
   
-  // Load existing settings.json if it exists
+  // Load existing settings.local.json if it exists
   let existingSettings: any = {};
   if (fs.existsSync(settingsPath)) {
     try {
       const existingContent = fs.readFileSync(settingsPath, 'utf8');
       existingSettings = JSON.parse(existingContent);
     } catch (error) {
-      logWarning('Failed to parse existing settings.json, creating new');
+      logWarning('Failed to parse existing settings.local.json, creating new');
     }
   }
   
