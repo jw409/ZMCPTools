@@ -80,16 +80,21 @@ export class KnowledgeGraphMcpTools {
 
 
   private async storeKnowledgeMemory(args: any): Promise<StoreKnowledgeMemoryResponse> {
-    // Map snake_case to camelCase for compatibility with MCP client
+    // Support both formal schema and simpler memory_type/title/content format
     const mappedArgs: StoreKnowledgeMemoryInput = {
       repository_path: args.repository_path || args.repositoryPath,
       agent_id: args.agent_id || args.agentId,
-      entity_type: args.entity_type || args.entityType,
-      entity_name: args.entity_name || args.entityName,
-      entity_description: args.entity_description || args.entityDescription,
+      entity_type: args.entity_type || args.entityType || 'knowledge_memory',
+      entity_name: args.entity_name || args.entityName || args.title,
+      entity_description: args.entity_description || args.entityDescription || args.content,
       importance_score: args.importance_score || args.importanceScore,
       confidence_score: args.confidence_score || args.confidenceScore,
-      properties: args.properties
+      properties: {
+        ...args.properties,
+        ...(args.memory_type && { memory_type: args.memory_type }),
+        ...(args.title && { title: args.title }),
+        ...(args.content && { content: args.content })
+      }
     };
     const params = StoreKnowledgeMemorySchema.parse(mappedArgs);
     return await storeKnowledgeMemory(this.db, params);
@@ -163,6 +168,7 @@ export async function storeKnowledgeMemory(
     
     // Initialize services
     const vectorService = new VectorSearchService(db);
+    await vectorService.initialize();
     const knowledgeGraph = new KnowledgeGraphService(db, vectorService);
 
     // Create knowledge entity
@@ -205,6 +211,7 @@ export async function createKnowledgeRelationship(
     logger.info('Creating knowledge relationship', args);
     
     const vectorService = new VectorSearchService(db);
+    await vectorService.initialize();
     const knowledgeGraph = new KnowledgeGraphService(db, vectorService);
 
     const relationshipData: NewKnowledgeRelationship = {
@@ -246,6 +253,7 @@ export async function searchKnowledgeGraph(
     logger.info('Searching knowledge graph', args);
     
     const vectorService = new VectorSearchService(db);
+    await vectorService.initialize();
     const knowledgeGraph = new KnowledgeGraphService(db, vectorService);
 
     const startTime = Date.now();
@@ -260,14 +268,22 @@ export async function searchKnowledgeGraph(
         args.limit
       );
     } else {
-      // Use basic search by type if available
-      if (args.entity_types && args.entity_types.length > 0) {
+      // Use text-based search for basic search
+      if (args.query && args.query.trim()) {
+        entities = await knowledgeGraph.findEntitiesByTextSearch(
+          args.repository_path,
+          args.query,
+          args.entity_types,
+          args.limit
+        );
+      } else if (args.entity_types && args.entity_types.length > 0) {
         entities = await knowledgeGraph.findEntitiesByType(
           args.entity_types[0],
           args.repository_path,
           args.limit
         );
       } else {
+        // Only return all entities if no query provided
         entities = await knowledgeGraph.findEntitiesByRepository(
           args.repository_path,
           { limit: args.limit }
@@ -335,6 +351,7 @@ export async function findRelatedEntities(
     logger.info('Finding related entities', args);
     
     const vectorService = new VectorSearchService(db);
+    await vectorService.initialize();
     const knowledgeGraph = new KnowledgeGraphService(db, vectorService);
 
     const relatedEntities = await knowledgeGraph.findRelatedEntities(

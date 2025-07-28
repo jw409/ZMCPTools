@@ -453,9 +453,20 @@ export class KnowledgeGraphService {
    */
   private async addEntityToVectorStore(entity: KnowledgeEntity): Promise<void> {
     try {
+      // Ensure collection exists before adding
+      try {
+        await this.vectorService.getOrCreateCollection(this.KNOWLEDGE_GRAPH_COLLECTION, {
+          type: 'knowledge_graph',
+          embeddingModel: this.config.embeddingModel,
+          createdAt: new Date().toISOString()
+        });
+      } catch (collectionError) {
+        this.logger.warn('Failed to ensure collection exists, attempting to add anyway', collectionError);
+      }
+      
       const content = `${entity.name} ${entity.description || ''} ${entity.entityType}`;
       
-      await this.vectorService.addDocuments(this.KNOWLEDGE_GRAPH_COLLECTION, [{
+      const result = await this.vectorService.addDocuments(this.KNOWLEDGE_GRAPH_COLLECTION, [{
         id: entity.id,
         content,
         metadata: {
@@ -469,8 +480,15 @@ export class KnowledgeGraphService {
           discoveredDuring: entity.discoveredDuring
         }
       }]);
+      
+      if (!result.success) {
+        this.logger.error('Vector store add failed', { entityId: entity.id, error: result.error });
+      } else {
+        this.logger.debug('Entity added to vector store', { entityId: entity.id, entityName: entity.name });
+      }
     } catch (error) {
-      this.logger.error('Failed to add entity to vector store', error);
+      this.logger.error('Failed to add entity to vector store', { entityId: entity.id, error });
+      // Don't throw - allow entity creation to succeed even if vector indexing fails
     }
   }
 
@@ -584,6 +602,44 @@ export class KnowledgeGraphService {
       return result as KnowledgeEntity[];
     } catch (error) {
       this.logger.error('Failed to find entities by tags', { tags, repositoryPath, error });
+      throw error;
+    }
+  }
+
+  /**
+   * Find entities by basic text search
+   */
+  async findEntitiesByTextSearch(
+    repositoryPath: string,
+    query: string,
+    entityTypes?: EntityType[],
+    limit: number = 10
+  ): Promise<KnowledgeEntity[]> {
+    try {
+      const searchTerm = `%${query.toLowerCase()}%`;
+      const conditions: any[] = [
+        eq(knowledgeEntities.repositoryPath, repositoryPath),
+        or(
+          sql`LOWER(${knowledgeEntities.name}) LIKE ${searchTerm}`,
+          sql`LOWER(${knowledgeEntities.description}) LIKE ${searchTerm}`
+        )
+      ];
+
+      if (entityTypes && entityTypes.length > 0) {
+        conditions.push(or(...entityTypes.map(type => eq(knowledgeEntities.entityType, type))));
+      }
+
+      const entities = await this.db.drizzle
+        .select()
+        .from(knowledgeEntities)
+        .where(and(...conditions))
+        .orderBy(desc(knowledgeEntities.importanceScore))
+        .limit(limit)
+        .execute();
+
+      return entities as KnowledgeEntity[];
+    } catch (error) {
+      this.logger.error('Failed to find entities by text search', { query, repositoryPath, error });
       throw error;
     }
   }

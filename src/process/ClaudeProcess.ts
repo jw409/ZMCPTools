@@ -83,8 +83,31 @@ export class ClaudeProcess extends EventEmitter {
       // Build CLI command without the prompt (we'll pipe it via stdin)
       const cliArgs = this.buildCliCommandWithStdin();
       
+      // Check if we should use the wrapper for unique process names
+      let command = 'claude';
+      let args = cliArgs;
+      
+      // Use wrapper if agent type is specified
+      if (this.config.agentType) {
+        const wrapperPath = path.join(path.dirname(import.meta.url.replace('file://', '')), '../../dist/zmcp-agent-wrapper.cjs');
+        if (existsSync(wrapperPath)) {
+          // Wrapper expects: <agent-type> <project-context> <agent-id> -- <command...>
+          command = 'node';
+          args = [
+            wrapperPath,
+            this.config.agentType,
+            path.basename(this.config.workingDirectory || process.cwd()),
+            `agent_${this.pid}`,
+            '--',
+            'claude',
+            ...cliArgs
+          ];
+          process.stderr.write(`Using process wrapper for agent type: ${this.config.agentType}\n`);
+        }
+      }
+      
       // Use spawn for streaming output
-      this.childProcess = spawn('claude', cliArgs, {
+      this.childProcess = spawn(command, args, {
         cwd: this.config.workingDirectory,
         stdio: ['pipe', 'pipe', 'pipe'],
         env: { ...process.env, ...this.config.environmentVars }
@@ -540,12 +563,12 @@ export class ClaudeProcess extends EventEmitter {
   
   ## 🎯 Best Practices
   
-  1. **Use sequential_thinking** for complex multi-step tasks to break down your approach
-  2. **Store insights** using \`store_memory()\` for other agents to learn from
-  3. **Search memory** before starting work to avoid duplicating efforts
-  4. **Join communication rooms** to coordinate with other agents
-  5. **Report progress** regularly using \`report_progress()\`
-  6. **Analyze project structure** before making changes to understand codebase
+  1. **Use sequential thinking** for complex multi-step tasks to break down your approach systematically
+  2. **Store insights** using mcp__zmcp-tools__store_knowledge_memory for other agents to learn from
+  3. **Search memory** using mcp__zmcp-tools__search_knowledge_graph before starting work to avoid duplicating efforts
+  4. **Join communication rooms** using mcp__zmcp-tools__join_room to coordinate with other agents
+  5. **Report progress** regularly using mcp__zmcp-tools__report_progress
+  6. **Analyze project structure** using mcp__zmcp-tools__analyze_project_structure before making changes
   7. **Use knowledge graph** to maintain relationships between code components
   
   ## 🤝 Coordination Patterns

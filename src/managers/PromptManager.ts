@@ -48,7 +48,7 @@ COORDINATION PLAN:
 3. **Testing Agent**: Create comprehensive tests and verify the fix works
 4. **Review Agent**: Review the implementation for quality and edge cases
 
-Use orchestrate_objective() to spawn coordinated agents with proper dependencies.
+Use mcp__zmcp-tools__orchestrate_objective to spawn coordinated agents with proper dependencies.
 Focus on thorough investigation, clean implementation, and comprehensive testing.`
     } satisfies PromptTemplate);
 
@@ -430,7 +430,7 @@ Focus on data safety, minimal downtime, and complete rollback capability if issu
 **Agent Types:** {{agent_types || "backend, frontend, testing, documentation"}}
 
 USE SEQUENTIAL THINKING APPROACH:
-1. **Initial Analysis**: Use sequential_thinking() to understand the objective scope
+1. **Initial Analysis**: Use sequential thinking to understand the objective scope
 2. **Problem Decomposition**: Break down the objective into logical components
 3. **Dependency Analysis**: Identify relationships and dependencies between components
 4. **Agent Planning**: Determine optimal agent types and task assignments
@@ -475,7 +475,7 @@ Focus on thorough analysis, systematic planning, and clear execution strategy.`
 **Constraints:** {{constraints || "none specified"}}
 
 SEQUENTIAL THINKING METHODOLOGY:
-1. **Problem Definition**: Use sequential_thinking() to clearly define the problem
+1. **Problem Definition**: Use sequential thinking to clearly define the problem
 2. **Root Cause Analysis**: Identify underlying causes and contributing factors
 3. **Solution Exploration**: Generate and evaluate multiple solution approaches
 4. **Trade-off Analysis**: Consider benefits, drawbacks, and implementation complexity
@@ -520,7 +520,7 @@ Focus on thorough analysis, creative problem-solving, and practical implementati
 **Depth:** {{depth || "detailed"}}
 
 SEQUENTIAL THINKING APPROACH:
-1. **Initial Understanding**: Start with sequential_thinking() to grasp the topic
+1. **Initial Understanding**: Start with sequential thinking to grasp the topic
 2. **Decomposition**: Break down complex aspects into manageable components
 3. **Deep Dive**: Analyze each component systematically
 4. **Synthesis**: Combine findings into coherent understanding
@@ -528,7 +528,7 @@ SEQUENTIAL THINKING APPROACH:
 6. **Refinement**: Iterate and improve analysis based on new insights
 
 THINKING PROCESS:
-- Use sequential_thinking() to structure your analysis
+- Use sequential thinking to structure your analysis
 - Progress through thoughts systematically
 - Revise and refine understanding as you go
 - Consider multiple perspectives and alternatives
@@ -565,7 +565,7 @@ Provide thorough, well-reasoned analysis with clear conclusions and actionable i
 **Criteria:** {{criteria || "to be determined"}}
 
 SEQUENTIAL THINKING DECISION PROCESS:
-1. **Context Analysis**: Use sequential_thinking() to understand the decision context
+1. **Context Analysis**: Use sequential thinking to understand the decision context
 2. **Option Generation**: Identify and evaluate available alternatives
 3. **Criteria Definition**: Establish clear evaluation criteria
 4. **Option Evaluation**: Systematically assess each option against criteria
@@ -574,7 +574,7 @@ SEQUENTIAL THINKING DECISION PROCESS:
 7. **Implementation Planning**: Develop execution strategy
 
 THINKING GUIDELINES:
-- Use sequential_thinking() to structure decision-making
+- Use sequential thinking to structure decision-making
 - Consider multiple perspectives and stakeholders
 - Evaluate both short-term and long-term implications
 - Document reasoning for future reference
@@ -617,7 +617,7 @@ Provide clear reasoning, thorough analysis, and confident recommendations.`
 **Foundation Session:** {{foundation_session || "auto-generated"}}
 
 ARCHITECT ORCHESTRATION METHODOLOGY:
-1. **Sequential Analysis**: Use sequential_thinking() to decompose the objective
+1. **Sequential Analysis**: Use sequential thinking to decompose the objective
 2. **Knowledge Graph Search**: Search memory for relevant patterns and successful approaches
 3. **Task Breakdown**: Create hierarchical task structure with dependencies
 4. **Agent Planning**: Determine optimal agent types and specializations
@@ -627,7 +627,7 @@ ARCHITECT ORCHESTRATION METHODOLOGY:
 
 ORCHESTRATION PROCESS:
 1. **Initial Analysis**: 
-   - Use sequential_thinking() to understand objective scope and complexity
+   - Use sequential thinking to understand objective scope and complexity
    - Search memory for similar orchestration patterns
    - Identify key components and dependencies
    
@@ -647,14 +647,14 @@ ORCHESTRATION PROCESS:
    - Document learnings for future orchestration
 
 CRITICAL ORCHESTRATION TOOLS:
-- sequential_thinking() - Complex problem decomposition
-- search_knowledge_graph() - Learn from previous orchestration patterns
-- create_task() - Structure work into manageable pieces
-- spawn_agent() - Create specialized agents
-- join_room() - Coordinate multi-agent communication
-- store_knowledge_memory() - Document insights and patterns
+- Use sequential thinking for complex problem decomposition
+- mcp__zmcp-tools__search_knowledge_graph - Learn from previous orchestration patterns
+- mcp__zmcp-tools__create_task - Structure work into manageable pieces
+- mcp__zmcp-tools__spawn_agent - Create specialized agents
+- mcp__zmcp-tools__join_room - Coordinate multi-agent communication
+- mcp__zmcp-tools__store_knowledge_memory - Document insights and patterns
 
-Start with sequential_thinking() to analyze the objective and develop your orchestration strategy.`
+Start with sequential thinking to analyze the objective and develop your orchestration strategy.`
     });
 
     // Knowledge graph integration prompt
@@ -685,7 +685,7 @@ Start with sequential_thinking() to analyze the objective and develop your orche
 **Integration Depth:** {{integration_depth || "detailed"}}
 
 KNOWLEDGE GRAPH INTEGRATION PROCESS:
-1. **Context Analysis**: Use sequential_thinking() to understand information needs
+1. **Context Analysis**: Use sequential thinking to understand information needs
 2. **Knowledge Search**: Search memory for relevant patterns and insights
 3. **Pattern Recognition**: Identify successful approaches and common pitfalls
 4. **Insight Synthesis**: Combine knowledge graph insights with current context
@@ -694,14 +694,14 @@ KNOWLEDGE GRAPH INTEGRATION PROCESS:
 
 INTEGRATION METHODOLOGY:
 1. **Search Strategy**:
-   - Use search_knowledge_graph() to find relevant previous work
+   - Use mcp__zmcp-tools__search_knowledge_graph to find relevant previous work
    - Look for patterns in similar tasks and successful approaches
    - Identify reusable components and established best practices
    
 2. **Knowledge Synthesis**:
    - Combine historical insights with current requirements
    - Identify gaps and novel aspects requiring new solutions
-   - Use sequential_thinking() to integrate complex information
+   - Use sequential thinking to integrate complex information
    
 3. **Application Strategy**:
    - Apply knowledge graph insights to current task
@@ -709,10 +709,10 @@ INTEGRATION METHODOLOGY:
    - Document new insights for future knowledge graph enhancement
 
 CRITICAL KNOWLEDGE TOOLS:
-- search_knowledge_graph() - Query knowledge graph for relevant insights
-- sequential_thinking() - Systematically integrate complex information
-- store_knowledge_memory() - Capture new insights and patterns
-- pattern recognition - Identify successful approaches and pitfalls
+- mcp__zmcp-tools__search_knowledge_graph - Query knowledge graph for relevant insights
+- Use sequential thinking to systematically integrate complex information
+- mcp__zmcp-tools__store_knowledge_memory - Capture new insights and patterns
+- Pattern recognition - Identify successful approaches and pitfalls
 
 Focus on leveraging collective knowledge while adapting to current context and requirements.`
     });
@@ -745,7 +745,7 @@ Focus on leveraging collective knowledge while adapting to current context and r
 **Agent Types:** {{agent_types || "backend, frontend, testing, documentation"}}
 
 TASK BREAKDOWN METHODOLOGY:
-1. **Objective Analysis**: Use sequential_thinking() to understand scope and complexity
+1. **Objective Analysis**: Use sequential thinking to understand scope and complexity
 2. **Decomposition Strategy**: Break down into logical, manageable components
 3. **Dependency Analysis**: Identify relationships and execution order
 4. **Agent Assignment**: Match tasks to appropriate agent specializations
@@ -754,7 +754,7 @@ TASK BREAKDOWN METHODOLOGY:
 
 BREAKDOWN PROCESS:
 1. **Initial Analysis**:
-   - Use sequential_thinking() to analyze objective complexity
+   - Use sequential thinking to analyze objective complexity
    - Search memory for similar breakdown patterns
    - Identify key deliverables and success criteria
    
@@ -769,10 +769,10 @@ BREAKDOWN PROCESS:
    - Define escalation and problem-solving procedures
 
 TASK BREAKDOWN TOOLS:
-- sequential_thinking() - Systematic decomposition analysis
-- create_task() - Create structured task definitions
-- search_knowledge_graph() - Learn from previous breakdown patterns
-- store_knowledge_memory() - Document successful breakdown strategies
+- Use sequential thinking for systematic decomposition analysis
+- mcp__zmcp-tools__create_task - Create structured task definitions
+- mcp__zmcp-tools__search_knowledge_graph - Learn from previous breakdown patterns
+- mcp__zmcp-tools__store_knowledge_memory - Document successful breakdown strategies
 
 Focus on creating clear, actionable tasks with appropriate dependencies and agent assignments.`
     });
@@ -805,7 +805,7 @@ Focus on creating clear, actionable tasks with appropriate dependencies and agen
 **Constraints:** {{constraints || "none specified"}}
 
 ARCHITECT PLANNING PROCESS:
-1. **Context Understanding**: Use sequential_thinking() to analyze planning requirements
+1. **Context Understanding**: Use sequential thinking to analyze planning requirements
 2. **Stakeholder Analysis**: Identify needs, constraints, and success criteria
 3. **Strategic Options**: Generate and evaluate multiple planning approaches
 4. **Resource Planning**: Determine agent types, tools, and coordination needs
@@ -814,7 +814,7 @@ ARCHITECT PLANNING PROCESS:
 
 PLANNING METHODOLOGY:
 1. **Strategic Analysis**:
-   - Use sequential_thinking() to understand planning scope
+   - Use sequential thinking to understand planning scope
    - Search memory for successful planning patterns
    - Identify critical success factors and potential risks
    
@@ -829,10 +829,10 @@ PLANNING METHODOLOGY:
    - Plan monitoring and adaptation mechanisms
 
 ARCHITECT PLANNING TOOLS:
-- sequential_thinking() - Strategic planning and analysis
-- search_knowledge_graph() - Learn from previous planning experiences
-- create_task() - Structure planning into actionable items
-- store_knowledge_memory() - Document planning insights and decisions
+- Use sequential thinking for strategic planning and analysis
+- mcp__zmcp-tools__search_knowledge_graph - Learn from previous planning experiences
+- mcp__zmcp-tools__create_task - Structure planning into actionable items
+- mcp__zmcp-tools__store_knowledge_memory - Document planning insights and decisions
 
 Focus on creating comprehensive, adaptive plans that account for complexity and uncertainty.`
     });

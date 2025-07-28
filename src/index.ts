@@ -8,6 +8,7 @@
 import { McpToolsServer } from './server/McpServer.js';
 import { CrashHandler, wrapMainServer } from './utils/crashHandler.js';
 import path from 'path';
+import './TEST_LOCAL_VERSION.js';
 import os from 'os';
 
 // Export key components for testing and external use

@@ -221,27 +221,6 @@ export class AgentOrchestrationTools {
         inputSchema: zodToJsonSchema(GetCleanupConfigurationSchema),
         outputSchema: zodToJsonSchema(GetCleanupConfigurationResponseSchema),
         handler: this.getCleanupConfiguration.bind(this)
-      },
-      {
-        name: 'create_execution_plan',
-        description: 'Create comprehensive execution plan using sequential thinking before spawning agents',
-        inputSchema: zodToJsonSchema(SequentialPlanningSchema),
-        outputSchema: zodToJsonSchema(SequentialPlanningResponseSchema),
-        handler: this.createExecutionPlan.bind(this)
-      },
-      {
-        name: 'get_execution_plan',
-        description: 'Retrieve a previously created execution plan',
-        inputSchema: zodToJsonSchema(GetExecutionPlanSchema),
-        outputSchema: zodToJsonSchema(GetExecutionPlanResponseSchema),
-        handler: this.getExecutionPlan.bind(this)
-      },
-      {
-        name: 'execute_with_plan',
-        description: 'Execute an objective using a pre-created execution plan with well-defined agent tasks',
-        inputSchema: zodToJsonSchema(ExecuteWithPlanSchema),
-        outputSchema: zodToJsonSchema(ExecuteWithPlanResponseSchema),
-        handler: this.executeWithPlan.bind(this)
       }
     ];
   }
@@ -552,8 +531,9 @@ export class AgentOrchestrationTools {
         });
       }
 
-      // 2. Generate specialized prompt
-      const specializedPrompt = this.generateAgentPrompt(agentType, taskDescription, repositoryPath);
+      // 2. Generate specialized prompt with coordination room
+      const coordinationRoom = roomId || `coordination-${taskDescription.toLowerCase().replace(/[^a-z0-9]+/g, '-').substring(0, 30)}`;
+      const specializedPrompt = this.generateAgentPrompt(agentType, taskDescription, repositoryPath, coordinationRoom);
 
       // 3. Create agent with full capabilities
       const agent = await this.agentService.createAgent({
@@ -948,11 +928,49 @@ CRITICAL: You have COMPLETE autonomy with advanced sequential thinking capabilit
 Start immediately with sequential_thinking() to analyze the objective complexity and develop your orchestration strategy.`;
   }
 
-  private generateAgentPrompt(agentType: string, taskDescription: string, repositoryPath: string): string {
+  private generateAgentPrompt(agentType: string, taskDescription: string, repositoryPath: string, roomName?: string): string {
+    const coordinationRoom = roomName || `coordination-${agentType}-${repositoryPath.split('/').pop()}`;
+    
     const basePrompt = `You are a fully autonomous ${agentType} agent with COMPLETE CLAUDE CODE CAPABILITIES and advanced sequential thinking.
 
 TASK: ${taskDescription}
 REPOSITORY: ${repositoryPath}
+
+## 🚨 CRITICAL COORDINATION REQUIREMENTS (MANDATORY)
+
+You are part of a multi-agent team. You MUST actively coordinate:
+
+1. **JOIN THE COORDINATION ROOM IMMEDIATELY**
+   - First action: join_room("${coordinationRoom}", "${agentType}-agent")
+   - Send: "${agentType}-agent online and starting work on: ${taskDescription.substring(0, 100)}..."
+   
+2. **CHECK MESSAGES EVERY 30 SECONDS**
+   Execute this loop throughout your work:
+   \`\`\`
+   while working:
+       # Check messages FIRST
+       messages = list_room_messages("${coordinationRoom}", limit=10)
+       for msg in messages:
+           if "@${agentType}" in msg.message or relevant_to_my_work(msg):
+               send_message("${coordinationRoom}", "Responding to: {summary_of_response}")
+       
+       # Do 30 seconds of work maximum
+       perform_task_work()
+       
+       # Send progress update
+       send_message("${coordinationRoom}", "${agentType} progress: {what_was_done}")
+   \`\`\`
+
+3. **COMMUNICATE ALL KEY EVENTS**
+   - On file creation: "Created {file_path} - {purpose}"
+   - On completion: "Completed {component} - ready for {next_step}"
+   - When blocked: "@{other_agent} I need {dependency} to continue"
+   - Every 60 seconds: Send heartbeat with current activity
+
+4. **COORDINATE DEPENDENCIES**
+   - Before starting, ask if dependencies exist: "@backend Have you created the types yet?"
+   - Share your completed work immediately: "types.ts complete - exports X, Y, Z"
+   - Respond to dependency requests within 60 seconds
 
 You have access to ALL tools:
 - File operations (Read, Write, Edit, Search, etc.)

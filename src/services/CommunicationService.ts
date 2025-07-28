@@ -442,8 +442,37 @@ export class CommunicationService {
     room: ChatRoom;
     joined: boolean;
   }> {
-    // Generate room name based on agent and timestamp
-    const roomName = `agent_${agentName}_${Date.now()}`;
+    // Generate consistent room name based on reason/task (NOT timestamp!)
+    // This ensures all agents working on the same task join the same room
+    const normalizedReason = reason
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') // trim leading/trailing dashes
+      .substring(0, 50);
+    
+    const roomName = `coordination-${normalizedReason}-${new Date().toISOString().split('T')[0]}`;
+    
+    // Try to get existing room first
+    try {
+      const existingRoom = await this.getRoom(roomName);
+      if (existingRoom) {
+        // Room already exists, just join it
+        await this.joinRoom(roomName, agentName);
+        await this.sendMessage({
+          roomName,
+          agentName,
+          message: `${agentName} joined existing coordination room`,
+          messageType: 'system'
+        });
+        return {
+          roomName,
+          room: existingRoom,
+          joined: true
+        };
+      }
+    } catch (error) {
+      // Room doesn't exist, create it
+    }
     
     // Create room with agent coordination metadata
     const room = await this.createRoom({
@@ -466,8 +495,8 @@ export class CommunicationService {
     await this.sendMessage({
       roomName,
       agentName,
-      message: `Room created for coordination: ${reason}`,
-      messageType: 'system'
+      message: `Coordination room created. Reason: ${reason}`,
+      messageType: 'coordination'
     });
 
     return {
