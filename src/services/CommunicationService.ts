@@ -450,7 +450,7 @@ export class CommunicationService {
       .replace(/^-+|-+$/g, '') // trim leading/trailing dashes
       .substring(0, 50);
     
-    const roomName = `coordination-${normalizedReason}-${new Date().toISOString().split('T')[0]}`;
+    const roomName = `coordination-${normalizedReason}`;
     
     // Try to get existing room first
     try {

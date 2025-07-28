@@ -614,9 +614,13 @@ export class CommunicationTools {
     const startTime = performance.now();
     
     try {
-      // Generate room name based on reason and timestamp
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const roomName = `coordination-${reason.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()}-${timestamp}`;
+      // Generate room name based on reason ONLY (no timestamp for shared rooms!)
+      const normalizedReason = reason
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .substring(0, 50);
+      const roomName = `coordination-${normalizedReason}`;
       
       // Create the room
       const room = await this.communicationService.createRoom({
