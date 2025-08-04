@@ -243,16 +243,21 @@ export class KnowledgeGraphService {
 
       // Get entity IDs from vector results
       const entityIds = vectorResults.map(result => result.id);
-
-      if (entityIds.length === 0) {
-        return [];
-      }
+      
+      // Don't return empty if no vector results - this prevents semantic search from working
+      // if (entityIds.length === 0) {
+      //   return [];
+      // }
 
       // Query SQLite for full entity data
       const conditions = [
-        eq(knowledgeEntities.repositoryPath, repositoryPath),
-        or(...entityIds.map(id => eq(knowledgeEntities.id, id)))
+        eq(knowledgeEntities.repositoryPath, repositoryPath)
       ];
+      
+      // Only add ID filter if we have IDs from vector search
+      if (entityIds.length > 0) {
+        conditions.push(or(...entityIds.map(id => eq(knowledgeEntities.id, id))));
+      }
 
       if (entityTypes && entityTypes.length > 0) {
         conditions.push(or(...entityTypes.map(type => eq(knowledgeEntities.entityType, type))));

@@ -265,7 +265,8 @@ export async function searchKnowledgeGraph(
         args.repository_path,
         args.query,
         args.entity_types,
-        args.limit
+        args.limit,
+        args.threshold || 0.3  // Add threshold parameter with default
       );
     } else {
       // Use text-based search for basic search
