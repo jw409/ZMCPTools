@@ -150,8 +150,12 @@ export class StructuredOrchestrator extends EventEmitter {
       const progress = this.initializeOrchestrationProgress(orchestrationId, request, complexityAnalysis);
       this.activeOrchestrations.set(orchestrationId, progress);
 
-      // Step 3: Create coordination room
-      const roomName = `struct_orch_${Date.now()}`;
+      // Step 3: Create coordination room with normalized name
+      const normalizedObjective = request.objective
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .substring(0, 30);
+      const roomName = `coordination-${normalizedObjective}`;
       const room = await this.communicationService.createRoom({
         name: roomName,
         description: `Structured orchestration: ${request.objective}`,
@@ -716,7 +720,7 @@ export class StructuredOrchestrator extends EventEmitter {
       },
       claudeConfig: {
         model,
-        prompt: this.generateSpecializedPrompt(specialization, taskDescription, orchestrationId),
+        prompt: this.generateSpecializedPrompt(specialization, taskDescription, orchestrationId, this.activeOrchestrations.get(orchestrationId)!.roomName),
         sessionId: undefined // Only set when resuming existing Claude sessions (UUID format)
       }
     });
@@ -800,19 +804,73 @@ export class StructuredOrchestrator extends EventEmitter {
   private generateSpecializedPrompt(
     specialization: string,
     taskDescription: string,
-    orchestrationId: string
+    orchestrationId: string,
+    roomName?: string
   ): string {
+    const coordinationRoom = roomName || `coordination-${orchestrationId}`;
+    
     return `You are a specialized ${specialization} agent in a structured orchestration (${orchestrationId}).
 
 TASK: ${taskDescription}
+
+## 🚨 CRITICAL COORDINATION REQUIREMENTS
+
+You are part of a multi-agent team. You MUST:
+
+1. **JOIN THE SHARED ROOM IMMEDIATELY**
+   - Room name: ${coordinationRoom}
+   - Use join_room("${coordinationRoom}", "${specialization}-agent")
+   - Send initial message: "${specialization}-agent online and ready"
+
+2. **CHECK MESSAGES EVERY 30 SECONDS**
+   while working:
+       messages = list_room_messages("${coordinationRoom}", limit=10)
+       for msg in messages:
+           if "@${specialization}" in msg or relevant_to_my_work(msg):
+               respond_appropriately(msg)
+       
+       # Do 30 seconds of work
+       perform_task_work()
+       
+       # Send progress update
+       send_message("${coordinationRoom}", "Progress: {what_i_did}")
+
+3. **COMMUNICATE KEY EVENTS**
+   - On file creation: "Created {file_path} - {purpose}"
+   - On completion: "Completed {component} - ready for integration"
+   - When blocked: "@{other_agent} I need {dependency}"
+   - Regular heartbeat: Every 60 seconds minimum
+
+4. **STORE AND QUERY KNOWLEDGE**
+   - Before implementing: search_knowledge_graph(".", "similar implementation")
+   - Store decisions: store_knowledge_memory(".", agent_id, "technical_decision", title, details)
+   - Document errors: store_knowledge_memory(".", agent_id, "error_pattern", issue, solution)
 
 You are operating within a structured phased workflow with intelligent model selection. Work autonomously using your specialization expertise.
 
 AVAILABLE TOOLS: You have access to ALL Claude Code tools including file operations, code analysis, web browsing, etc.
 
-COORDINATION: Use task management tools and communication rooms for coordination with other agents.
+## 🛠️ TALENT-OS INTEGRATION
+You are part of the TalentOS ecosystem. Important guidelines:
 
-Complete your assigned task efficiently and report progress through the task system.`;
+1. **TalentOS Tools**: Located at talent-os/bin/
+   - Check TOOLS_MANIFEST.md for available tools and their usage
+   - Use tools like: scavenger.py, teacher_enhanced.py, session_marker.py
+   - Run with: uv run talent-os/bin/tool_name.py
+
+2. **Python Package Management**: ALWAYS use 'uv' instead of pip3
+   - Create venvs: uv venv
+   - Install packages: uv pip install package-name
+   - Install from requirements: uv pip install -r requirements.txt
+
+3. **Error Handling**: Use @error_handler decorator from talent-os/core/error_handler.py
+   - All errors are tracked by Scavenger for learning
+
+4. **State Management**: 
+   - Check talent-os/.state/ for persistent state
+   - Use checkpoint/restore tools for session continuity
+
+Complete your assigned task efficiently and report progress through the task system and coordination room.`;
   }
 
   /**

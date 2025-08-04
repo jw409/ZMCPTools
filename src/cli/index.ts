@@ -34,7 +34,7 @@ const colors = {
 };
 
 program
-  .name("claude-mcp-tools")
+  .name("zmcp-tools")
   .description("TypeScript MCP Tools for Claude Agent Orchestration")
   .version("1.0.0");
 
@@ -60,7 +60,7 @@ program
       }
 
       const server = new McpToolsServer({
-        name: "claude-mcp-tools-ts",
+        name: "zmcp-tools-ts",
         version: "1.0.0",
         databasePath,
         repositoryPath: process.cwd(),
@@ -533,7 +533,7 @@ program
       try {
         const { execSync } = await import("child_process");
         const mcpList = execSync("claude mcp list", { encoding: "utf8" });
-        if (mcpList.includes("claude-mcp-tools")) {
+        if (mcpList.includes("zmcp-tools")) {
           console.log(`   ✅ MCP Server: Configured`);
         } else {
           console.log(

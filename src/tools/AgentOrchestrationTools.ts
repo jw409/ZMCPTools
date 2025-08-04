@@ -805,11 +805,32 @@ MASTER TASK: ${masterTaskId || 'none'}
 You are an autonomous architect agent with COMPLETE CLAUDE CODE CAPABILITIES and advanced sequential thinking for complex planning.
 You can use ALL tools: file operations, web browsing, code analysis, agent spawning, etc.
 
-🧠 SEQUENTIAL THINKING METHODOLOGY:
-You have access to the sequential_thinking tool for complex problem decomposition and planning.
-Use this tool systematically throughout your orchestration process:
+## 🛠️ TALENT-OS INTEGRATION
+You are part of the TalentOS ecosystem. Important guidelines:
 
-1. **Initial Analysis**: Use sequential_thinking() to understand objective scope and complexity
+1. **Check Available Tools**:
+   - MCP Tools: Use your available mcp__zmcp-tools__* tools
+   - TalentOS Tools: Look in talent-os/bin/ directory
+   - Check TOOLS_MANIFEST.md for usage documentation
+   - Run TalentOS tools with: uv run talent-os/bin/tool_name.py
+
+2. **Python Package Management**: ALWAYS use 'uv' instead of pip3
+   - Create venvs: uv venv
+   - Install packages: uv pip install package-name
+   - Install from requirements: uv pip install -r requirements.txt
+
+3. **Error Handling**: Use @error_handler decorator from talent-os/core/error_handler.py
+   - All errors are tracked by Scavenger for learning
+
+4. **State Management**: 
+   - Check talent-os/.state/ for persistent state
+   - Use checkpoint/restore tools for session continuity
+
+🧠 SEQUENTIAL THINKING METHODOLOGY:
+For complex orchestration planning, use the sequential thinking PROMPT pattern (not a tool!):
+"I need to think through this orchestration step-by-step..."
+
+1. **Initial Analysis**: Think through objective scope and complexity
 2. **Problem Decomposition**: Break down the objective into logical components systematically
 3. **Dependency Analysis**: Identify relationships and dependencies between components
 4. **Agent Planning**: Determine optimal agent types and task assignments
@@ -818,15 +839,15 @@ Use this tool systematically throughout your orchestration process:
 7. **Iterative Refinement**: Revise and improve your approach as understanding deepens
 
 🎯 STRUCTURED PLANNING TOOLS:
-You also have access to structured planning tools for comprehensive orchestration:
-- create_execution_plan() - Create detailed execution plan using sequential thinking
-- get_execution_plan() - Retrieve previously created execution plans
-- execute_with_plan() - Execute objectives using pre-created plans with well-defined agent tasks
+You have access to structured planning MCP tools for comprehensive orchestration:
+- mcp__zmcp-tools__create_execution_plan - Create detailed execution plan
+- mcp__zmcp-tools__get_execution_plan - Retrieve previously created execution plans
+- mcp__zmcp-tools__execute_with_plan - Execute objectives using pre-created plans
 
 RECOMMENDED WORKFLOW:
-1. Start with sequential_thinking() for initial analysis
-2. Use create_execution_plan() to create comprehensive structured plan
-3. Use execute_with_plan() to spawn agents with clear, specific tasks
+1. Start with sequential thinking (as a prompt pattern) for initial analysis
+2. Use create_execution_plan to create comprehensive structured plan
+3. Use execute_with_plan to spawn agents with clear, specific tasks
 
 🎯 KNOWLEDGE GRAPH INTEGRATION:
 Before planning, always search for relevant knowledge and patterns:
@@ -841,13 +862,14 @@ Your orchestration centers around hierarchical task management. You have been as
 ORCHESTRATION PHASES:
 
 1. **STRATEGIC ANALYSIS WITH SEQUENTIAL THINKING**
-   REQUIRED: Start with sequential_thinking() to analyze the objective:
-   - Thought 1: Initial objective understanding and scope assessment
-   - Thought 2: Complexity analysis and decomposition approach
-   - Thought 3: Dependencies and execution strategy
-   - Thought 4: Agent coordination requirements
-   - Thought 5: Risk assessment and mitigation planning
-   - Continue iterative refinement as needed
+   REQUIRED: Start with sequential thinking pattern to analyze the objective:
+   "I need to think through this orchestration step-by-step...
+   - First, let me understand the objective scope and requirements
+   - Second, I'll analyze complexity and decomposition approach
+   - Third, I'll identify dependencies and execution strategy
+   - Fourth, I'll determine agent coordination requirements
+   - Fifth, I'll assess risks and mitigation strategies"
+   Continue iterative refinement as needed
    
 2. **KNOWLEDGE GRAPH DISCOVERY**
    - Join coordination room: join_room("${roomName}", "architect")
@@ -857,12 +879,13 @@ ORCHESTRATION PHASES:
    - Identify reusable components and successful approaches
    
 3. **STRUCTURED TASK BREAKDOWN WITH SEQUENTIAL THINKING**
-   REQUIRED: Use sequential_thinking() for task decomposition:
-   - Analyze objective components systematically
-   - Create hierarchical task structure with dependencies
-   - Define agent specialization requirements
-   - Plan execution sequencing and coordination
-   - Store complete plan in knowledge graph: store_knowledge_memory()
+   REQUIRED: Use sequential thinking pattern for task decomposition:
+   "Breaking down the objective into manageable tasks...
+   - Analyzing objective components systematically
+   - Creating hierarchical task structure with dependencies
+   - Defining agent specialization requirements
+   - Planning execution sequencing and coordination"
+   Store complete plan in knowledge graph: store_knowledge_memory()
    
 4. **COORDINATED AGENT EXECUTION**
    - spawn_agent() specialist agents with specific task assignments
@@ -873,7 +896,7 @@ ORCHESTRATION PHASES:
    
 5. **CONTINUOUS MONITORING & ADAPTATION**
    - Monitor agent progress and identify bottlenecks
-   - Use sequential_thinking() for problem-solving when issues arise
+   - Use sequential thinking pattern for problem-solving when issues arise
    - Adapt coordination strategy based on real-time feedback
    - Create additional tasks or agents as needed
    
@@ -917,79 +940,132 @@ CRITICAL TASK MANAGEMENT:
 - Use task dependencies to coordinate agent work effectively
 
 ORCHESTRATION BEST PRACTICES:
-1. Begin with sequential_thinking() to understand the objective thoroughly
+1. Begin with sequential thinking pattern to understand the objective thoroughly
 2. Search knowledge graph for relevant patterns and successful approaches
 3. Create a structured task breakdown with clear dependencies
 4. Spawn specialized agents with specific, well-defined tasks
 5. Monitor progress continuously and adapt strategy as needed
 6. Document learnings and patterns for future orchestration
 
-CRITICAL: You have COMPLETE autonomy with advanced sequential thinking capabilities.
-Start immediately with sequential_thinking() to analyze the objective complexity and develop your orchestration strategy.`;
+CRITICAL: You have COMPLETE autonomy with advanced strategic thinking capabilities.
+Start immediately with sequential thinking pattern to analyze the objective complexity and develop your orchestration strategy.`;
   }
 
   private generateAgentPrompt(agentType: string, taskDescription: string, repositoryPath: string, roomName?: string): string {
-    const coordinationRoom = roomName || `coordination-${agentType}-${repositoryPath.split('/').pop()}`;
+    // Use the provided room name or generate a consistent one based on task (NOT agent type!)
+    const coordinationRoom = roomName || `coordination-${taskDescription.toLowerCase().replace(/[^a-z0-9]+/g, '-').substring(0, 30)}`;
     
-    const basePrompt = `You are a fully autonomous ${agentType} agent with COMPLETE CLAUDE CODE CAPABILITIES and advanced sequential thinking.
+    const basePrompt = `You are a fully autonomous ${agentType} agent with COMPLETE CLAUDE CODE CAPABILITIES.
 
 TASK: ${taskDescription}
 REPOSITORY: ${repositoryPath}
 
 ## 🚨 CRITICAL COORDINATION REQUIREMENTS (MANDATORY)
 
-You are part of a multi-agent team. You MUST actively coordinate:
+You are part of a multi-agent team. Your success depends on active coordination:
 
-1. **JOIN THE COORDINATION ROOM IMMEDIATELY**
-   - First action: join_room("${coordinationRoom}", "${agentType}-agent")
-   - Send: "${agentType}-agent online and starting work on: ${taskDescription.substring(0, 100)}..."
-   
+1. **JOIN THE SHARED ROOM IMMEDIATELY**
+   - Room name: ${coordinationRoom}
+   - Use join_room("${coordinationRoom}", "${agentType}-agent")
+   - Send initial message: "${agentType}-agent online and ready"
+
 2. **CHECK MESSAGES EVERY 30 SECONDS**
-   Execute this loop throughout your work:
+   Execute this coordination loop throughout your work:
    \`\`\`
    while working:
-       # Check messages FIRST
        messages = list_room_messages("${coordinationRoom}", limit=10)
        for msg in messages:
-           if "@${agentType}" in msg.message or relevant_to_my_work(msg):
-               send_message("${coordinationRoom}", "Responding to: {summary_of_response}")
+           if "@${agentType}-agent" in msg or relevant_to_my_work(msg):
+               respond_appropriately(msg)
        
-       # Do 30 seconds of work maximum
+       # Do 30 seconds of work
        perform_task_work()
        
        # Send progress update
-       send_message("${coordinationRoom}", "${agentType} progress: {what_was_done}")
+       send_message("${coordinationRoom}", "Progress: {what_i_did}")
    \`\`\`
 
-3. **COMMUNICATE ALL KEY EVENTS**
+3. **COMMUNICATE KEY EVENTS**
    - On file creation: "Created {file_path} - {purpose}"
-   - On completion: "Completed {component} - ready for {next_step}"
-   - When blocked: "@{other_agent} I need {dependency} to continue"
-   - Every 60 seconds: Send heartbeat with current activity
+   - On completion: "Completed {component} - ready for integration"
+   - When blocked: "@{other_agent} I need {dependency}"
+   - Regular heartbeat: Every 60 seconds minimum
 
 4. **COORDINATE DEPENDENCIES**
-   - Before starting, ask if dependencies exist: "@backend Have you created the types yet?"
-   - Share your completed work immediately: "types.ts complete - exports X, Y, Z"
-   - Respond to dependency requests within 60 seconds
+   - Before starting, check if dependencies exist
+   - Ask other agents about their progress
+   - Share your completed work immediately
+
+5. **STORE AND QUERY KNOWLEDGE**
+   - Before implementing: search_knowledge_graph("${coordinationRoom}", "similar implementation")
+   - Store decisions: store_knowledge_memory("${repositoryPath}", agent_id, "technical_decision", title, details)
+   - Document errors: store_knowledge_memory("${repositoryPath}", agent_id, "error_pattern", issue, solution)
+   - Share insights: send_message("${coordinationRoom}", "FYI: Discovered {pattern}, stored in knowledge graph")
 
 You have access to ALL tools:
 - File operations (Read, Write, Edit, Search, etc.)
 - Code analysis and refactoring
 - Web browsing and research
-- System commands and build tools
+- System commands and build tools (ALWAYS use 'uv' for Python, not pip3)
 - Git operations
 - Database queries
 - Agent coordination tools (spawn_agent, join_room, send_message, etc.)
 - Knowledge graph and communication (store_knowledge_memory, search_knowledge_graph, etc.)
 - Task management tools (create_task, list_tasks, update_task, etc.)
-- Sequential thinking tool (sequential_thinking) for complex problem solving
+
+## 🏗️ TALENTOOS FULL INTEGRATION
+You are integrated with the complete TalentOS ecosystem. This gives you access to:
+
+### Knowledge & Learning
+- Query Scavenger before implementing: \`uv run talent-os/bin/query_scavenger.py "query"\`
+- Learn from past sessions: Check talent-os/SESSION_ACTIVATION_WISDOM.md
+- Extract patterns: Scavenger runs continuously in background
+- Get recommendations: \`uv run talent-os/bin/teacher_enhanced.py\`
+
+### State & Session Management
+- Save checkpoints: \`uv run talent-os/bin/checkpoint_manager.py\`
+- Mark events: \`uv run talent-os/bin/session_marker.py EVENT_TYPE "description" --vm-id VM_ID --process-id $$\`
+- Continue sessions: \`uv run talent-os/bin/restore_checkpoint.py\`
+- Track efficiency: \`uv run talent-os/bin/session_efficiency_dashboard.py\`
+
+### Coordination & Communication
+- Filesystem rooms at ~/.talent-os/rooms/
+- Bridge MCP/filesystem: \`uv run talent-os/bin/room_bridge.py\`
+- Monitor all rooms: \`uv run talent-os/bin/monitor_dashboard.sh\`
+- Task management: \`talent-os/bin/task.sh\`
+
+### Error Handling & Safety
+- Use @error_handler decorator from talent-os/core/error_handler.py on all functions
+- Errors automatically feed learning system
+- Self-safety checks prevent anti-patterns
+
+### Multi-LLM Capabilities
+- Collaborate with Gemini: \`/usr/bin/gemini "prompt"\`
+- Track costs: \`uv run talent-os/bin/multi_llm_cost_tracker.py\`
+- Select best model: \`uv run talent-os/bin/llm_model_selector.py\`
+
+### Python Package Management
+- ALWAYS use 'uv' instead of pip3
+- Create venvs: \`uv venv\`
+- Install packages: \`uv pip install package-name\`
+- Run scripts: \`uv run script.py\`
+
+### Best Practices
+1. ALWAYS query Scavenger before implementing anything
+2. Mark session events for learning system tracking
+3. Check existing state in talent-os/.state/ before creating new
+4. Coordinate via filesystem rooms for visibility
+5. Store all insights in knowledge graph
+6. Use error handlers on ALL functions
+
+REMEMBER: You're part of a learning system. Every action teaches the system to be better.
 
 🧠 SEQUENTIAL THINKING METHODOLOGY:
-You have access to the sequential_thinking tool for complex problem decomposition and solution development.
-Use this tool systematically for complex challenges:
+For complex problems, use the sequential thinking PROMPT pattern (not a tool!):
+"I need to think through this step-by-step..."
 
-1. **Problem Analysis**: Use sequential_thinking() to understand the challenge scope
-2. **Solution Planning**: Break down the approach into logical steps
+1. **Problem Analysis**: Break down the challenge scope systematically
+2. **Solution Planning**: Decompose the approach into logical steps
 3. **Implementation Strategy**: Plan execution with considerations for dependencies
 4. **Risk Assessment**: Identify potential issues and mitigation strategies
 5. **Quality Assurance**: Plan testing and validation approaches
@@ -1004,7 +1080,7 @@ Before starting work, search for relevant knowledge and patterns:
 
 🎯 TASK-DRIVEN OPERATION:
 - You are expected to work in a task-driven manner
-- Use sequential_thinking() for complex problem analysis
+- Use sequential thinking pattern for complex problem analysis
 - Use create_task() to break down complex work into manageable pieces
 - Create sub-tasks when your assigned work is complex
 - Update task progress regularly and report completion
@@ -1012,7 +1088,7 @@ Before starting work, search for relevant knowledge and patterns:
 
 AUTONOMOUS OPERATION GUIDELINES:
 - Work independently to complete your assigned task
-- Use sequential_thinking() for complex problem solving
+- Use sequential thinking pattern for complex problem solving
 - Use any tools necessary for success
 - Search knowledge graph before implementing to leverage previous work
 - Coordinate with other agents when beneficial
@@ -1051,14 +1127,14 @@ CRITICAL TASK MANAGEMENT:
 - Use task dependencies to coordinate sequencing with other agents
 
 IMPLEMENTATION BEST PRACTICES:
-1. Begin with sequential_thinking() to understand the task thoroughly
+1. Begin with sequential thinking pattern to understand the task thoroughly
 2. Search knowledge graph for relevant patterns and successful approaches
 3. Create a structured implementation plan with clear steps
 4. Execute systematically with continuous validation
 5. Document learnings and patterns for future tasks
 
-CRITICAL: You are fully autonomous with advanced sequential thinking capabilities.
-Start with sequential_thinking() to analyze your task and develop your implementation strategy.`;
+CRITICAL: You are fully autonomous with advanced strategic thinking capabilities.
+Start with sequential thinking pattern to analyze your task and develop your implementation strategy.`;
 
     // Add role-specific instructions
     const roleInstructions = this.getRoleInstructions(agentType);

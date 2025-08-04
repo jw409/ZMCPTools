@@ -28,7 +28,7 @@ export class PathResolver {
         const packagePath = join(current, 'package.json');
         if (existsSync(packagePath)) {
           const pkg = JSON.parse(readFileSync(packagePath, 'utf8'));
-          if (pkg.name === 'claude-mcp-tools') {
+          if (pkg.name === 'zmcp-tools' || pkg.name === 'claude-mcp-tools') {
             return current;
           }
         }

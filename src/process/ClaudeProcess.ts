@@ -561,6 +561,23 @@ export class ClaudeProcess extends EventEmitter {
     const baseSystemPrompt = `
   You are a specialized Claude agent with access to the ZMCPTools system. You have access to enhanced MCP tools for development, coordination, and knowledge management.
   
+  ## 🛠️ TALENT-OS INTEGRATION
+  You are part of the TalentOS ecosystem. Important guidelines:
+  
+  1. **Check Available Tools**:
+     - MCP Tools: Use your available mcp__zmcp-tools__* tools
+     - TalentOS Tools: Look in talent-os/bin/ directory
+     - Check TOOLS_MANIFEST.md for usage documentation
+     - Run TalentOS tools with: uv run talent-os/bin/tool_name.py
+  
+  2. **Python Package Management**: ALWAYS use 'uv' instead of pip3
+     - Create venvs: uv venv
+     - Install packages: uv pip install package-name
+     - Install from requirements: uv pip install -r requirements.txt
+  
+  3. **Error Handling**: Use @error_handler decorator from talent-os/core/error_handler.py
+     - All errors are tracked by Scavenger for learning
+  
   ## 🎯 Best Practices
   
   1. **Use sequential thinking** for complex multi-step tasks to break down your approach systematically
@@ -656,19 +673,19 @@ export class ClaudeProcess extends EventEmitter {
 
       case 'backend':
       case 'backend_agent':
-        return `## Backend Agent Completion\n\n- Run tests and ensure all pass before completion\n- Store API patterns and architecture decisions in knowledge graph\n- Document database schema changes for frontend agents`;
+        return `## Backend Agent Completion\n\n- Run tests and ensure all pass before completion\n- Store API patterns and architecture decisions in knowledge graph\n- Document database schema changes for frontend agents\n\n## TalentOS Integration\n- Check talent-os/bin/ for additional backend tools (database migrations, API generators)\n- Use 'uv run' for all Python scripts, never pip3\n- Follow error handling patterns from talent-os/core/error_handler.py`;
 
       case 'frontend':
       case 'frontend_agent':
-        return `## Frontend Agent Completion\n\n- Test UI components in development environment\n- Store component patterns and design decisions in knowledge graph\n- Document API integration patterns for other frontend agents`;
+        return `## Frontend Agent Completion\n\n- Test UI components in development environment\n- Store component patterns and design decisions in knowledge graph\n- Document API integration patterns for other frontend agents\n\n## TalentOS Integration\n- Check talent-os/bin/ for UI testing tools and component generators\n- Use 'uv run' for all Python scripts, never pip3\n- Consider using scavenger patterns for UI best practices`;
 
       case 'testing':
       case 'testing_agent':
-        return `## Testing Agent Completion\n\n- Ensure all tests pass before marking complete\n- Store test patterns and coverage insights in knowledge graph\n- Report any test failures or flaky tests to coordination room`;
+        return `## Testing Agent Completion\n\n- Ensure all tests pass before marking complete\n- Store test patterns and coverage insights in knowledge graph\n- Report any test failures or flaky tests to coordination room\n\n## TalentOS Integration\n- Use talent-os/bin/task_verifier.py to verify task completion\n- Check talent-os/bin/ for test runners and coverage tools\n- Follow testing patterns from scavenger discoveries\n- Always use 'uv run' for Python scripts, never pip3`;
 
       case 'documentation':
       case 'documentation_agent':
-        return `## Documentation Agent Completion\n\n- Verify all documentation is accurate and up-to-date\n- Store documentation patterns and templates in knowledge graph\n- Ensure examples and code snippets are tested and working`;
+        return `## Documentation Agent Completion\n\n- Verify all documentation is accurate and up-to-date\n- Store documentation patterns and templates in knowledge graph\n- Ensure examples and code snippets are tested and working\n\n## TalentOS Integration\n- Check TOOLS_MANIFEST.md for tool documentation patterns\n- Use talent-os/bin/doc_drift_helper.py to check doc accuracy\n- Follow documentation standards from talent-os ecosystem\n- Always use 'uv run' for Python scripts, never pip3`;
 
       case 'architect':
       case 'architect_agent':
@@ -809,7 +826,7 @@ export class ClaudeProcess extends EventEmitter {
 
     // Categorize each allowed tool
     for (const tool of allowedTools) {
-      const toolName = tool.replace(/^mcp__claude-mcp-tools__/, "");
+      const toolName = tool.replace(/^mcp__zmcp-tools__/, "");
       let categorized = false;
 
       for (const [category, tools] of Object.entries(toolMapping)) {
@@ -835,7 +852,7 @@ export class ClaudeProcess extends EventEmitter {
   
   ${tools
     .map((tool) => {
-      const toolName = tool.replace(/^mcp__claude-mcp-tools__/, "");
+      const toolName = tool.replace(/^mcp__zmcp-tools__/, "");
       switch (toolName) {
         case "join_room":
           return "- `join_room(room_name, agent_name)` - Join real-time communication room for coordination";
@@ -869,7 +886,7 @@ export class ClaudeProcess extends EventEmitter {
   
   ${tools
     .map((tool) => {
-      const toolName = tool.replace(/^mcp__claude-mcp-tools__/, "");
+      const toolName = tool.replace(/^mcp__zmcp-tools__/, "");
       switch (toolName) {
         case "store_memory":
           return "- `store_memory(repository_path, agent_id, entry_type, title, content)` - Store insights for other agents";
@@ -901,7 +918,7 @@ export class ClaudeProcess extends EventEmitter {
   
   ${tools
     .map((tool) => {
-      const toolName = tool.replace(/^mcp__claude-mcp-tools__/, "");
+      const toolName = tool.replace(/^mcp__zmcp-tools__/, "");
       switch (toolName) {
         case "list_files":
           return "- `list_files(directory, show_hidden, max_depth)` - Smart file listing with ignore patterns";
@@ -928,7 +945,7 @@ export class ClaudeProcess extends EventEmitter {
   
   ${tools
     .map((tool) => {
-      const toolName = tool.replace(/^mcp__claude-mcp-tools__/, "");
+      const toolName = tool.replace(/^mcp__zmcp-tools__/, "");
       switch (toolName) {
         case "analyze_project_structure":
           return "- `analyze_project_structure(project_path, output_format)` - Generate comprehensive project analysis";
@@ -957,7 +974,7 @@ export class ClaudeProcess extends EventEmitter {
   
   ${tools
     .map((tool) => {
-      const toolName = tool.replace(/^mcp__claude-mcp-tools__/, "");
+      const toolName = tool.replace(/^mcp__zmcp-tools__/, "");
       switch (toolName) {
         case "scrape_documentation":
           return "- `scrape_documentation(url, max_pages, selectors)` - Scrape and index documentation";
@@ -994,7 +1011,7 @@ export class ClaudeProcess extends EventEmitter {
   
   ${tools
     .map((tool) => {
-      const toolName = tool.replace(/^mcp__claude-mcp-tools__/, "");
+      const toolName = tool.replace(/^mcp__zmcp-tools__/, "");
       switch (toolName) {
         case "create_browser_session":
           return "- `create_browser_session()` - Create new browser session with auto-close";
@@ -1023,7 +1040,7 @@ export class ClaudeProcess extends EventEmitter {
   
   ${tools
     .map((tool) => {
-      const toolName = tool.replace(/^mcp__claude-mcp-tools__/, "");
+      const toolName = tool.replace(/^mcp__zmcp-tools__/, "");
       switch (toolName) {
         case "create_task":
           return "- `create_task(repository_path, task_type, title, description)` - Create development tasks";
@@ -1058,7 +1075,7 @@ export class ClaudeProcess extends EventEmitter {
   
   ${tools
     .map((tool) => {
-      const toolName = tool.replace(/^mcp__claude-mcp-tools__/, "");
+      const toolName = tool.replace(/^mcp__zmcp-tools__/, "");
       return `- \`${toolName}()\` - Additional MCP tool`;
     })
     .join("\n")}`;

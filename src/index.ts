@@ -1,5 +1,5 @@
 /**
- * Claude MCP Tools - TypeScript Implementation
+ * ZMCPTools - TypeScript Implementation
  * 
  * Main entry point for the MCP server that provides agent orchestration
  * capabilities for Claude Code environments.
@@ -34,7 +34,7 @@ async function mainServer() {
   const databasePath = path.join(dataDir, 'claude_mcp_tools.db');
 
   // MCP servers must not output to stdout - using stderr for startup messages
-  process.stderr.write('🚀 Starting Claude MCP Tools TypeScript Server...\n');
+  process.stderr.write('🚀 Starting ZMCPTools TypeScript Server...\n');
   process.stderr.write(`📁 Data directory: ${dataDir}\n`);
   process.stderr.write(`🗃️ Database path: ${databasePath}\n`);
   process.stderr.write(`🌐 Transport: ${transport.toUpperCase()}\n`);
@@ -44,7 +44,7 @@ async function mainServer() {
 
   // Create the MCP server
   const server = new McpToolsServer({
-    name: 'claude-mcp-tools',
+    name: 'zmcp-tools',
     version: '1.0.0',
     databasePath,
     transport: transport as 'http' | 'stdio',
@@ -68,7 +68,7 @@ async function mainServer() {
       const crashHandler = CrashHandler.getInstance();
       crashHandler.logError(error instanceof Error ? error : new Error(String(error)), {
         phase: 'shutdown',
-        serverName: 'claude-mcp-tools-ts'
+        serverName: 'zmcp-tools-ts'
       });
       process.exit(1);
     }
@@ -81,7 +81,7 @@ async function mainServer() {
   // Start the server
   process.stderr.write('🔌 Connecting to MCP transport...\n');
   await server.start();
-  process.stderr.write('✅ Claude MCP Tools server started successfully\n');
+  process.stderr.write('✅ ZMCPTools server started successfully\n');
   process.stderr.write('📡 Ready to receive MCP requests\n');
 }
 
@@ -94,13 +94,13 @@ async function main() {
     process.stderr.write(`💾 Crash logs will be stored in: ${crashHandler.getCrashLogDir()}\n`);
 
     // Wrap the main server function with crash handling
-    const wrappedMainServer = wrapMainServer(mainServer, 'claude-mcp-tools');
+    const wrappedMainServer = wrapMainServer(mainServer, 'zmcp-tools');
     
     // Start the server with crash handling
     await wrappedMainServer();
 
   } catch (error) {
-    process.stderr.write(`❌ Failed to start Claude MCP Tools server: ${error}\n`);
+    process.stderr.write(`❌ Failed to start ZMCPTools server: ${error}\n`);
     
     // Log the startup error
     const crashHandler = CrashHandler.getInstance();
