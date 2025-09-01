@@ -47,11 +47,51 @@ export const FindRelatedEntitiesSchema = z.object({
   min_strength: z.number().min(0).max(1).default(0.5).describe("Minimum relationship strength required to include a relationship in the traversal (0.0 to 1.0)")
 }).describe("Find entities that are related to a given entity through relationship traversal. This tool performs graph traversal to discover connected entities within a specified distance, allowing you to explore the knowledge graph around a specific entity. Use this to understand dependencies, find similar concepts, or discover related components.");
 
+// Memory Management Schemas
+export const PruneMemorySchema = z.object({
+  repository_path: z.string().min(1).describe("The absolute path to the repository to prune"),
+  pollution_patterns: z.array(z.string()).optional().describe("Specific content patterns to identify as pollution (e.g., 'seven separate task systems', 'context loss')"),
+  superseded_by: z.array(z.string()).optional().describe("Entity IDs that supersede/replace the polluted knowledge"),
+  min_importance_threshold: z.number().min(0).max(1).default(0.3).describe("Remove entities below this importance threshold (0.0 to 1.0)"),
+  confidence_threshold: z.number().min(0).max(1).default(0.5).describe("Remove entities below this confidence threshold (0.0 to 1.0)"),
+  dry_run: z.boolean().default(true).describe("Preview what would be pruned without actually removing anything")
+}).describe("Prune polluted or outdated knowledge from the memory graph based on content patterns and quality thresholds rather than arbitrary dates.");
+
+export const CompactMemorySchema = z.object({
+  repository_path: z.string().min(1).describe("The absolute path to the repository to compact"),
+  remove_duplicates: z.boolean().default(true).describe("Remove duplicate entities with identical or very similar content"),
+  merge_similar: z.boolean().default(false).describe("Merge highly similar entities (>0.9 similarity) into single canonical entities"),
+  similarity_threshold: z.number().min(0.7).max(1).default(0.95).describe("Similarity threshold for considering entities as duplicates (0.7 to 1.0)"),
+  preserve_relationships: z.boolean().default(true).describe("Preserve relationships when merging entities")
+}).describe("Compact memory by removing duplicates and merging similar entities to reduce graph pollution.");
+
+export const MemoryStatusSchema = z.object({
+  repository_path: z.string().min(1).describe("The absolute path to the repository to analyze")
+}).describe("Get comprehensive memory status including pollution indicators, context distribution, and quality metrics.");
+
+export const ExportKnowledgeGraphSchema = z.object({
+  repository_path: z.string().min(1).describe("The absolute path to the repository to export knowledge from"),
+  output_format: z.enum(['json', 'jsonl', 'csv']).default('json').describe("Output format for the exported data"),
+  include_embeddings: z.boolean().default(false).describe("Whether to include vector embeddings in the export (creates larger files)"),
+  output_file: z.string().optional().describe("Optional file path to save the export. If not provided, returns the data directly")
+}).describe("Export the entire knowledge graph to a file or return the data. Use this before wiping to backup existing knowledge.");
+
+export const WipeKnowledgeGraphSchema = z.object({
+  repository_path: z.string().min(1).describe("The absolute path to the repository to wipe knowledge from"),
+  confirm: z.boolean().default(false).describe("Safety confirmation flag. Must be set to true to actually wipe all knowledge graph data"),
+  backup_first: z.boolean().default(true).describe("Whether to create a backup before wiping. Strongly recommended for safety")
+}).describe("Completely wipe all knowledge graph data for a repository. This is a destructive operation that removes all entities, relationships, and insights. Requires explicit confirmation.");
+
 // Export input types
 export type StoreKnowledgeMemoryInput = z.infer<typeof StoreKnowledgeMemorySchema>;
 export type CreateRelationshipInput = z.infer<typeof CreateRelationshipSchema>;
 export type SearchKnowledgeGraphInput = z.infer<typeof SearchKnowledgeGraphSchema>;
 export type FindRelatedEntitiesInput = z.infer<typeof FindRelatedEntitiesSchema>;
+export type PruneMemoryInput = z.infer<typeof PruneMemorySchema>;
+export type CompactMemoryInput = z.infer<typeof CompactMemorySchema>;
+export type MemoryStatusInput = z.infer<typeof MemoryStatusSchema>;
+export type ExportKnowledgeGraphInput = z.infer<typeof ExportKnowledgeGraphSchema>;
+export type WipeKnowledgeGraphInput = z.infer<typeof WipeKnowledgeGraphSchema>;
 
 // ===============================================
 // Knowledge Graph Tool Response Schemas
@@ -129,8 +169,70 @@ export const FindRelatedEntitiesResponseSchema = z.object({
   total_found: z.number().describe("The total number of related entities found")
 }).describe("Response from finding related entities through graph traversal, containing entities connected to the target entity and their relationships");
 
+// Memory Management Response Schemas
+export const PruneMemoryResponseSchema = z.object({
+  success: z.boolean().describe("Whether the pruning operation was successful"),
+  dry_run: z.boolean().describe("Whether this was a preview run"),
+  entities_found: z.number().describe("Number of entities identified for pruning"),
+  entities_removed: z.number().describe("Number of entities actually removed (0 for dry runs)"),
+  pollution_patterns_matched: z.array(z.string()).describe("Patterns that matched polluted content"),
+  backup_created: z.string().optional().describe("Path to backup file if created"),
+  message: z.string().describe("Summary of the pruning operation")
+}).describe("Response from pruning polluted memory content");
+
+export const CompactMemoryResponseSchema = z.object({
+  success: z.boolean().describe("Whether the compaction was successful"),
+  duplicates_removed: z.number().describe("Number of duplicate entities removed"),
+  entities_merged: z.number().describe("Number of similar entities merged"),
+  relationships_consolidated: z.number().describe("Number of relationships consolidated during merging"),
+  space_saved_percent: z.number().describe("Estimated percentage of space saved"),
+  message: z.string().describe("Summary of the compaction operation")
+}).describe("Response from memory compaction operation");
+
+export const MemoryStatusResponseSchema = z.object({
+  total_entities: z.number().describe("Total number of entities in the knowledge graph"),
+  total_relationships: z.number().describe("Total number of relationships"),
+  context_distribution: z.record(z.string(), z.number()).describe("Distribution of entities by context (dom0, talent, project, session)"),
+  quality_metrics: z.object({
+    avg_importance: z.number().describe("Average importance score across all entities"),
+    avg_confidence: z.number().describe("Average confidence score across all entities"),
+    low_quality_entities: z.number().describe("Number of entities below quality thresholds")
+  }).describe("Overall quality metrics for the knowledge graph"),
+  pollution_indicators: z.array(z.object({
+    pattern: z.string().describe("Pollution pattern detected"),
+    entity_count: z.number().describe("Number of entities matching this pattern"),
+    example_entities: z.array(z.string()).describe("Example entity names matching this pattern")
+  })).describe("Detected pollution patterns in the knowledge graph"),
+  recommendations: z.array(z.string()).describe("Recommended cleanup actions based on analysis")
+}).describe("Comprehensive status of memory health and pollution indicators");
+
+export const ExportKnowledgeGraphResponseSchema = z.object({
+  success: z.boolean().describe("Whether the export operation was successful"),
+  total_entities: z.number().describe("Number of entities exported"),
+  total_relationships: z.number().describe("Number of relationships exported"),
+  output_file: z.string().optional().describe("File path where data was saved (if output_file was provided)"),
+  data_size: z.string().describe("Size of exported data (e.g., '2.5MB', '1.2KB')"),
+  export_format: z.string().describe("Format used for the export"),
+  message: z.string().describe("Summary message about the export operation"),
+  data: z.unknown().optional().describe("The exported data if no output_file was specified")
+}).describe("Response from exporting knowledge graph data");
+
+export const WipeKnowledgeGraphResponseSchema = z.object({
+  success: z.boolean().describe("Whether the wipe operation was successful"),
+  entities_removed: z.number().describe("Number of entities removed from the knowledge graph"),
+  relationships_removed: z.number().describe("Number of relationships removed from the knowledge graph"),
+  insights_removed: z.number().describe("Number of insights removed from the knowledge graph"),
+  backup_file: z.string().optional().describe("Path to backup file if backup was created"),
+  message: z.string().describe("Summary message about the wipe operation")
+}).describe("Response from wiping knowledge graph data");
+
 // Export response types
 export type StoreKnowledgeMemoryResponse = z.infer<typeof StoreKnowledgeMemoryResponseSchema>;
 export type CreateKnowledgeRelationshipResponse = z.infer<typeof CreateKnowledgeRelationshipResponseSchema>;
 export type SearchKnowledgeGraphResponse = z.infer<typeof SearchKnowledgeGraphResponseSchema>;
 export type FindRelatedEntitiesResponse = z.infer<typeof FindRelatedEntitiesResponseSchema>;
+export type PruneMemoryResponse = z.infer<typeof PruneMemoryResponseSchema>;
+export type CompactMemoryResponse = z.infer<typeof CompactMemoryResponseSchema>;
+export type MemoryStatusResponse = z.infer<typeof MemoryStatusResponseSchema>;
+export type ExportKnowledgeGraphResponse = z.infer<typeof ExportKnowledgeGraphResponseSchema>;
+export type WipeKnowledgeGraphResponse = z.infer<typeof WipeKnowledgeGraphResponseSchema>;

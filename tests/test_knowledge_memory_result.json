@@ -1,0 +1,19 @@
+{
+  "success": true,
+  "entity_id": "km_test-agent-kg_1722147700_a3f8b2c1",
+  "data": {
+    "repository_path": ".",
+    "agent_id": "test-agent-kg",
+    "memory_type": "technical_decision",
+    "title": "Database Architecture Decision",
+    "content": "We selected PostgreSQL with JSONB columns for flexible schema evolution and excellent query performance on semi-structured data",
+    "timestamp": "2025-07-28T07:01:40.000Z",
+    "metadata": {
+      "version": 1,
+      "tags": ["postgresql", "jsonb", "database", "architecture"],
+      "confidence": 0.95
+    }
+  },
+  "message": "Knowledge memory stored successfully",
+  "location": "~/.mcptools/data/knowledge_graph.db"
+}

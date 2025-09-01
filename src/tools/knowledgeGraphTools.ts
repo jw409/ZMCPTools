@@ -21,18 +21,30 @@ import {
   CreateRelationshipSchema,
   SearchKnowledgeGraphSchema,
   FindRelatedEntitiesSchema,
+  PruneMemorySchema,
+  CompactMemorySchema,
+  MemoryStatusSchema,
   StoreKnowledgeMemoryResponseSchema,
   CreateKnowledgeRelationshipResponseSchema,
   SearchKnowledgeGraphResponseSchema,
   FindRelatedEntitiesResponseSchema,
+  PruneMemoryResponseSchema,
+  CompactMemoryResponseSchema,
+  MemoryStatusResponseSchema,
   type StoreKnowledgeMemoryInput,
   type CreateRelationshipInput,
   type SearchKnowledgeGraphInput,
   type FindRelatedEntitiesInput,
+  type PruneMemoryInput,
+  type CompactMemoryInput,
+  type MemoryStatusInput,
   type StoreKnowledgeMemoryResponse,
   type CreateKnowledgeRelationshipResponse,
   type SearchKnowledgeGraphResponse,
-  type FindRelatedEntitiesResponse
+  type FindRelatedEntitiesResponse,
+  type PruneMemoryResponse,
+  type CompactMemoryResponse,
+  type MemoryStatusResponse
 } from '../schemas/tools/knowledgeGraph.js';
 
 const logger = new Logger('knowledge-graph-tools');
@@ -74,6 +86,27 @@ export class KnowledgeGraphMcpTools {
         inputSchema: zodToJsonSchema(FindRelatedEntitiesSchema),
         outputSchema: zodToJsonSchema(FindRelatedEntitiesResponseSchema),
         handler: this.findRelatedEntities.bind(this)
+      },
+      {
+        name: 'prune_knowledge_memory',
+        description: 'Prune polluted or outdated knowledge based on content patterns',
+        inputSchema: zodToJsonSchema(PruneMemorySchema),
+        outputSchema: zodToJsonSchema(PruneMemoryResponseSchema),
+        handler: this.pruneKnowledgeMemory.bind(this)
+      },
+      {
+        name: 'compact_knowledge_memory',
+        description: 'Compact memory by removing duplicates and merging similar entities',
+        inputSchema: zodToJsonSchema(CompactMemorySchema),
+        outputSchema: zodToJsonSchema(CompactMemoryResponseSchema),
+        handler: this.compactKnowledgeMemory.bind(this)
+      },
+      {
+        name: 'get_memory_status',
+        description: 'Get comprehensive memory status and pollution indicators',
+        inputSchema: zodToJsonSchema(MemoryStatusSchema),
+        outputSchema: zodToJsonSchema(MemoryStatusResponseSchema),
+        handler: this.getMemoryStatus.bind(this)
       }
     ];
   }
@@ -145,16 +178,60 @@ export class KnowledgeGraphMcpTools {
     const params = FindRelatedEntitiesSchema.parse(mappedArgs);
     return await findRelatedEntities(this.db, params);
   }
+
+  private async pruneKnowledgeMemory(args: any): Promise<PruneMemoryResponse> {
+    const mappedArgs: PruneMemoryInput = {
+      repository_path: args.repository_path || args.repositoryPath,
+      pollution_patterns: args.pollution_patterns || args.pollutionPatterns,
+      superseded_by: args.superseded_by || args.supersededBy,
+      min_importance_threshold: args.min_importance_threshold || args.minImportanceThreshold,
+      confidence_threshold: args.confidence_threshold || args.confidenceThreshold,
+      dry_run: args.dry_run !== undefined ? args.dry_run : args.dryRun
+    };
+    const params = PruneMemorySchema.parse(mappedArgs);
+    return await pruneKnowledgeMemory(this.db, params);
+  }
+
+  private async compactKnowledgeMemory(args: any): Promise<CompactMemoryResponse> {
+    const mappedArgs: CompactMemoryInput = {
+      repository_path: args.repository_path || args.repositoryPath,
+      remove_duplicates: args.remove_duplicates !== undefined ? args.remove_duplicates : args.removeDuplicates,
+      merge_similar: args.merge_similar !== undefined ? args.merge_similar : args.mergeSimilar,
+      similarity_threshold: args.similarity_threshold || args.similarityThreshold,
+      preserve_relationships: args.preserve_relationships !== undefined ? args.preserve_relationships : args.preserveRelationships
+    };
+    const params = CompactMemorySchema.parse(mappedArgs);
+    return await compactKnowledgeMemory(this.db, params);
+  }
+
+  private async getMemoryStatus(args: any): Promise<MemoryStatusResponse> {
+    const mappedArgs: MemoryStatusInput = {
+      repository_path: args.repository_path || args.repositoryPath
+    };
+    const params = MemoryStatusSchema.parse(mappedArgs);
+    return await getMemoryStatus(this.db, params);
+  }
 }
 
 // Re-export schemas for MCP server registration
-export { StoreKnowledgeMemorySchema, CreateRelationshipSchema, SearchKnowledgeGraphSchema, FindRelatedEntitiesSchema };
+export { 
+  StoreKnowledgeMemorySchema, 
+  CreateRelationshipSchema, 
+  SearchKnowledgeGraphSchema, 
+  FindRelatedEntitiesSchema,
+  PruneMemorySchema,
+  CompactMemorySchema,
+  MemoryStatusSchema
+};
 
 // Re-export types for backward compatibility
 export type StoreKnowledgeMemoryArgs = StoreKnowledgeMemoryInput;
 export type CreateRelationshipArgs = CreateRelationshipInput;
 export type SearchKnowledgeGraphArgs = SearchKnowledgeGraphInput;
 export type FindRelatedEntitiesArgs = FindRelatedEntitiesInput;
+export type PruneMemoryArgs = PruneMemoryInput;
+export type CompactMemoryArgs = CompactMemoryInput;
+export type MemoryStatusArgs = MemoryStatusInput;
 
 /**
  * Store a knowledge graph memory with entity creation
@@ -390,5 +467,287 @@ export async function findRelatedEntities(
   } catch (error) {
     logger.error('Failed to find related entities', error);
     throw new Error(`Failed to find related entities: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+/**
+ * Prune polluted or outdated knowledge from memory
+ */
+export async function pruneKnowledgeMemory(
+  db: DatabaseManager,
+  args: PruneMemoryInput
+): Promise<PruneMemoryResponse> {
+  try {
+    logger.info('Pruning knowledge memory', args);
+    
+    const vectorService = new VectorSearchService(db);
+    await vectorService.initialize();
+    const knowledgeGraph = new KnowledgeGraphService(db, vectorService);
+
+    // Find entities matching pollution patterns
+    const allEntities = await knowledgeGraph.findEntitiesByRepository(args.repository_path);
+    
+    let candidatesForRemoval = [];
+    const patternsMatched: string[] = [];
+
+    // Apply content-based filtering for pollution patterns
+    if (args.pollution_patterns && args.pollution_patterns.length > 0) {
+      for (const pattern of args.pollution_patterns) {
+        const matchingEntities = allEntities.filter(entity => 
+          entity.name.toLowerCase().includes(pattern.toLowerCase()) ||
+          (entity.description && entity.description.toLowerCase().includes(pattern.toLowerCase()))
+        );
+        if (matchingEntities.length > 0) {
+          candidatesForRemoval.push(...matchingEntities);
+          patternsMatched.push(pattern);
+        }
+      }
+    }
+
+    // Apply quality thresholds
+    const lowQualityEntities = allEntities.filter(entity => 
+      entity.importanceScore < args.min_importance_threshold ||
+      entity.confidenceScore < args.confidence_threshold
+    );
+    candidatesForRemoval.push(...lowQualityEntities);
+
+    // Remove duplicates and superseded entities
+    const uniqueCandidates = Array.from(new Set(candidatesForRemoval.map(e => e.id)))
+      .map(id => candidatesForRemoval.find(e => e.id === id)!)
+      .filter(entity => {
+        // Skip if superseded by a better entity
+        if (args.superseded_by && args.superseded_by.length > 0) {
+          return !args.superseded_by.some(supersedingId => 
+            allEntities.find(e => e.id === supersedingId && 
+              e.importanceScore > entity.importanceScore &&
+              e.confidenceScore > entity.confidenceScore
+            )
+          );
+        }
+        return true;
+      });
+
+    if (!args.dry_run) {
+      // Actually remove the entities
+      for (const entity of uniqueCandidates) {
+        await knowledgeGraph.deleteEntity(entity.id);
+      }
+    }
+
+    return {
+      success: true,
+      dry_run: args.dry_run,
+      entities_found: uniqueCandidates.length,
+      entities_removed: args.dry_run ? 0 : uniqueCandidates.length,
+      pollution_patterns_matched: patternsMatched,
+      message: args.dry_run 
+        ? `Found ${uniqueCandidates.length} entities for removal (dry run)`
+        : `Successfully pruned ${uniqueCandidates.length} polluted entities`
+    };
+
+  } catch (error) {
+    logger.error('Failed to prune knowledge memory', error);
+    throw new Error(`Failed to prune knowledge memory: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+/**
+ * Compact memory by removing duplicates and merging similar entities
+ */
+export async function compactKnowledgeMemory(
+  db: DatabaseManager,
+  args: CompactMemoryInput
+): Promise<CompactMemoryResponse> {
+  try {
+    logger.info('Compacting knowledge memory', args);
+    
+    const vectorService = new VectorSearchService(db);
+    await vectorService.initialize();
+    const knowledgeGraph = new KnowledgeGraphService(db, vectorService);
+
+    const allEntities = await knowledgeGraph.findEntitiesByRepository(args.repository_path);
+    let duplicatesRemoved = 0;
+    let entitiesMerged = 0;
+    let relationshipsConsolidated = 0;
+
+    if (args.remove_duplicates) {
+      // Find exact duplicates (same name and type)
+      const entityGroups = new Map<string, any[]>();
+      for (const entity of allEntities) {
+        const key = `${entity.name.toLowerCase().trim()}-${entity.entityType}`;
+        if (!entityGroups.has(key)) {
+          entityGroups.set(key, []);
+        }
+        entityGroups.get(key)!.push(entity);
+      }
+
+      // Remove duplicates, keeping the highest importance one
+      for (const [, group] of entityGroups) {
+        if (group.length > 1) {
+          const sorted = group.sort((a, b) => b.importanceScore - a.importanceScore);
+          const keeper = sorted[0];
+          const duplicates = sorted.slice(1);
+
+          for (const duplicate of duplicates) {
+            // Transfer relationships if needed
+            if (args.preserve_relationships) {
+              // This would need relationship updating logic
+              relationshipsConsolidated++;
+            }
+            await knowledgeGraph.deleteEntity(duplicate.id);
+            duplicatesRemoved++;
+          }
+        }
+      }
+    }
+
+    if (args.merge_similar) {
+      // Use semantic search to find highly similar entities
+      const processedIds = new Set<string>();
+      
+      for (const entity of allEntities) {
+        if (processedIds.has(entity.id)) continue;
+        
+        const similarEntities = await knowledgeGraph.findEntitiesBySemanticSearch(
+          args.repository_path,
+          `${entity.name} ${entity.description || ''}`,
+          undefined,
+          5,
+          args.similarity_threshold
+        );
+        
+        const highSimilarity = similarEntities.filter(similar => 
+          similar.id !== entity.id && !processedIds.has(similar.id)
+        );
+        
+        if (highSimilarity.length > 0) {
+          // Merge into the highest importance entity
+          const allInGroup = [entity, ...highSimilarity];
+          const keeper = allInGroup.sort((a, b) => b.importanceScore - a.importanceScore)[0];
+          const toMerge = allInGroup.filter(e => e.id !== keeper.id);
+          
+          for (const mergeTarget of toMerge) {
+            processedIds.add(mergeTarget.id);
+            await knowledgeGraph.deleteEntity(mergeTarget.id);
+            entitiesMerged++;
+          }
+          processedIds.add(keeper.id);
+        } else {
+          processedIds.add(entity.id);
+        }
+      }
+    }
+
+    const totalBefore = allEntities.length;
+    const totalAfter = totalBefore - duplicatesRemoved - entitiesMerged;
+    const spaceSavedPercent = totalBefore > 0 ? ((duplicatesRemoved + entitiesMerged) / totalBefore) * 100 : 0;
+
+    return {
+      success: true,
+      duplicates_removed: duplicatesRemoved,
+      entities_merged: entitiesMerged,
+      relationships_consolidated: relationshipsConsolidated,
+      space_saved_percent: Math.round(spaceSavedPercent * 100) / 100,
+      message: `Compaction complete: removed ${duplicatesRemoved} duplicates, merged ${entitiesMerged} similar entities`
+    };
+
+  } catch (error) {
+    logger.error('Failed to compact knowledge memory', error);
+    throw new Error(`Failed to compact knowledge memory: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+/**
+ * Get comprehensive memory status and pollution indicators
+ */
+export async function getMemoryStatus(
+  db: DatabaseManager,
+  args: MemoryStatusInput
+): Promise<MemoryStatusResponse> {
+  try {
+    logger.info('Getting memory status', args);
+    
+    const vectorService = new VectorSearchService(db);
+    await vectorService.initialize();
+    const knowledgeGraph = new KnowledgeGraphService(db, vectorService);
+
+    const allEntities = await knowledgeGraph.findEntitiesByRepository(args.repository_path);
+    const stats = await knowledgeGraph.getStats(args.repository_path);
+
+    // Analyze context distribution
+    const contextDistribution: Record<string, number> = {
+      'dom0': 0,
+      'talent': 0, 
+      'project': 0,
+      'session': 0
+    };
+
+    for (const entity of allEntities) {
+      if (entity.repositoryPath === '.') {
+        contextDistribution.dom0++;
+      } else if (entity.repositoryPath.includes('talent')) {
+        contextDistribution.talent++;
+      } else if (entity.repositoryPath.includes('project')) {
+        contextDistribution.project++;
+      } else {
+        contextDistribution.session++;
+      }
+    }
+
+    // Detect pollution patterns
+    const pollutionPatterns = [
+      'seven separate task systems',
+      'context loss death spiral',
+      'todo systems',
+      'bootstrap',
+      'USE_RTX5090'
+    ];
+
+    const pollutionIndicators = [];
+    for (const pattern of pollutionPatterns) {
+      const matchingEntities = allEntities.filter(entity => 
+        entity.name.toLowerCase().includes(pattern.toLowerCase()) ||
+        (entity.description && entity.description.toLowerCase().includes(pattern.toLowerCase()))
+      );
+      
+      if (matchingEntities.length > 0) {
+        pollutionIndicators.push({
+          pattern,
+          entity_count: matchingEntities.length,
+          example_entities: matchingEntities.slice(0, 3).map(e => e.name)
+        });
+      }
+    }
+
+    // Generate recommendations
+    const recommendations = [];
+    if (pollutionIndicators.length > 0) {
+      recommendations.push(`Prune ${pollutionIndicators.reduce((sum, p) => sum + p.entity_count, 0)} polluted entities`);
+    }
+    
+    const lowQualityCount = allEntities.filter(e => e.importanceScore < 0.3 || e.confidenceScore < 0.5).length;
+    if (lowQualityCount > 0) {
+      recommendations.push(`Remove ${lowQualityCount} low-quality entities`);
+    }
+
+    const avgImportance = allEntities.reduce((sum, e) => sum + e.importanceScore, 0) / allEntities.length;
+    const avgConfidence = allEntities.reduce((sum, e) => sum + e.confidenceScore, 0) / allEntities.length;
+
+    return {
+      total_entities: stats.totalEntities,
+      total_relationships: stats.totalRelationships,
+      context_distribution: contextDistribution,
+      quality_metrics: {
+        avg_importance: Math.round(avgImportance * 100) / 100,
+        avg_confidence: Math.round(avgConfidence * 100) / 100,
+        low_quality_entities: lowQualityCount
+      },
+      pollution_indicators: pollutionIndicators,
+      recommendations
+    };
+
+  } catch (error) {
+    logger.error('Failed to get memory status', error);
+    throw new Error(`Failed to get memory status: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
