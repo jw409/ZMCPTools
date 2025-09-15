@@ -54,6 +54,39 @@ Agents run on daemon threads and need this permission to execute properly.
 - **Project Analysis**: Comprehensive code structure analysis with symbol extraction
 - **Smart File Operations**: Pattern-based file operations with fuzzy matching
 
+## 📋 Task Tracking & Planning
+
+We use GitHub Issues for persistent task tracking and development planning to avoid context loss between sessions:
+
+- **Issue Repository**: https://github.com/jw409/talentos/issues
+- **ZMCP-specific issues**: Labeled with relevant tags
+- **Benefits**:
+  - Persistent task state across sessions
+  - Searchable history of decisions
+  - Prevents "death spiral" from lost context
+  - Collaborative development tracking
+
+### View Current Tasks
+```bash
+# All ZMCP-related issues
+gh issue list --repo jw409/talentos --label enhancement
+
+# View specific issue details
+gh issue view --repo jw409/talentos <issue-number>
+
+# Issues assigned to you
+gh issue list --repo jw409/talentos --assignee @me
+```
+
+### Create New Tasks
+```bash
+# Create a new ZMCP task
+gh issue create --repo jw409/talentos \
+  --title "Your task title" \
+  --body "Detailed description" \
+  --label "enhancement"
+```
+
 ## 🚀 Quick Installation
 
 ### Prerequisites
