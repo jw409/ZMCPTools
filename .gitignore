@@ -106,10 +106,14 @@ dmypy.json
 .pyre/
 
 # Documentation storage directories (locally stored only)
-.claude/
 documentation/
 docs_cache/
 vector_db/
+
+# Claude session data (personal/temporary)
+.claude/session_autosave.json
+.claude/cache/
+.claude/temp/
 
 # SQLite databases for local testing
 *.db
