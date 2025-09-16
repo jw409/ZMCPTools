@@ -9,6 +9,8 @@ import { Logger } from '../utils/logger.js';
 import { AgentPermissionManager } from '../utils/agentPermissions.js';
 import { PathUtils } from '../utils/pathUtils.js';
 import { FoundationCacheService } from './FoundationCacheService.js';
+import { AgentResultService } from './AgentResultService.js';
+import { ResultFinderService } from './ResultFinderService.js';
 import { eventBus } from './EventBus.js';
 import { eq, and } from 'drizzle-orm';
 import { agentSessions } from '../schemas/index.js';
@@ -42,12 +44,16 @@ export class AgentService {
   private spawner: ClaudeSpawner;
   private logger: Logger;
   private cleanupConfig: CleanupConfig;
+  private resultService: AgentResultService;
+  private resultFinder: ResultFinderService;
 
   constructor(private db: DatabaseManager) {
     this.agentRepo = new AgentRepository(db);
     this.communicationRepo = new CommunicationRepository(db);
     this.communicationService = new CommunicationService(db);
     this.spawner = ClaudeSpawner.getInstance();
+    this.resultService = new AgentResultService(db);
+    this.resultFinder = new ResultFinderService(db);
     this.logger = new Logger('AgentService');
     this.cleanupConfig = getCleanupConfig();
     
@@ -111,6 +117,11 @@ export class AgentService {
       // Handle auto-leave functionality if agent has a room
       if (agent.roomId) {
         await this.handleAutoLeaveRoom(agent, newStatus, code, signal);
+      }
+
+      // Collect agent results if completed or failed
+      if (newStatus === 'completed' || newStatus === 'failed') {
+        await this.collectAgentResults(agent, newStatus, code, signal);
       }
 
       // Update agent status in database
@@ -2335,5 +2346,228 @@ CRITICAL: You are an autonomous architect with advanced sequential thinking capa
     }
     
     return reasons.length > 0 ? reasons.join(', ') : 'general staleness criteria';
+  }
+
+  /**
+   * Collect results from an agent that has completed or failed
+   */
+  private async collectAgentResults(
+    agent: AgentSession,
+    finalStatus: AgentStatus,
+    exitCode: number | null,
+    signal: string | null
+  ): Promise<void> {
+    try {
+      this.logger.info(`Collecting results for agent ${agent.id}`, {
+        agentId: agent.id,
+        agentName: agent.agentName,
+        finalStatus,
+        exitCode,
+        signal,
+        repositoryPath: agent.repositoryPath
+      });
+
+      // Generate completion message based on status
+      let completionMessage: string;
+      if (finalStatus === 'completed') {
+        completionMessage = `Agent ${agent.agentName} completed successfully (exit code: ${exitCode ?? 0})`;
+      } else {
+        completionMessage = `Agent ${agent.agentName} failed (exit code: ${exitCode ?? 'unknown'}, signal: ${signal ?? 'none'})`;
+      }
+
+      // Collect file artifacts by checking git diff in the repository
+      const artifacts = await this.collectFileArtifacts(agent.repositoryPath);
+
+      // Gather results from any existing output or logs
+      const results = await this.collectExecutionResults(agent);
+
+      // Collect error details if failed
+      let errorDetails: Record<string, any> | undefined;
+      if (finalStatus === 'failed') {
+        errorDetails = {
+          exitCode: exitCode ?? -1,
+          signal: signal ?? 'unknown',
+          timestamp: new Date().toISOString(),
+          agentId: agent.id,
+          agentName: agent.agentName,
+          agentType: agent.agentType
+        };
+      }
+
+      // Write results using the AgentResultService
+      await this.resultService.writeResults(agent.id, {
+        results,
+        artifacts,
+        completionMessage,
+        errorDetails
+      }, agent.repositoryPath);
+
+      this.logger.info(`Successfully collected results for agent ${agent.id}`, {
+        agentId: agent.id,
+        hasResults: Object.keys(results).length > 0,
+        hasArtifacts: artifacts.created.length > 0 || artifacts.modified.length > 0,
+        hasErrors: !!errorDetails
+      });
+
+    } catch (error) {
+      this.logger.error(`Failed to collect results for agent ${agent.id}`, {
+        agentId: agent.id,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
+
+      // Try to store at least the error information
+      try {
+        await this.resultService.writeError(
+          agent.id,
+          error instanceof Error ? error : new Error(String(error)),
+          {
+            context: 'result_collection_failure',
+            finalStatus,
+            exitCode,
+            signal
+          },
+          agent.repositoryPath
+        );
+      } catch (fallbackError) {
+        this.logger.error(`Failed to store fallback error for agent ${agent.id}`, {
+          agentId: agent.id,
+          originalError: error instanceof Error ? error.message : String(error),
+          fallbackError: fallbackError instanceof Error ? fallbackError.message : String(fallbackError)
+        });
+      }
+    }
+  }
+
+  /**
+   * Collect file artifacts by checking git status
+   */
+  private async collectFileArtifacts(repositoryPath: string): Promise<{ created: string[]; modified: string[] }> {
+    try {
+      const { spawn } = await import('child_process');
+      const { promisify } = await import('util');
+      const execFile = promisify(spawn);
+
+      // Check git status to see what files were modified
+      const gitStatus = spawn('git', ['status', '--porcelain'], {
+        cwd: repositoryPath,
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      gitStatus.stdout?.on('data', (data) => {
+        stdout += data.toString();
+      });
+
+      gitStatus.stderr?.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      return new Promise((resolve) => {
+        gitStatus.on('close', (code) => {
+          if (code !== 0) {
+            this.logger.warn(`Git status failed for ${repositoryPath}`, { code, stderr });
+            resolve({ created: [], modified: [] });
+            return;
+          }
+
+          const created: string[] = [];
+          const modified: string[] = [];
+
+          const lines = stdout.trim().split('\n').filter(line => line.trim());
+          for (const line of lines) {
+            const status = line.substring(0, 2);
+            const filename = line.substring(3);
+
+            if (status.includes('A') || status.includes('??')) {
+              created.push(filename);
+            } else if (status.includes('M') || status.includes('R') || status.includes('D')) {
+              modified.push(filename);
+            }
+          }
+
+          resolve({ created, modified });
+        });
+      });
+
+    } catch (error) {
+      this.logger.warn(`Failed to collect git artifacts for ${repositoryPath}`, {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return { created: [], modified: [] };
+    }
+  }
+
+  /**
+   * Collect execution results and metrics
+   */
+  private async collectExecutionResults(agent: AgentSession): Promise<Record<string, any>> {
+    const results: Record<string, any> = {};
+
+    try {
+      // Basic execution info
+      results.agentType = agent.agentType;
+      results.agentName = agent.agentName;
+      results.capabilities = agent.capabilities || [];
+      results.executionTime = this.calculateExecutionTime(agent);
+
+      // Try to collect any task-specific results from metadata
+      if (agent.agentMetadata) {
+        const metadata = agent.agentMetadata;
+        if (metadata.taskResults) {
+          results.taskResults = metadata.taskResults;
+        }
+        if (metadata.metrics) {
+          results.metrics = metadata.metrics;
+        }
+      }
+
+      return results;
+
+    } catch (error) {
+      this.logger.warn(`Failed to collect execution results for agent ${agent.id}`, {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return {};
+    }
+  }
+
+  /**
+   * Calculate agent execution time
+   */
+  private calculateExecutionTime(agent: AgentSession): number {
+    try {
+      const startTime = new Date(agent.createdAt).getTime();
+      const endTime = new Date(agent.lastHeartbeat).getTime();
+      return Math.max(0, endTime - startTime); // milliseconds
+    } catch (error) {
+      return 0;
+    }
+  }
+
+  /**
+   * Get agent results (public method for external access)
+   */
+  async getAgentResults(agentId: string, repositoryPath?: string): Promise<{
+    results: any;
+    foundPath: string | null;
+    searchPaths: string[];
+  }> {
+    const startDir = repositoryPath || process.cwd();
+    return this.resultFinder.findResults(agentId, startDir);
+  }
+
+  /**
+   * Wait for agent results to be available
+   */
+  async waitForAgentResults(
+    agentId: string,
+    repositoryPath?: string,
+    timeoutMs: number = 300000
+  ): Promise<any> {
+    const startDir = repositoryPath || process.cwd();
+    return this.resultFinder.waitForResults(agentId, startDir, { timeoutMs });
   }
 }

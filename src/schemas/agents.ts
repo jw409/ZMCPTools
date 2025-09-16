@@ -85,6 +85,16 @@ export const agentSessions = sqliteTable('agent_sessions', {
   createdAt: text('createdAt').notNull().default(sql`(current_timestamp)`),
   lastHeartbeat: text('lastHeartbeat').notNull().default(sql`(current_timestamp)`),
   agentMetadata: text('agentMetadata', { mode: 'json' }).$type<Record<string, unknown>>(),
+
+  // Result collection columns
+  results: text('results', { mode: 'json' }).$type<Record<string, any>>(),
+  artifacts: text('artifacts', { mode: 'json' }).$type<{
+    created: string[];
+    modified: string[];
+  }>(),
+  completionMessage: text('completion_message'),
+  errorDetails: text('error_details', { mode: 'json' }).$type<Record<string, any>>(),
+  resultPath: text('result_path'),
 });
 
 // Generated table validation schemas using drizzle-zod
@@ -95,6 +105,20 @@ export const insertAgentSessionSchema = createInsertSchema(agentSessions, {
 
 export const selectAgentSessionSchema = createSelectSchema(agentSessions);
 export const updateAgentSessionSchema = createUpdateSchema(agentSessions);
+
+// Result collection schemas
+export const agentArtifactsSchema = z.object({
+  created: z.array(z.string()).default([]),
+  modified: z.array(z.string()).default([]),
+});
+
+export const agentResultsSchema = z.object({
+  results: z.record(z.string(), z.any()).optional(),
+  artifacts: agentArtifactsSchema.optional(),
+  completionMessage: z.string().optional(),
+  errorDetails: z.record(z.string(), z.any()).optional(),
+  resultPath: z.string().optional(),
+});
 
 // Type exports - Simple TypeScript interfaces matching camelCase table fields
 export type AgentSession = {
@@ -112,6 +136,16 @@ export type AgentSession = {
   createdAt: string;
   lastHeartbeat: string;
   agentMetadata?: Record<string, unknown>;
+
+  // Result collection fields
+  results?: Record<string, any>;
+  artifacts?: {
+    created: string[];
+    modified: string[];
+  };
+  completionMessage?: string;
+  errorDetails?: Record<string, any>;
+  resultPath?: string;
 };
 
 export type NewAgentSession = Omit<AgentSession, 'createdAt' | 'lastHeartbeat'> & {
@@ -122,6 +156,8 @@ export type NewAgentSession = Omit<AgentSession, 'createdAt' | 'lastHeartbeat'> 
 export type AgentSessionUpdate = Partial<Omit<AgentSession, 'id'>>;
 
 export type AgentStatus = z.infer<typeof agentStatusSchema>;
+export type AgentArtifacts = z.infer<typeof agentArtifactsSchema>;
+export type AgentResults = z.infer<typeof agentResultsSchema>;
 
 // Agent filtering and search schemas
 export const agentFilterSchema = z.object({

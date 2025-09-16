@@ -339,8 +339,8 @@ function createProjectConfig(): void {
     "Task",
     "exit_plan_mode",
 
-    // ALL 45 MCP tools for full autonomous operation
-    // Agent Orchestration Tools (17 tools)
+    // ALL 46 MCP tools for full autonomous operation
+    // Agent Orchestration Tools (18 tools)
     "mcp__zmcp-tools__orchestrate_objective",
     "mcp__zmcp-tools__spawn_agent",
     "mcp__zmcp-tools__create_task",
@@ -358,6 +358,7 @@ function createProjectConfig(): void {
     "mcp__zmcp-tools__create_delayed_room",
     "mcp__zmcp-tools__analyze_coordination_patterns",
     "mcp__zmcp-tools__monitor_agents",
+    "mcp__zmcp-tools__get_agent_results",
 
     // Browser Automation Tools (6 tools)
     "mcp__zmcp-tools__create_browser_session",

@@ -1,4 +1,4 @@
-import { eq, and, lt, or } from 'drizzle-orm';
+import { eq, and, lt, or, sql, desc } from 'drizzle-orm';
 import { BaseRepository, createRepositoryConfig } from './index.js';
 import { DatabaseManager } from '../database/index.js';
 import {
@@ -100,7 +100,7 @@ export class AgentRepository extends BaseRepository<
         ),
         lt(agentSessions.lastHeartbeat, staleThreshold)
       ))
-      .orderBy(agentSessions.lastHeartbeat, 'asc')
+      .orderBy(agentSessions.lastHeartbeat)
       .execute();
   }
 
@@ -266,6 +266,172 @@ export class AgentRepository extends BaseRepository<
       agents: filteredAgents,
       total: result.total,
       hasMore: result.hasMore,
+    };
+  }
+
+  /**
+   * Update agent with result data
+   */
+  async updateWithResults(
+    id: string,
+    results: {
+      results?: Record<string, any>;
+      artifacts?: { created: string[]; modified: string[] };
+      completionMessage?: string;
+      errorDetails?: Record<string, any>;
+      resultPath?: string;
+    }
+  ): Promise<AgentSession | null> {
+    const updateData: any = {
+      lastHeartbeat: new Date().toISOString(),
+    };
+
+    // Only update fields that are provided
+    if (results.results !== undefined) {
+      updateData.results = results.results;
+    }
+    if (results.artifacts !== undefined) {
+      updateData.artifacts = results.artifacts;
+    }
+    if (results.completionMessage !== undefined) {
+      updateData.completionMessage = results.completionMessage;
+    }
+    if (results.errorDetails !== undefined) {
+      updateData.errorDetails = results.errorDetails;
+    }
+    if (results.resultPath !== undefined) {
+      updateData.resultPath = results.resultPath;
+    }
+
+    // Set status based on error presence
+    if (results.errorDetails) {
+      updateData.status = 'failed';
+    } else if (results.results || results.completionMessage) {
+      updateData.status = 'completed';
+    }
+
+    return this.update(id, updateData);
+  }
+
+  /**
+   * Get agents with results
+   */
+  async findWithResults(repositoryPath?: string, limit: number = 10, offset: number = 0): Promise<AgentSession[]> {
+    const conditions = [];
+
+    if (repositoryPath) {
+      conditions.push(eq(agentSessions.repositoryPath, repositoryPath));
+    }
+
+    // Find agents that have result data
+    conditions.push(
+      or(
+        sql`${agentSessions.results} IS NOT NULL`,
+        sql`${agentSessions.completionMessage} IS NOT NULL`,
+        sql`${agentSessions.resultPath} IS NOT NULL`
+      )
+    );
+
+    // Use direct Drizzle query to avoid orderBy issues with QueryBuilder
+    let query = this.drizzle.select().from(agentSessions);
+
+    if (conditions.length > 0) {
+      const whereClause = conditions.length > 1 ? and(...conditions) : conditions[0];
+      query = query.where(whereClause);
+    }
+
+    return query
+      .orderBy(desc(agentSessions.lastHeartbeat))
+      .limit(limit)
+      .offset(offset);
+  }
+
+  /**
+   * Get agent results summary
+   */
+  async getResultsSummary(repositoryPath?: string): Promise<{
+    totalAgents: number;
+    withResults: number;
+    completed: number;
+    failed: number;
+    withArtifacts: number;
+  }> {
+    const conditions = [];
+    if (repositoryPath) {
+      conditions.push(eq(agentSessions.repositoryPath, repositoryPath));
+    }
+
+    let queryBuilder = this.query();
+    if (conditions.length > 0) {
+      const whereClause = conditions.length > 1 ? and(...conditions) : conditions[0];
+      queryBuilder = queryBuilder.where(whereClause);
+    }
+
+    const agents = await queryBuilder.execute();
+
+    return {
+      totalAgents: agents.length,
+      withResults: agents.filter(a => a.results || a.completionMessage || a.resultPath).length,
+      completed: agents.filter(a => a.status === 'completed').length,
+      failed: agents.filter(a => a.status === 'failed').length,
+      withArtifacts: agents.filter(a => a.artifacts && (a.artifacts.created.length > 0 || a.artifacts.modified.length > 0)).length,
+    };
+  }
+
+  /**
+   * Clean up agents with missing result files
+   */
+  async cleanupOrphanedResults(repositoryPath?: string): Promise<{
+    agentsChecked: number;
+    orphanedAgents: string[];
+    cleanedUp: number;
+  }> {
+    const conditions = [
+      sql`${agentSessions.resultPath} IS NOT NULL`
+    ];
+
+    if (repositoryPath) {
+      conditions.push(eq(agentSessions.repositoryPath, repositoryPath));
+    }
+
+    const whereClause = conditions.length > 1 ? and(...conditions) : conditions[0];
+    const agentsWithPaths = await this.query()
+      .where(whereClause)
+      .execute();
+
+    const orphanedAgents: string[] = [];
+    const { existsSync } = await import('fs');
+    const { join } = await import('path');
+
+    // Check if result paths exist
+    for (const agent of agentsWithPaths) {
+      if (agent.resultPath) {
+        const fullPath = repositoryPath
+          ? join(repositoryPath, agent.resultPath)
+          : join(agent.repositoryPath, agent.resultPath);
+
+        if (!existsSync(fullPath)) {
+          orphanedAgents.push(agent.id);
+        }
+      }
+    }
+
+    // Clean up orphaned entries (clear result path)
+    let cleanedUp = 0;
+    for (const agentId of orphanedAgents) {
+      const success = await this.update(agentId, {
+        resultPath: null,
+        lastHeartbeat: new Date().toISOString(),
+      });
+      if (success) {
+        cleanedUp++;
+      }
+    }
+
+    return {
+      agentsChecked: agentsWithPaths.length,
+      orphanedAgents,
+      cleanedUp,
     };
   }
 }

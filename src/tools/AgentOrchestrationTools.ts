@@ -12,6 +12,7 @@ import { DependencyWaitingService } from '../services/DependencyWaitingService.j
 import { SequentialPlanningService, type PlanningRequest, type ExecutionPlan } from '../services/SequentialPlanningService.js';
 import type { TaskType, AgentStatus, MessageType, EntityType } from '../schemas/index.js';
 import type { McpTool } from '../schemas/tools/index.js';
+import { getAgentResultsTool, getAgentResultsSchema, type GetAgentResultsParams } from './GetAgentResultsTool.js';
 
 // Import centralized request schemas
 import {
@@ -221,6 +222,27 @@ export class AgentOrchestrationTools {
         inputSchema: zodToJsonSchema(GetCleanupConfigurationSchema),
         outputSchema: zodToJsonSchema(GetCleanupConfigurationResponseSchema),
         handler: this.getCleanupConfiguration.bind(this)
+      },
+      {
+        name: 'get_agent_results',
+        description: 'Retrieve results from a completed or failed agent by ID. This tool searches for agent result files both in the local project directory and parent directories (bubbling up). Can wait for results if they are not immediately available.',
+        inputSchema: zodToJsonSchema(getAgentResultsSchema),
+        outputSchema: zodToJsonSchema(z.object({
+          success: z.boolean(),
+          agentId: z.string(),
+          results: z.any().optional(),
+          artifacts: z.object({
+            created: z.array(z.string()),
+            modified: z.array(z.string())
+          }).optional(),
+          completionMessage: z.string().optional(),
+          errorDetails: z.any().optional(),
+          foundPath: z.string().optional(),
+          searchPaths: z.array(z.string()).optional(),
+          statusSummary: z.any().optional(),
+          message: z.string().optional()
+        })),
+        handler: this.getAgentResults.bind(this)
       }
     ];
   }
@@ -2609,5 +2631,25 @@ Start by reviewing your assigned tasks and sending a status message to the coord
         updatedAt: now
       }
     ];
+  }
+
+  /**
+   * Get agent results by ID with bubbling search
+   */
+  async getAgentResults(args: GetAgentResultsParams): Promise<any> {
+    try {
+      const context = {
+        dbManager: this.dbManager,
+        repositoryPath: this.repositoryPath
+      };
+
+      return await getAgentResultsTool(args, context);
+    } catch (error) {
+      return {
+        success: false,
+        agentId: args.agentId,
+        message: `Error retrieving agent results: ${error instanceof Error ? error.message : String(error)}`
+      };
+    }
   }
 }
