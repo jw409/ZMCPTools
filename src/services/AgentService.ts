@@ -353,14 +353,15 @@ export class AgentService {
           repositoryPath: agent.repositoryPath
         });
         
-        // Update agent with the PID
+        // Update agent with the PID and lifecycle columns
         this.db.transaction(() => {
           const updateStmt = this.db.database.prepare(`
-            UPDATE agent_sessions 
-            SET claudePid = ?, lastHeartbeat = datetime('now')
+            UPDATE agent_sessions
+            SET claudePid = ?, lastHeartbeat = datetime('now'),
+                process_pid = ?, last_activity_at = datetime('now')
             WHERE id = ?
           `);
-          updateStmt.run(claudeProcess.pid, agentId);
+          updateStmt.run(claudeProcess.pid, claudeProcess.pid, agentId);
         });
 
         agent.claudePid = claudeProcess.pid;
@@ -858,6 +859,99 @@ CRITICAL: You are an autonomous architect with advanced sequential thinking capa
     });
     
     this.logger.info(`Agent ${agentId} status updated to TERMINATED`);
+  }
+
+  /**
+   * Check for zombie agents using activity-based detection with fuzzing
+   */
+  async detectZombieAgents(): Promise<{
+    zombieAgents: Array<{ agentId: string; reason: 'dead_process' | 'timeout'; timeSinceActivity: number }>;
+    cleanedUp: number;
+  }> {
+    const zombies: Array<{ agentId: string; reason: 'dead_process' | 'timeout'; timeSinceActivity: number }> = [];
+    let cleanedUp = 0;
+
+    try {
+      // Get all active agents
+      const activeAgents = await this.db.database.prepare(`
+        SELECT id, agentName, process_pid, last_activity_at, timeout_seconds
+        FROM agent_sessions
+        WHERE status = 'active'
+        AND process_pid IS NOT NULL
+        AND last_activity_at IS NOT NULL
+      `).all() as Array<{
+        id: string;
+        agentName: string;
+        process_pid: number;
+        last_activity_at: string;
+        timeout_seconds: number;
+      }>;
+
+      for (const agent of activeAgents) {
+        const timeSinceActivity = Math.floor(
+          (Date.now() - new Date(agent.last_activity_at).getTime()) / 1000
+        );
+
+        // Check if process is still alive
+        const isProcessAlive = await this.isProcessAlive(agent.process_pid);
+
+        if (!isProcessAlive) {
+          // Process is dead - mark as zombie
+          zombies.push({
+            agentId: agent.id,
+            reason: 'dead_process',
+            timeSinceActivity
+          });
+
+          await this.agentRepo.updateStatus(agent.id, 'terminated_zombie' as AgentStatus);
+          cleanedUp++;
+          this.logger.info(`Marked dead agent ${agent.agentName} (${agent.id}) as zombie`);
+        } else {
+          // Check for timeout with fuzzing
+          const baseTimeout = agent.timeout_seconds || 1500; // Default 25 minutes
+          const fuzzRange = Math.min(600, baseTimeout * 0.2); // Up to 10 minutes or 20% of timeout
+          const fuzz = Math.random() * fuzzRange;
+          const fuzzedTimeout = baseTimeout + fuzz;
+
+          if (timeSinceActivity > fuzzedTimeout) {
+            zombies.push({
+              agentId: agent.id,
+              reason: 'timeout',
+              timeSinceActivity
+            });
+
+            await this.agentRepo.updateStatus(agent.id, 'terminated_timeout' as AgentStatus);
+            cleanedUp++;
+            this.logger.info(`Marked stuck agent ${agent.agentName} (${agent.id}) as timeout (inactive for ${Math.floor(timeSinceActivity/60)} minutes)`);
+          }
+        }
+      }
+
+      return { zombieAgents: zombies, cleanedUp };
+
+    } catch (error) {
+      this.logger.error('Error during zombie detection', { error });
+      return { zombieAgents: zombies, cleanedUp };
+    }
+  }
+
+  /**
+   * Check if a process is still alive
+   */
+  private async isProcessAlive(pid: number): Promise<boolean> {
+    try {
+      // On Linux, check if /proc/PID exists
+      const fs = await import('fs');
+      return fs.existsSync(`/proc/${pid}`);
+    } catch {
+      try {
+        // Fallback: send signal 0 to check if process exists
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    }
   }
 
   async findStaleAgents(staleMinutes = 30): Promise<AgentSession[]> {

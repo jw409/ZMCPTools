@@ -5,6 +5,26 @@ All notable changes to ZMCPTools will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- 🔄 **Enhanced Agent Lifecycle Management** - Intelligent activity-based monitoring system
+  - Tool usage serves as natural heartbeat (no artificial timers)
+  - Process PID tracking and `/proc/{pid}` validation for zombie detection
+  - Fuzzy timeout system (20-30 minutes with random jitter) prevents thundering herd
+  - Automatic cleanup of dead processes (`terminated_zombie`) and stuck agents (`terminated_timeout`)
+  - Integration with existing claude-observability hooks for seamless operation
+
+### Enhanced
+- 📊 **Database Schema** - Added lifecycle tracking columns to `agent_sessions`
+  - `last_activity_at` - tracks when agent last used a tool
+  - `process_pid` - stores actual process ID for validation
+  - `timeout_seconds` - configurable per-agent timeout settings
+- 🧹 **Agent Cleanup System** - Enhanced existing cleanup with PID-based detection
+  - Smart zombie detection using process validation
+  - Activity-based timeout detection with configurable thresholds
+  - Comprehensive test suite for lifecycle management validation
+
 ## [0.2.2] - 2025-01-14
 
 ### Added
