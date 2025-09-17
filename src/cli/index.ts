@@ -208,6 +208,38 @@ agentCmd
     }
   });
 
+// Monitor command
+program
+  .command("monitor")
+  .description("Monitor ZMCP agents with real-time status updates")
+  .option("-o, --output <format>", "Output format: terminal, html, json", "terminal")
+  .option("-w, --watch", "Enable watch mode with live updates")
+  .option("-p, --port <port>", "HTTP server port for watch mode", "8080")
+  .option("-r, --repository <path>", "Repository path", process.cwd())
+  .option("-a, --agent <id>", "Monitor specific agent ID")
+  .option("--interval <ms>", "Update interval in milliseconds", "2000")
+  .option("--output-file <path>", "Save HTML output to file")
+  .option("-d, --data-dir <path>", "Data directory", DEFAULT_DATA_DIR)
+  .action(async (options) => {
+    try {
+      const { MonitorService } = await import('../services/MonitorService.js');
+      const monitor = new MonitorService(options.dataDir);
+
+      await monitor.start({
+        outputFormat: options.output,
+        watchMode: options.watch,
+        port: parseInt(options.port),
+        repositoryPath: options.repository,
+        agentId: options.agent,
+        updateInterval: parseInt(options.interval),
+        outputFile: options.outputFile
+      });
+    } catch (error) {
+      console.error("❌ Failed to start monitor:", error);
+      process.exit(1);
+    }
+  });
+
 // Task management commands
 const taskCmd = program.command("task").description("Task management commands");
 
@@ -578,7 +610,10 @@ program
     console.log(
       `   zmcp-tools agent spawn -t backend -r . -d "API development"`
     );
-    console.log(`   zmcp-tools agent terminate -i <agent-id>\n`);
+    console.log(`   zmcp-tools agent terminate -i <agent-id>`);
+    console.log(`   zmcp-tools monitor              # Monitor agents with real-time updates`);
+    console.log(`   zmcp-tools monitor --watch      # Live dashboard with updates`);
+    console.log(`   zmcp-tools monitor -o html      # Generate HTML dashboard\n`);
 
     console.log(`${colors.cyan}📋 Task Management:${colors.reset}`);
     console.log(`   zmcp-tools task list`);

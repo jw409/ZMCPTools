@@ -3,6 +3,8 @@ import { accessSync } from 'fs';
 import * as path from 'path';
 import { createHash } from 'crypto';
 import { FoundationCacheService } from './FoundationCacheService.js';
+import { AnalysisStorageService, FileAnalysisData } from './AnalysisStorageService.js';
+import { Logger } from '../utils/logger.js';
 
 export interface ProjectOverview {
   projectPath: string;
@@ -61,9 +63,10 @@ export interface UpdateOptions {
 }
 
 /**
- * TreeSummaryService manages .treesummary directories with incremental updates
- * and atomic operations for project analysis and caching.
+ * TreeSummaryService manages analysis data with SQLite storage backend
+ * and backward compatibility for .treesummary directories.
  * Automatically integrates with FoundationCacheService for intelligent caching.
+ * Now uses AnalysisStorageService for dom0/domU isolation.
  */
 export class TreeSummaryService {
   private readonly treeSummaryDir = '.treesummary';
@@ -85,8 +88,17 @@ export class TreeSummaryService {
     'Thumbs.db'
   ];
 
-  constructor(private foundationCache?: FoundationCacheService) {
-    // Foundation cache is optional for backward compatibility
+  private analysisStorage: AnalysisStorageService;
+  private logger: Logger;
+  private useJsonFallback: boolean;
+
+  constructor(
+    private foundationCache?: FoundationCacheService,
+    options: { useJsonFallback?: boolean } = {}
+  ) {
+    this.analysisStorage = new AnalysisStorageService();
+    this.logger = new Logger('tree-summary');
+    this.useJsonFallback = options.useJsonFallback ?? true; // Enable fallback by default for migration period
   }
 
   /**
@@ -164,38 +176,89 @@ export class TreeSummaryService {
   }
 
   /**
-   * Update file analysis for a specific file with atomic operations and foundation cache invalidation
+   * Update file analysis for a specific file using SQLite storage with JSON fallback
    */
   async updateFileAnalysis(filePath: string, analysisData: FileAnalysis): Promise<boolean> {
     try {
-      const projectPath = this.findProjectRoot(filePath);
-      const treeSummaryPath = path.join(projectPath, this.treeSummaryDir);
-      
       // Invalidate relevant foundation cache entries
       if (this.foundationCache) {
         try {
-          // Invalidate project-level caches since file analysis changed
+          const projectPath = this.findProjectRoot(filePath);
           await this.foundationCache.invalidateCache({
             filePath: projectPath,
             templateId: 'project_overview'
           });
         } catch (error) {
-          console.warn('Failed to invalidate foundation cache:', error);
+          this.logger.warn('Failed to invalidate foundation cache:', error);
         }
       }
-      
+
+      // Convert to AnalysisStorageService format
+      const storageData: FileAnalysisData = {
+        filePath: analysisData.filePath,
+        hash: analysisData.hash,
+        lastModified: analysisData.lastModified,
+        symbols: analysisData.symbols,
+        imports: analysisData.imports,
+        exports: analysisData.exports,
+        size: analysisData.size,
+        language: analysisData.language
+      };
+
+      try {
+        // Primary: Store in SQLite
+        await this.analysisStorage.storeFileAnalysis(
+          filePath,
+          storageData,
+          'project' // Store in project context (domU)
+        );
+
+        this.logger.debug(`Stored analysis in SQLite: ${filePath}`);
+
+        // Fallback: Also store in JSON for backward compatibility during migration period
+        if (this.useJsonFallback) {
+          await this.storeJsonFallback(filePath, analysisData);
+        }
+
+        return true;
+
+      } catch (sqliteError) {
+        this.logger.error('Failed to store in SQLite, using JSON fallback', sqliteError);
+
+        // If SQLite fails, fall back to JSON storage
+        if (this.useJsonFallback) {
+          return await this.storeJsonFallback(filePath, analysisData);
+        }
+
+        throw sqliteError;
+      }
+
+    } catch (error) {
+      this.logger.error(`Failed to update file analysis: ${filePath}`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Store analysis data in JSON format (fallback/legacy support)
+   */
+  private async storeJsonFallback(filePath: string, analysisData: FileAnalysis): Promise<boolean> {
+    try {
+      const projectPath = this.findProjectRoot(filePath);
+      const treeSummaryPath = path.join(projectPath, this.treeSummaryDir);
+
       // Ensure .treesummary directory exists
       await this.ensureTreeSummaryDirectory(treeSummaryPath);
-      
+
       // Create atomic file write with directory structure preservation
       const relativeFilePath = path.relative(projectPath, filePath);
-      
+
       // Create clean mirror structure: .treesummary/files/path/to/file.ext.json
       const analysisFile = path.join(treeSummaryPath, 'files', relativeFilePath + '.json');
-      
+
       // Ensure files directory exists
       await fs.mkdir(path.dirname(analysisFile), { recursive: true });
-      
+
       // Write to temporary file first for atomic operation
       const tempFile = analysisFile + '.tmp';
       await fs.writeFile(tempFile, JSON.stringify(analysisData, null, 2));

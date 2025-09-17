@@ -1,5 +1,6 @@
 // Export all Zod v4 + Drizzle schemas
 export * from './agents';
+export * from './agent-metrics';
 export * from './communication';
 export * from './logs';
 export * from './memories';
@@ -20,7 +21,7 @@ export type {
 } from './memories';
 
 export type {
-  // Agent types  
+  // Agent types
   AgentSession,
   NewAgentSession,
   AgentSessionUpdate,
@@ -28,6 +29,15 @@ export type {
   AgentFilter,
   AgentHeartbeat,
 } from './agents';
+
+export type {
+  // Agent metrics types
+  AgentMetrics,
+  NewAgentMetrics,
+  AgentMetricsUpdate,
+  AgentProcessSnapshot,
+  AgentHealthCheck,
+} from './agent-metrics';
 
 export type {
   // Task types

@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZMCP Agent Monitor Report</title>
+    
+    <style>
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace;
+            line-height: 1.6;
+            background: #f5f5f5;
+            color: #333;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        header {
+            background: #f8f9fa;
+            padding: 20px;
+            border-bottom: 1px solid #dee2e6;
+        }
+
+        h1 {
+            font-size: 1.8rem;
+            margin-bottom: 5px;
+            color: #0066cc;
+        }
+
+        .timestamp {
+            color: #666;
+            font-size: 0.9rem;
+        }
+
+        .section {
+            padding: 20px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .section:last-child {
+            border-bottom: none;
+        }
+
+        .section-title {
+            font-size: 1.3rem;
+            margin-bottom: 15px;
+            color: #0066cc;
+            font-weight: bold;
+        }
+
+        .overview-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .metric-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            border-left: 4px solid #0066cc;
+        }
+
+        .metric-label {
+            font-size: 0.9rem;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .metric-value {
+            font-size: 1.4rem;
+            font-weight: bold;
+            color: #0066cc;
+        }
+
+        .agent-card, .process-card, .room-card {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .agent-name {
+            font-size: 1.1rem;
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #333;
+        }
+
+        .agent-id {
+            color: #666;
+            font-size: 0.9rem;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+
+        .status-active {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-idle {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .status-failed {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .status-terminated {
+            background: #e2e3e5;
+            color: #6c757d;
+        }
+
+        .health-bar {
+            width: 100%;
+            height: 8px;
+            background: #e9ecef;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 5px 0;
+        }
+
+        .health-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+
+        .health-excellent { background: #28a745; }
+        .health-good { background: #ffc107; }
+        .health-warning { background: #fd7e14; }
+        .health-critical { background: #dc3545; }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .info-item {
+            font-size: 0.9rem;
+        }
+
+        .info-label {
+            color: #666;
+            font-weight: 500;
+        }
+
+        .info-value {
+            color: #333;
+            margin-left: 5px;
+        }
+
+        .error-list {
+            list-style: none;
+        }
+
+        .error-item {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 8px;
+            border-left: 4px solid #dc3545;
+        }
+
+        .no-data {
+            text-align: center;
+            color: #666;
+            font-style: italic;
+            padding: 20px;
+        }
+
+        .refresh-indicator {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #0066cc;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            z-index: 1000;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                margin: 10px;
+            }
+
+            .overview-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .info-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔍 ZMCP Agent Monitor Report</h1>
+            <div class="timestamp">Last updated: 9/16/2025, 8:25:56 PM</div>
+        </header>
+
+        
+        <div class="section">
+            <div class="section-title">📊 System Overview</div>
+            <div class="overview-grid">
+                <div class="metric-card">
+                    <div class="metric-label">Total Agents</div>
+                    <div class="metric-value">0</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Active Agents</div>
+                    <div class="metric-value">0</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Total Tasks</div>
+                    <div class="metric-value">0</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Active Tasks</div>
+                    <div class="metric-value">0</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Active Rooms</div>
+                    <div class="metric-value">0</div>
+                </div>
+            </div>
+        </div>
+    
+        
+          <div class="section">
+              <div class="section-title">🤖 Agents</div>
+              <div class="no-data">No agents found</div>
+          </div>
+      
+        
+        <div class="section">
+            <div class="section-title">⚙️ Running Processes</div>
+            
+        <div class="process-card">
+            <div class="agent-name">ge (PID: 114027)</div>
+            <div class="info-grid">
+                <div class="info-item">
+                    <span class="info-label">CPU:</span>
+                    <span class="info-value">0.0%</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Memory:</span>
+                    <span class="info-value">0.1MB</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Started:</span>
+                    <span class="info-value">20:14</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Project:</span>
+                    <span class="info-value">game1</span>
+                </div>
+            </div>
+            <div style="margin-top: 10px; font-size: 0.9rem; color: #666;">
+                Command: <code>zmcp-ge-game1-agent_90172</code>
+            </div>
+        </div>
+    
+        </div>
+    
+        
+          <div class="section">
+              <div class="section-title">💬 Active Rooms</div>
+              <div class="no-data">No active rooms found</div>
+          </div>
+      
+        
+    </div>
+
+    
+</body>
+</html>

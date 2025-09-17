@@ -113,6 +113,44 @@ docs_agent = await spawn_agent(
 - `get_error_patterns(repository_path=".")` - Learn from previous failures
 - `get_recent_errors(repository_path=".")` - Debug current issues
 
+### Agent Monitoring & Process Management
+- **Process Naming**: All ZMCP agents appear with descriptive titles in `ps` output (`zmcp-be-oauth-impl-a3f2e1`)
+- **Real-time Monitoring**: `zmcp-tools monitor` - Live agent status with health scores and performance metrics
+- **Dashboard Formats**: Terminal (colored), HTML (static/live), JSON (programmatic)
+- **Watch Mode**: `zmcp-tools monitor --watch` - Live updates with optional HTTP server
+- **Process Discovery**: Automatic detection of running ZMCP agents via process titles
+- **Health Scoring**: Crash/restart penalties, performance bonuses, uptime tracking
+- **Resource Monitoring**: CPU/memory usage, task completion rates, error patterns
+
+#### Monitor Usage Examples
+```bash
+# Real-time terminal monitoring
+zmcp-tools monitor
+
+# Generate HTML dashboard
+zmcp-tools monitor -o html --output-file dashboard.html
+
+# Live web dashboard
+zmcp-tools monitor --watch -o html -p 8080
+
+# JSON output for scripts
+zmcp-tools monitor -o json > status.json
+
+# Monitor specific agent
+zmcp-tools monitor -a agent_12345
+
+# See all ZMCP processes
+ps aux | grep zmcp-
+```
+
+#### Monitor Features
+- **System Overview**: Total/active agents, tasks, rooms with real-time counts
+- **Agent Details**: Status, PID, health score, uptime, performance metrics
+- **Process Information**: CPU/memory usage, restart counts, crash detection
+- **Room Activity**: Message counts, member lists, coordination status
+- **Error Tracking**: Real-time error display and historical patterns
+- **Watch Mode**: Auto-refresh terminal or HTTP server for live monitoring
+
 ## 📋 Best Practices
 
 ### Documentation-First Development
