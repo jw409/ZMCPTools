@@ -3,7 +3,8 @@ import { accessSync } from 'fs';
 import * as path from 'path';
 import { createHash } from 'crypto';
 import { FoundationCacheService } from './FoundationCacheService.js';
-import { AnalysisStorageService, FileAnalysisData } from './AnalysisStorageService.js';
+import { AnalysisStorageService } from './AnalysisStorageService.js';
+import type { FileAnalysisData } from './AnalysisStorageService.js';
 import { Logger } from '../utils/logger.js';
 
 export interface ProjectOverview {

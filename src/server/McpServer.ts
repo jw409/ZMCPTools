@@ -70,7 +70,7 @@ import { WebScrapingService } from "../services/WebScrapingService.js";
 import {
   AgentService,
   KnowledgeGraphService,
-  VectorSearchService,
+  VectorSearchService, // RESTORED: Now uses SQLite3 only
   FileOperationsService,
   TreeSummaryService,
   fileOperationsService,

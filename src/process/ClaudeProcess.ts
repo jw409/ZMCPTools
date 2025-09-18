@@ -74,18 +74,54 @@ export class ClaudeProcess extends EventEmitter {
   }
 
   private async executeQuery(): Promise<void> {
+    const startTime = Date.now();
+    const diagnosticId = `claude-${this.pid}`;
+
+    // Create comprehensive diagnostic logging
+    const logDiagnostic = (phase: string, data: any) => {
+      const timestamp = new Date().toISOString();
+      const elapsed = Date.now() - startTime;
+      const logEntry = `[${timestamp}] [${diagnosticId}] [${phase}] [+${elapsed}ms] ${typeof data === 'string' ? data : JSON.stringify(data, null, 2)}\n`;
+
+      // Write to both stderr and diagnostic file
+      process.stderr.write(logEntry);
+      try {
+        const diagnosticFile = join(tmpdir(), `${diagnosticId}-diagnostic.log`);
+        writeFileSync(diagnosticFile, logEntry, { flag: 'a' });
+      } catch (e) {
+        // Don't fail if we can't write diagnostic file
+      }
+    };
+
     try {
+      logDiagnostic('INIT', `Starting agent execution with config: ${JSON.stringify({
+        agentType: this.config.agentType,
+        model: this.config.model,
+        workingDirectory: this.config.workingDirectory,
+        sessionId: this.config.sessionId,
+        promptLength: this.config.prompt.length
+      })}`);
+
       // Write prompt to temporary file to avoid shell argument issues
       const tempPromptFile = join(tmpdir(), `claude-prompt-${this.pid}.txt`);
       const finalPrompt = this.buildFinalPrompt();
       writeFileSync(tempPromptFile, finalPrompt);
-      
-      // Build CLI command without the prompt (we'll pipe it via stdin)
+
+      logDiagnostic('PROMPT_PREPARED', `Prompt saved to ${tempPromptFile}, length: ${finalPrompt.length} chars`);
+
+      // Also save prompt for manual inspection
+      const diagnosticPromptFile = join(tmpdir(), `${diagnosticId}-prompt.txt`);
+      writeFileSync(diagnosticPromptFile, finalPrompt);
+
+      // Use stdin to avoid shell escaping issues with complex prompts
       const cliArgs = this.buildCliCommandWithStdin();
-      
+      logDiagnostic('CLI_ARGS_BUILT', `Args: ${JSON.stringify(cliArgs)}`);
+
       // Check if we should use the wrapper for unique process names
       let command = 'claude';
       let args = cliArgs;
+
+      logDiagnostic('COMMAND_INITIAL', `Command: ${command}, Args: ${JSON.stringify(args)}`);
       
       // Use wrapper if agent type is specified
       if (this.config.agentType) {
@@ -102,34 +138,48 @@ export class ClaudeProcess extends EventEmitter {
             'claude',
             ...cliArgs
           ];
-          process.stderr.write(`Using process wrapper for agent type: ${this.config.agentType}\n`);
+          logDiagnostic('WRAPPER_USED', `Using wrapper: ${command} ${args.join(' ')}`);
+        } else {
+          logDiagnostic('WRAPPER_MISSING', `No wrapper found at ${wrapperPath}`);
         }
       }
-      
+
+      // Log final command for forensic analysis
+      logDiagnostic('FINAL_COMMAND', `${command} ${args.join(' ')}`);
+
       // Use spawn for streaming output
       this.childProcess = spawn(command, args, {
         cwd: this.config.workingDirectory,
         stdio: ['pipe', 'pipe', 'pipe'],
         env: { ...process.env, ...this.config.environmentVars }
       });
-      
+
       // Check if process started successfully
       if (!this.childProcess.pid) {
+        logDiagnostic('SPAWN_FAILED', 'No PID assigned');
         throw new Error('Failed to start child process - no PID assigned');
       }
-      
-      // Send the prompt via stdin
+
+      logDiagnostic('SPAWN_SUCCESS', `PID: ${this.childProcess.pid}`);
+
+      // Send the prompt via stdin to avoid shell escaping issues
       this.childProcess.stdin.write(finalPrompt);
       this.childProcess.stdin.end();
+      logDiagnostic('STDIN_SENT', `${finalPrompt.length} chars written to stdin`);
 
       // Handle stdout data (streaming JSON)
       this.childProcess.stdout.on('data', (data: Buffer) => {
         const chunk = data.toString();
         this.stdoutBuffer += chunk;
-        
+
+        // Log first data received
+        if (this.stdoutBuffer.length === chunk.length) {
+          logDiagnostic('FIRST_STDOUT', `Received first ${chunk.length} bytes`);
+        }
+
         // Try to parse complete JSON messages from buffer
         this.processStreamOutput();
-        
+
         // Write raw output to log
         try {
           writeFileSync(this.stdoutPath, chunk, { flag: "a" });
@@ -141,13 +191,16 @@ export class ClaudeProcess extends EventEmitter {
       // Handle stderr data
       this.childProcess.stderr.on('data', (data: Buffer) => {
         const chunk = data.toString();
-        
+
+        // Log stderr for debugging
+        logDiagnostic('STDERR_RECEIVED', chunk.trim());
+
         try {
           writeFileSync(this.stderrPath, chunk, { flag: "a" });
         } catch (logError) {
           process.stderr.write(`Failed to write stderr log: ${logError}\n`);
         }
-        
+
         // Emit stderr events
         this.emit("stderr", {
           data: chunk,
@@ -158,12 +211,17 @@ export class ClaudeProcess extends EventEmitter {
 
       // Handle process exit
       this.childProcess.on('exit', (code: number | null, signal: NodeJS.Signals | null) => {
+        logDiagnostic('PROCESS_EXIT', `Code: ${code}, Signal: ${signal}, Buffer length: ${this.stdoutBuffer.length}`);
+
         // Process any remaining buffer content
         if (this.stdoutBuffer.trim()) {
+          process.stderr.write(`🔧 EXIT HANDLER: Processing remaining buffer content\n`);
           try {
             const message = JSON.parse(this.stdoutBuffer.trim()) as SDKMessage;
+            process.stderr.write(`🔧 EXIT HANDLER: Successfully parsed JSON message\n`);
             this.handleCLIMessage(message);
           } catch (parseError) {
+            process.stderr.write(`🔧 EXIT HANDLER: JSON parse failed, emitting as raw text\n`);
             // Emit as raw text if not JSON
             this.emit("stdout", {
               data: this.stdoutBuffer,
@@ -173,15 +231,19 @@ export class ClaudeProcess extends EventEmitter {
             });
           }
         }
-        
+
         this._exitCode = code !== null ? code : (signal ? 1 : 0);
         this._hasExited = true;
+        process.stderr.write(`🔧 EXIT HANDLER: Set exit code to ${this._exitCode}, hasExited=${this._hasExited}\n`);
         
         if (code === 0) {
+          process.stderr.write(`🔧 EXIT HANDLER: Emitting successful exit event\n`);
           this.emit("exit", { code: 0, signal, pid: this.pid });
         } else {
+          process.stderr.write(`🔧 EXIT HANDLER: Emitting failed exit event with code ${this._exitCode}\n`);
           this.emit("exit", { code: this._exitCode, signal, pid: this.pid });
         }
+        process.stderr.write(`🔧 EXIT HANDLER: Exit handler completed\n`);
       });
 
       // Handle process errors
@@ -264,9 +326,14 @@ export class ClaudeProcess extends EventEmitter {
     
     // Always use print mode for non-interactive execution
     args.push('-p');
-    
+
     // Use stream-json output format for line-by-line JSON parsing
     args.push('--output-format', 'stream-json');
+
+    // TEMPORARY TEST: Add MCP config to test if this fixes hanging
+    process.stderr.write(`🔧 DEBUG: Adding MCP config flag to Claude CLI\n`);
+    args.push('--mcp-config', '/tmp/zmcp-mcp.json');
+    process.stderr.write(`🔧 DEBUG: Full args array: ${JSON.stringify(args)}\n`);
     
     // Add model if specified
     if (this.config.model) {
@@ -297,7 +364,7 @@ export class ClaudeProcess extends EventEmitter {
     args.push('--verbose');
     
     // Skip permission prompts
-    args.push('--dangerously-skip-permissions');
+    // Removed --dangerously-skip-permissions for security
     
     // Build the final prompt with system prompts embedded
     const finalPrompt = this.buildFinalPrompt();
@@ -307,13 +374,13 @@ export class ClaudeProcess extends EventEmitter {
   }
 
   /**
-   * Build the CLI command arguments array for stdin input (no prompt argument)
+   * Build the CLI command arguments array with prompt as argument for -p
    */
-  private buildCliCommandWithStdin(): string[] {
+  private buildCliCommandWithPrompt(prompt: string): string[] {
     const args: string[] = [];
-    
+
     // Always use print mode for non-interactive execution
-    args.push('-p');
+    args.push('-p', prompt);
     
     // Use stream-json output format for line-by-line JSON parsing
     args.push('--output-format', 'stream-json');
@@ -347,7 +414,7 @@ export class ClaudeProcess extends EventEmitter {
     args.push('--verbose');
     
     // Skip permission prompts
-    args.push('--dangerously-skip-permissions');
+    // Removed --dangerously-skip-permissions for security
     
     // Note: No prompt argument - we'll send it via stdin
     
@@ -355,17 +422,65 @@ export class ClaudeProcess extends EventEmitter {
   }
 
   /**
+   * Build the CLI command arguments array for stdin input (no prompt argument)
+   */
+  private buildCliCommandWithStdin(): string[] {
+    const args: string[] = [];
+
+    // Use stream-json output format for line-by-line JSON parsing
+    args.push('--output-format', 'stream-json');
+
+    // Add model if specified
+    if (this.config.model) {
+      args.push('--model', this.config.model);
+    }
+
+    // Add allowed tools - format as space-separated list after flag
+    if (this.config.allowedTools && this.config.allowedTools.length > 0) {
+      args.push('--allowedTools', this.config.allowedTools.join(' '));
+    }
+
+    // Add disallowed tools - format as space-separated list after flag
+    if (this.config.disallowedTools && this.config.disallowedTools.length > 0) {
+      args.push('--disallowedTools', this.config.disallowedTools.join(' '));
+    }
+
+    // Add session ID for resuming - only if it's a valid UUID
+    if (this.config.sessionId && this.isValidUUID(this.config.sessionId)) {
+      args.push('--resume', this.config.sessionId);
+    } else if (this.config.sessionId && !this.isValidUUID(this.config.sessionId)) {
+      // Log when we skip using --resume due to invalid UUID format
+      process.stderr.write(
+        `Skipping --resume flag for session ID "${this.config.sessionId}" - Claude CLI requires UUID format\n`
+      );
+    }
+
+    // Add verbose logging
+    args.push('--verbose');
+
+    // Note: No prompt argument - we'll send it via stdin
+
+    return args;
+  }
+
+  /**
    * Build the final prompt by combining system prompts with user prompt
    */
   private buildFinalPrompt(): string {
+    // DEBUG BYPASS: Skip system prompts if DEBUG_NO_SYSTEM_PROMPT is set
+    if (process.env.DEBUG_NO_SYSTEM_PROMPT === 'true') {
+      console.log('[DEBUG] Bypassing system prompt - using user prompt only');
+      return this.config.prompt;
+    }
+
     const systemPrompt = this.buildSystemPrompt();
     const appendSystemPrompt = this.buildAppendSystemPrompt();
-    
+
     // If we have system prompts, format them properly
     if (systemPrompt || appendSystemPrompt) {
       return this.formatPromptWithSystemPrompt(systemPrompt, this.config.prompt, appendSystemPrompt);
     }
-    
+
     // Otherwise just return the user prompt
     return this.config.prompt;
   }

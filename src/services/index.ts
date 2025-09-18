@@ -52,14 +52,14 @@ export {
   DocumentationService,
   type DocumentationSourceSummary
 } from './DocumentationService.js';
-export { 
+export {
   VectorSearchService,
   type VectorSearchConfig,
   type DocumentEmbedding,
   type SimilaritySearchResult,
   type VectorCollection
 } from './VectorSearchService.js';
-export { 
+export {
   LanceDBService,
   type LanceDBConfig,
   type VectorDocument,

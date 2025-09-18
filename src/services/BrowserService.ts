@@ -9,15 +9,15 @@ import { WebsiteRepository } from '../repositories/WebsiteRepository.js';
 import { WebsitePagesRepository } from '../repositories/WebsitePagesRepository.js';
 import { LanceDBService } from './LanceDBService.js';
 import { Logger } from '../utils/logger.js';
-import type { 
-  Website, 
-  WebsitePage, 
-  NewWebsite, 
-  NewWebsitePage 
+import type {
+  Website,
+  WebsitePage,
+  NewWebsite,
+  NewWebsitePage
 } from '../schemas/scraping.js';
-import type { 
-  VectorDocument, 
-  VectorSearchResult 
+import type {
+  VectorDocument,
+  VectorSearchResult
 } from './LanceDBService.js';
 
 // ========== Core Configuration Interfaces ==========

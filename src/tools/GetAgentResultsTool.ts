@@ -1,6 +1,13 @@
 import { z } from 'zod';
 import { join } from 'path';
-import { ToolContext } from '../types/index.js';
+// REMOVED: Missing types/index.js to fix MCP server startup
+// import { ToolContext } from '../types/index.js';
+
+// Define ToolContext inline for now
+interface ToolContext {
+  db?: any;
+  repositoryPath?: string;
+}
 import { ResultFinderService } from '../services/ResultFinderService.js';
 import { AgentRepository } from '../repositories/AgentRepository.js';
 

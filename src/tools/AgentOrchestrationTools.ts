@@ -99,8 +99,10 @@ export class AgentOrchestrationTools {
   private structuredOrchestrator: StructuredOrchestrator;
   private dependencyWaitingService: DependencyWaitingService;
   private sequentialPlanningService: SequentialPlanningService;
+  private repositoryPath: string;
 
   constructor(private db: DatabaseManager, repositoryPath: string) {
+    this.repositoryPath = repositoryPath;
     this.agentService = new AgentService(db);
     this.taskService = new TaskService(db);
     this.communicationService = new CommunicationService(db);
@@ -271,7 +273,7 @@ export class AgentOrchestrationTools {
         objectives: objective,
         priority: 'high',
         createdByAgent: 'orchestrateObjective',
-        sections: this.generateBasicPlanSections(objective),
+        sections: await this.generateBasicPlanSections(objective),
         metadata: {
           estimatedTotalHours: 8,
           riskLevel: 'medium',
@@ -2553,9 +2555,9 @@ Start by reviewing your assigned tasks and sending a status message to the coord
   /**
    * Generate basic plan sections from an objective for orchestration - simplified to task templates
    */
-  private generateBasicPlanSections(objective: string): any[] {
+  private async generateBasicPlanSections(objective: string): Promise<any[]> {
     const now = new Date().toISOString();
-    const { ulid } = require('ulidx');
+    const { ulid } = await import('ulidx');
     
     return [
       {
@@ -2639,7 +2641,7 @@ Start by reviewing your assigned tasks and sending a status message to the coord
   async getAgentResults(args: GetAgentResultsParams): Promise<any> {
     try {
       const context = {
-        dbManager: this.dbManager,
+        dbManager: this.db,
         repositoryPath: this.repositoryPath
       };
 
