@@ -112,6 +112,21 @@ export abstract class BaseRepository<
     protected readonly drizzleManager: DatabaseManager,
     config: RepositoryConfig<TTable>
   ) {
+    // Enhanced validation for database connection
+    if (!drizzleManager) {
+      throw new Error(`DrizzleManager is null/undefined for repository ${config.loggerCategory || 'unknown'}`);
+    }
+
+    if (!drizzleManager.drizzle) {
+      const error = new Error(`DrizzleManager.drizzle is null/undefined for repository ${config.loggerCategory || 'unknown'}`);
+      console.error('Repository initialization error:', {
+        managerExists: !!drizzleManager,
+        managerInitialized: drizzleManager.isInitialized?.(),
+        callStack: error.stack
+      });
+      throw error;
+    }
+
     this.drizzle = drizzleManager.drizzle;
     this.table = config.table;
     this.primaryKey = config.primaryKey;
@@ -119,6 +134,13 @@ export abstract class BaseRepository<
     this.selectSchema = config.selectSchema;
     this.updateSchema = config.updateSchema;
     this.logger = new Logger(config.loggerCategory || `repository-${this.getTableName()}`);
+
+    // Log successful initialization
+    this.logger.debug('Repository initialized successfully', {
+      table: this.getTableName(),
+      drizzleInitialized: !!this.drizzle,
+      managerInitialized: drizzleManager.isInitialized?.()
+    });
   }
 
   /**
@@ -180,7 +202,20 @@ export abstract class BaseRepository<
   async findById(id: string | number): Promise<TSelect | null> {
     try {
       this.logger.debug('Finding record by ID', { table: this.getTableName(), id });
-      
+
+      // Enhanced error checking for drizzle connection
+      if (!this.drizzle) {
+        const error = new Error(`Drizzle connection is null/undefined for table ${this.getTableName()}`);
+        this.logger.error('Database connection missing', {
+          table: this.getTableName(),
+          id,
+          drizzleManagerExists: !!this.drizzleManager,
+          drizzleManagerInitialized: this.drizzleManager?.isInitialized?.(),
+          callStack: error.stack
+        });
+        throw error;
+      }
+
       const results = await this.drizzle
         .select()
         .from(this.table)
