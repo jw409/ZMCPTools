@@ -36,6 +36,11 @@ import {
   BrowserExecuteScriptSchema,
   BrowserInteractSchema
 } from '../schemas/tools/browser.js';
+import {
+  PerformDynamicInteractionSchema,
+  DynamicInteractionResponseSchema
+} from '../schemas/tools/dynamicInteraction.js';
+import { DynamicInteractionService } from '../services/DynamicInteractionService.js';
 
 /**
  * Generate realistic Chrome user agents for better browser fingerprinting
@@ -231,6 +236,13 @@ export class BrowserTools {
         inputSchema: zodToJsonSchema(BrowserManageSessionsSchema),
         outputSchema: zodToJsonSchema(BrowserOperationResponseSchema),
         handler: (args: any) => this.manageBrowserSessions(args)
+      },
+      {
+        name: 'perform_dynamic_interaction',
+        description: 'Perform intelligent, goal-oriented interactions with dynamic web pages using state-aware execution loop. Handles modern SPAs, React, Vue, Angular applications with automatic waiting, verification, and retry logic.',
+        inputSchema: zodToJsonSchema(PerformDynamicInteractionSchema),
+        outputSchema: zodToJsonSchema(DynamicInteractionResponseSchema),
+        handler: (args: any) => this.performDynamicInteraction(args)
       },
       // Legacy tools for backward compatibility
       {
@@ -1690,6 +1702,90 @@ export class BrowserTools {
     }
     
     return this.transformResultData(result, 'manage_browser_sessions');
+  }
+
+  /**
+   * Perform dynamic interaction using intelligent state-aware execution loop
+   */
+  private async performDynamicInteraction(args: z.infer<typeof PerformDynamicInteractionSchema>) {
+    const params = PerformDynamicInteractionSchema.parse(args);
+
+    try {
+      // Get the browser session
+      const session = this.sessions.get(params.session_id);
+      if (!session) {
+        return {
+          success: false,
+          objective: params.objective,
+          stepsExecuted: 0,
+          stepsPlanned: 0,
+          executionTime: 0,
+          results: [],
+          finalState: { url: '', title: '' },
+          error: `Session ${params.session_id} not found`
+        };
+      }
+
+      // Update session activity
+      session.lastUsed = new Date();
+      this.updateSessionActivity(params.session_id);
+
+      // Create dynamic interaction service
+      const dynamicService = new DynamicInteractionService(session.page);
+
+      // Execute the interaction
+      const result = await dynamicService.executeInteraction(params);
+
+      // Store interaction results in knowledge graph for other agents
+      try {
+        await this.knowledgeGraphService.createEntity({
+          id: `dynamic-interaction-${Date.now()}`,
+          repositoryPath: this.repositoryPath,
+          entityType: 'task',
+          name: `Dynamic interaction: ${params.objective}`,
+          description: `Executed dynamic interaction with ${result.success ? 'SUCCESS' : 'FAILURE'}. Steps: ${result.stepsExecuted}/${result.stepsPlanned}`,
+          properties: {
+            objective: params.objective,
+            success: result.success,
+            stepsExecuted: result.stepsExecuted,
+            stepsPlanned: result.stepsPlanned,
+            executionTime: result.executionTime,
+            sessionId: params.session_id
+          },
+          discoveredBy: 'dynamic-interaction-service',
+          discoveredDuring: 'dynamic-web-interaction',
+          importanceScore: result.success ? 0.7 : 0.9, // Failed interactions are more important to learn from
+          confidenceScore: result.success ? 0.9 : 0.6,
+          relevanceScore: 0.8
+        });
+      } catch (error) {
+        console.warn('Failed to store dynamic interaction in knowledge graph:', error);
+      }
+
+      return result;
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error('Dynamic interaction failed:', errorMessage);
+
+      return {
+        success: false,
+        objective: params.objective,
+        stepsExecuted: 0,
+        stepsPlanned: 0,
+        executionTime: 0,
+        results: [{
+          stepIndex: 0,
+          action: 'error',
+          success: false,
+          error: errorMessage,
+          retryCount: 0,
+          executionTime: 0
+        }],
+        finalState: { url: '', title: '' },
+        recommendations: [`Failed with error: ${errorMessage}`]
+      };
+    }
   }
 
   // Enhanced session management methods
