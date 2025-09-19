@@ -5,6 +5,10 @@ import type { McpTool } from '../schemas/tools/index.js';
 import { WebsitePagesRepository } from "../repositories/WebsitePagesRepository.js";
 import { DatabaseManager } from "../database/index.js";
 import { Logger } from "../utils/logger.js";
+import { writeFileSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import { randomUUID } from 'crypto';
 
 const logger = new Logger("BrowserAIDOMTools");
 
@@ -37,7 +41,7 @@ const SearchDOMElementsSchema = z.object({
 
 const GetPageScreenshotSchema = z.object({
   page_id: z.string().describe("Unique identifier of the page to get screenshot for"),
-  format: z.enum(["base64", "file_path"]).default("base64").describe("Format to return screenshot in"),
+  format: z.enum(["base64", "file_path"]).default("file_path").describe("Format to return screenshot in (always returns file_path to avoid token limits)"),
 });
 
 const AnalyzeScreenshotSchema = z.object({
@@ -708,20 +712,29 @@ export class BrowserAIDOMTools {
         throw new Error(`No screenshot available for page ${validatedArgs.page_id}`);
       }
 
-      if (validatedArgs.format === "file_path") {
+      // Always save to file - base64 responses exceed token limits
+      const filename = `screenshot_${validatedArgs.page_id}_${randomUUID()}.png`;
+      const filePath = join(tmpdir(), filename);
+
+      // Convert base64 to buffer and write to file
+      const imageBuffer = Buffer.from(page.screenshotBase64, 'base64');
+      writeFileSync(filePath, imageBuffer);
+
+      logger.info(`Screenshot saved to: ${filePath}`);
+
+      if (validatedArgs.format === "base64") {
+        // Even when base64 is requested, return file path with explanation
         return {
           page_id: validatedArgs.page_id,
-          screenshot_base64: page.screenshotBase64,
-          format: "file_path"
+          file_path: filePath,
+          format: "file_path",
+          note: "Screenshot saved to file instead of base64 to avoid token limit (32K). Use Read tool to access image."
         };
       } else {
-        // For base64, we'd need to read the file and encode it
-        // For now, return the file path with instructions
         return {
           page_id: validatedArgs.page_id,
-          screenshot_base64: page.screenshotBase64,
-          format: "file_path",
-          note: "Base64 encoding not yet implemented. Use file_path format and read the file directly."
+          file_path: filePath,
+          format: "file_path"
         };
       }
 
@@ -800,7 +813,7 @@ export class BrowserAIDOMTools {
       },
       {
         name: "get_page_screenshot",
-        description: "Retrieve stored screenshot for a page. Returns file path or base64 encoded image data for AI visual analysis.",
+        description: "Retrieve stored screenshot for a page. Always saves to file and returns file path to avoid token limits. Use Read tool to access the image.",
         inputSchema: zodToJsonSchema(GetPageScreenshotSchema),
         handler: this.getPageScreenshot.bind(this)
       },
