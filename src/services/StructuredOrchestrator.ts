@@ -6,6 +6,7 @@ import { ClaudeSpawner } from '../process/ClaudeSpawner.js';
 import { eventBus } from './EventBus.js';
 import { Logger } from '../utils/logger.js';
 import type { TaskType, AgentStatus, MessageType } from '../schemas/index.js';
+import { FlexibleCoordinator, type FlexibleCoordinationRequest, type TeamComposition, type CoordinationMode, type WorkflowPattern } from './FlexibleCoordinator.js';
 
 export type OrchestrationPhase = 'research' | 'plan' | 'execute' | 'monitor' | 'cleanup';
 export type StructuredOrchestrationStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'cancelled';
@@ -18,6 +19,13 @@ export interface StructuredOrchestrationRequest {
   maxDuration?: number; // in minutes
   enableProgressTracking?: boolean;
   customPhaseConfig?: Partial<Record<OrchestrationPhase, boolean>>;
+  // New flexible coordination options
+  coordinationMode?: CoordinationMode;
+  workflowPattern?: WorkflowPattern;
+  teamSizeMode?: 'minimal' | 'optimal' | 'maximum' | 'auto';
+  maxTeamSize?: number;
+  selfOrganizing?: boolean;
+  preferredSpecializations?: string[];
 }
 
 export interface OrchestrationProgress {
@@ -31,6 +39,10 @@ export interface OrchestrationProgress {
   createdTasks: string[];
   roomName?: string;
   masterTaskId?: string;
+  // New flexible coordination fields
+  teamComposition?: TeamComposition;
+  coordinationMode?: CoordinationMode;
+  workflowPattern?: WorkflowPattern;
 }
 
 export interface PhaseStatus {
@@ -53,7 +65,7 @@ export interface StructuredOrchestrationResult {
 }
 
 /**
- * Enhanced orchestrator that implements structured phased workflow with intelligent model selection
+ * Enhanced orchestrator that implements flexible workflow coordination with intelligent model selection
  */
 export class StructuredOrchestrator extends EventEmitter {
   private agentService: AgentService;
@@ -62,24 +74,26 @@ export class StructuredOrchestrator extends EventEmitter {
   private knowledgeGraphService: KnowledgeGraphService;
   private complexityAnalyzer: TaskComplexityAnalyzer;
   private claudeSpawner: ClaudeSpawner;
+  private flexibleCoordinator: FlexibleCoordinator;
   private logger: Logger;
-  
+
   // Active orchestrations tracking
   private activeOrchestrations = new Map<string, OrchestrationProgress>();
 
   constructor(private db: DatabaseManager, repositoryPath: string) {
     super();
-    
+
     this.agentService = new AgentService(db);
     this.taskService = new TaskService(db);
     this.communicationService = new CommunicationService(db);
     this.complexityAnalyzer = new TaskComplexityAnalyzer();
     this.claudeSpawner = ClaudeSpawner.getInstance();
+    this.flexibleCoordinator = new FlexibleCoordinator(db);
     this.logger = new Logger('StructuredOrchestrator');
-    
+
     // Initialize KnowledgeGraphService
     this.initializeKnowledgeGraphService(db);
-    
+
     // Set up event listeners
     this.setupEventListeners();
   }
@@ -117,13 +131,13 @@ export class StructuredOrchestrator extends EventEmitter {
   }
 
   /**
-   * Main orchestration entry point - implements structured phased workflow
+   * Main orchestration entry point - implements flexible team coordination
    */
   public async orchestrateObjectiveStructured(
     request: StructuredOrchestrationRequest
   ): Promise<StructuredOrchestrationResult> {
-    const orchestrationId = `struct_orch_${Date.now()}`;
-    this.logger.info('Starting structured orchestration', { orchestrationId, objective: request.objective });
+    const orchestrationId = `flex_orch_${Date.now()}`;
+    this.logger.info('Starting flexible orchestration', { orchestrationId, objective: request.objective });
 
     try {
       // Step 1: Analyze task complexity
@@ -150,26 +164,27 @@ export class StructuredOrchestrator extends EventEmitter {
       const progress = this.initializeOrchestrationProgress(orchestrationId, request, complexityAnalysis);
       this.activeOrchestrations.set(orchestrationId, progress);
 
-      // Step 3: Create coordination room with normalized name
-      const normalizedObjective = request.objective
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .substring(0, 30);
-      const roomName = `coordination-${normalizedObjective}`;
-      const room = await this.communicationService.createRoom({
-        name: roomName,
-        description: `Structured orchestration: ${request.objective}`,
+      // Step 3: Assemble dynamic team using FlexibleCoordinator
+      const coordinationRequest: FlexibleCoordinationRequest = {
+        objective: request.objective,
         repositoryPath: request.repositoryPath,
-        metadata: {
-          orchestrationId,
-          objective: request.objective,
-          foundationSessionId: request.foundationSessionId,
-          structuredMode: true,
-          complexityLevel: complexityAnalysis.complexityLevel
-        }
-      });
+        teamSizeMode: request.teamSizeMode || 'auto',
+        workflowPattern: request.workflowPattern,
+        coordinationMode: request.coordinationMode,
+        selfOrganizing: request.selfOrganizing,
+        foundationSessionId: request.foundationSessionId,
+        maxTeamSize: request.maxTeamSize,
+        preferredSpecializations: request.preferredSpecializations
+      };
 
-      progress.roomName = roomName;
+      const teamComposition = await this.flexibleCoordinator.assembleTeam(coordinationRequest);
+      progress.teamComposition = teamComposition;
+      progress.coordinationMode = teamComposition.coordinationMode;
+      progress.workflowPattern = teamComposition.workflowPattern;
+      progress.roomName = teamComposition.coordinationRoom;
+
+      // Track spawned agents
+      progress.spawnedAgents = teamComposition.agents.map(agent => agent.id);
 
       // Step 4: Create master task
       const masterTask = await this.taskService.createTask({
@@ -179,13 +194,19 @@ export class StructuredOrchestrator extends EventEmitter {
         requirements: {
           objective: request.objective,
           orchestrationId,
-          roomId: room.id,
-          roomName,
+          roomName: teamComposition.coordinationRoom,
           foundationSessionId: request.foundationSessionId,
           isOrchestrationTask: true,
-          structuredMode: true,
+          flexibleMode: true,
           complexityAnalysis,
-          estimatedDuration: complexityAnalysis.estimatedDuration
+          estimatedDuration: complexityAnalysis.estimatedDuration,
+          teamComposition: {
+            size: teamComposition.agents.length,
+            specializations: teamComposition.agents.map(a => a.specialization),
+            coordinationMode: teamComposition.coordinationMode,
+            workflowPattern: teamComposition.workflowPattern,
+            selfOrganizing: teamComposition.selfOrganizing
+          }
         },
         priority: 10 // High priority for orchestration tasks
       });
@@ -193,8 +214,8 @@ export class StructuredOrchestrator extends EventEmitter {
       progress.masterTaskId = masterTask.id;
       progress.createdTasks.push(masterTask.id);
 
-      // Step 5: Execute phased workflow
-      const result = await this.executePhaseWorkflow(orchestrationId, request, complexityAnalysis);
+      // Step 5: Execute flexible coordination workflow
+      const result = await this.executeFlexibleWorkflow(orchestrationId, request, complexityAnalysis, teamComposition);
 
       // Step 6: Finalize and return results
       const finalProgress = this.activeOrchestrations.get(orchestrationId)!;
@@ -211,26 +232,28 @@ export class StructuredOrchestrator extends EventEmitter {
         timestamp: new Date()
       });
 
-      this.logger.info('Structured orchestration completed', {
+      this.logger.info('Flexible orchestration completed', {
         orchestrationId,
         success: result.success,
-        duration: Date.now() - finalProgress.startTime.getTime()
+        duration: Date.now() - finalProgress.startTime.getTime(),
+        teamSize: teamComposition.agents.length,
+        coordinationMode: teamComposition.coordinationMode
       });
 
       return {
         success: result.success,
         orchestrationId,
-        message: result.success ? 
-          'Structured orchestration completed successfully' : 
-          `Structured orchestration failed: ${result.error}`,
+        message: result.success ?
+          'Flexible orchestration completed successfully' :
+          `Flexible orchestration failed: ${result.error}`,
         progress: finalProgress,
         finalResults: result.finalResults,
         error: result.error
       };
 
     } catch (error) {
-      this.logger.error('Structured orchestration failed', { orchestrationId, error });
-      
+      this.logger.error('Flexible orchestration failed', { orchestrationId, error });
+
       // Update progress to failed state
       const progress = this.activeOrchestrations.get(orchestrationId);
       if (progress) {
@@ -241,7 +264,7 @@ export class StructuredOrchestrator extends EventEmitter {
       return {
         success: false,
         orchestrationId,
-        message: `Structured orchestration failed: ${error}`,
+        message: `Flexible orchestration failed: ${error}`,
         progress: progress!,
         error: String(error)
       };
@@ -299,7 +322,249 @@ export class StructuredOrchestrator extends EventEmitter {
   }
 
   /**
-   * Execute the structured phased workflow
+   * Execute flexible team coordination workflow
+   */
+  private async executeFlexibleWorkflow(
+    orchestrationId: string,
+    request: StructuredOrchestrationRequest,
+    complexityAnalysis: TaskComplexityAnalysis,
+    teamComposition: TeamComposition
+  ): Promise<{ success: boolean; finalResults?: Record<string, any>; error?: string }> {
+    const progress = this.activeOrchestrations.get(orchestrationId)!;
+
+    try {
+      this.logger.info('Starting flexible workflow execution', {
+        orchestrationId,
+        teamSize: teamComposition.agents.length,
+        coordinationMode: teamComposition.coordinationMode,
+        workflowPattern: teamComposition.workflowPattern,
+        selfOrganizing: teamComposition.selfOrganizing
+      });
+
+      // Set initial progress
+      progress.status = 'in_progress';
+      progress.progress = 10;
+
+      // Send initial coordination message
+      if (teamComposition.coordinationRoom) {
+        await this.communicationService.sendMessage({
+          roomName: teamComposition.coordinationRoom,
+          agentName: 'StructuredOrchestrator',
+          message: this.generateTeamKickoffMessage(request.objective, teamComposition, complexityAnalysis),
+          messageType: 'system'
+        });
+      }
+
+      // Let the team self-organize and work
+      const result = await this.monitorFlexibleTeamExecution(
+        orchestrationId,
+        request,
+        teamComposition,
+        complexityAnalysis
+      );
+
+      this.logger.info('Flexible workflow completed', {
+        orchestrationId,
+        success: result.success,
+        teamSize: teamComposition.agents.length
+      });
+
+      return result;
+    } catch (error) {
+      this.logger.error('Flexible workflow execution failed', { orchestrationId, error });
+      return {
+        success: false,
+        error: String(error)
+      };
+    }
+  }
+
+  /**
+   * Monitor flexible team execution using fair share coordination
+   */
+  private async monitorFlexibleTeamExecution(
+    orchestrationId: string,
+    request: StructuredOrchestrationRequest,
+    teamComposition: TeamComposition,
+    complexityAnalysis: TaskComplexityAnalysis
+  ): Promise<{ success: boolean; finalResults?: Record<string, any>; error?: string }> {
+    const progress = this.activeOrchestrations.get(orchestrationId)!;
+    const maxDuration = request.maxDuration || 60; // Default 60 minutes
+    const startTime = Date.now();
+    const endTime = startTime + (maxDuration * 60 * 1000);
+
+    let allAgentsCompleted = false;
+    let lastProgress = 10;
+
+    try {
+      // Monitor team progress
+      while (!allAgentsCompleted && Date.now() < endTime) {
+        // Check agent statuses
+        const agentStatuses = await Promise.all(
+          teamComposition.agents.map(async (agent) => {
+            try {
+              const agentInfo = await this.agentService.getAgent(agent.id);
+              return {
+                id: agent.id,
+                status: agentInfo?.status || 'unknown',
+                specialization: agent.specialization
+              };
+            } catch {
+              return {
+                id: agent.id,
+                status: 'unknown',
+                specialization: agent.specialization
+              };
+            }
+          })
+        );
+
+        // Calculate progress based on agent states
+        const completedAgents = agentStatuses.filter(a => a.status === 'completed' || a.status === 'idle').length;
+        const activeAgents = agentStatuses.filter(a => a.status === 'active').length;
+        const failedAgents = agentStatuses.filter(a => a.status === 'failed').length;
+
+        const currentProgress = 10 + ((completedAgents / teamComposition.agents.length) * 80);
+        if (currentProgress > lastProgress) {
+          progress.progress = currentProgress;
+          lastProgress = currentProgress;
+        }
+
+        // Check if all agents completed successfully
+        if (completedAgents === teamComposition.agents.length) {
+          allAgentsCompleted = true;
+          break;
+        }
+
+        // Check for critical failures
+        if (failedAgents > teamComposition.agents.length / 2) {
+          throw new Error(`Too many agents failed (${failedAgents}/${teamComposition.agents.length})`);
+        }
+
+        this.logger.debug('Team execution progress', {
+          orchestrationId,
+          completed: completedAgents,
+          active: activeAgents,
+          failed: failedAgents,
+          progress: currentProgress
+        });
+
+        // Wait before next check
+        await new Promise(resolve => setTimeout(resolve, 10000)); // Check every 10 seconds
+      }
+
+      // Check final status
+      if (!allAgentsCompleted) {
+        throw new Error('Team execution timeout');
+      }
+
+      // Collect final results
+      const finalResults = await this.collectTeamResults(orchestrationId, teamComposition);
+
+      return {
+        success: true,
+        finalResults
+      };
+
+    } catch (error) {
+      this.logger.error('Team execution monitoring failed', { orchestrationId, error });
+      return {
+        success: false,
+        error: String(error)
+      };
+    }
+  }
+
+  /**
+   * Generate team kickoff message
+   */
+  private generateTeamKickoffMessage(
+    objective: string,
+    teamComposition: TeamComposition,
+    complexityAnalysis: TaskComplexityAnalysis
+  ): string {
+    const agentList = teamComposition.agents
+      .map(agent => `• ${agent.agentName} (${agent.specialization}) - ${agent.role || 'contributor'}`)
+      .join('\n');
+
+    return `🚀 **Team Coordination Initiated**
+
+**Objective:** ${objective}
+
+**Team Composition:**
+${agentList}
+
+**Coordination Mode:** ${teamComposition.coordinationMode}
+**Workflow Pattern:** ${teamComposition.workflowPattern}
+**Self-Organizing:** ${teamComposition.selfOrganizing ? 'Yes' : 'No'}
+**Complexity:** ${complexityAnalysis.complexityLevel}
+
+**Instructions:**
+- Use fair share communication priorities for coordination
+- ${teamComposition.selfOrganizing ? 'Self-organize and coordinate naturally' : 'Follow assigned roles and coordinate hierarchically'}
+- Report progress and blockers actively
+- Collaborate to achieve the objective efficiently
+
+**Begin execution!** 🎯`;
+  }
+
+  /**
+   * Collect results from team execution
+   */
+  private async collectTeamResults(
+    orchestrationId: string,
+    teamComposition: TeamComposition
+  ): Promise<Record<string, any>> {
+    const results: Record<string, any> = {};
+
+    try {
+      // Collect results from each agent
+      for (const agent of teamComposition.agents) {
+        try {
+          const agentResults = await this.agentService.getAgentResults(agent.id);
+          if (agentResults) {
+            results[agent.specialization] = agentResults;
+          }
+        } catch (error) {
+          this.logger.warn(`Failed to get results from agent ${agent.id}`, { error });
+        }
+      }
+
+      // Collect room messages for summary
+      if (teamComposition.coordinationRoom) {
+        try {
+          const messages = await this.communicationService.getMessages(
+            teamComposition.coordinationRoom,
+            { limit: 100 }
+          );
+          results.coordination_summary = {
+            room: teamComposition.coordinationRoom,
+            messageCount: messages.length,
+            lastActivity: messages[messages.length - 1]?.timestamp
+          };
+        } catch (error) {
+          this.logger.warn('Failed to get room messages for summary', { error });
+        }
+      }
+
+      // Add team composition summary
+      results.team_summary = {
+        size: teamComposition.agents.length,
+        specializations: teamComposition.agents.map(a => a.specialization),
+        coordinationMode: teamComposition.coordinationMode,
+        workflowPattern: teamComposition.workflowPattern,
+        selfOrganizing: teamComposition.selfOrganizing
+      };
+
+    } catch (error) {
+      this.logger.error('Failed to collect team results', { orchestrationId, error });
+    }
+
+    return results;
+  }
+
+  /**
+   * Execute the structured phased workflow (Legacy - keeping for backward compatibility)
    */
   private async executePhaseWorkflow(
     orchestrationId: string,

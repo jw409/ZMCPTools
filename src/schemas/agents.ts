@@ -19,7 +19,7 @@ export const agentMetadataSchema = z.record(z.string(), z.unknown()).optional();
 // Enhanced agent type system with tool permissions
 export const agentTypeSchema = z.enum([
   'architect',
-  'backend_agent', 
+  'backend_agent',
   'frontend_agent',
   'testing_agent',
   'documentation_agent',
@@ -28,6 +28,8 @@ export const agentTypeSchema = z.enum([
   'security_agent',
   'devops_agent',
   'data_agent',
+  'implementer_agent',
+  'tester_agent',
   'general_agent'
 ]);
 
@@ -233,10 +235,10 @@ export const AGENT_TYPE_DEFINITIONS: AgentTypeDefinitions = {
     roomNamingPattern: 'bugfix_{timestamp}'
   },
   planner_agent: {
-    description: 'Strategic planning, task breakdown, and project coordination',
-    defaultCapabilities: ['project_planning', 'task_management', 'coordination'],
-    defaultAllowedCategories: ['core_tools', 'communication_tools', 'knowledge_graph_tools', 'orchestration_tools', 'analysis_tools', 'thinking_tools', 'file_tools'],
-    defaultDisallowedCategories: ['execution_tools', 'browser_tools', 'web_tools'],
+    description: 'Strategic planning, task breakdown, and project coordination with execution capabilities',
+    defaultCapabilities: ['project_planning', 'task_management', 'coordination', 'strategic_execution'],
+    defaultAllowedCategories: ['core_tools', 'execution_tools', 'communication_tools', 'knowledge_graph_tools', 'orchestration_tools', 'analysis_tools', 'thinking_tools', 'file_tools'],
+    defaultDisallowedCategories: ['browser_tools', 'web_tools'],
     autoCreateRoom: true,
     roomNamingPattern: 'planner_{timestamp}'
   },
@@ -263,6 +265,23 @@ export const AGENT_TYPE_DEFINITIONS: AgentTypeDefinitions = {
     defaultDisallowedCategories: ['agent_tools', 'orchestration_tools', 'browser_tools'],
     autoCreateRoom: true,
     roomNamingPattern: 'data_{timestamp}'
+  },
+  // Three-agent collaboration specialized types
+  implementer_agent: {
+    description: 'Specialized implementer focused on coding, building, and execution',
+    defaultCapabilities: ['implementation', 'coding', 'building', 'execution'],
+    defaultAllowedCategories: ['core_tools', 'execution_tools', 'communication_tools', 'knowledge_graph_tools', 'file_tools', 'analysis_tools'],
+    defaultDisallowedCategories: ['agent_tools', 'orchestration_tools', 'browser_tools', 'web_tools'],
+    autoCreateRoom: true,
+    roomNamingPattern: 'implementer_{timestamp}'
+  },
+  tester_agent: {
+    description: 'Specialized tester focused on verification, validation, and quality assurance',
+    defaultCapabilities: ['testing', 'verification', 'validation', 'quality_assurance'],
+    defaultAllowedCategories: ['core_tools', 'execution_tools', 'communication_tools', 'knowledge_graph_tools', 'file_tools', 'browser_tools', 'analysis_tools'],
+    defaultDisallowedCategories: ['agent_tools', 'orchestration_tools', 'web_tools'],
+    autoCreateRoom: true,
+    roomNamingPattern: 'tester_{timestamp}'
   },
   general_agent: {
     description: 'General purpose agent with balanced capabilities',

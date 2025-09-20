@@ -812,6 +812,58 @@ CRITICAL: You are an autonomous architect with advanced sequential thinking capa
     await this.agentRepo.updateHeartbeat(agentId);
   }
 
+  // Workload tracking methods for fair share communication
+
+  /**
+   * Update agent work state for communication priority
+   */
+  updateAgentWorkState(agentId: string, state: 'idle' | 'active' | 'blocked' | 'critical' | 'completing'): void {
+    this.communicationService.updateAgentWorkState(agentId, state);
+  }
+
+  /**
+   * Set agent phase role for priority calculation
+   */
+  setAgentPhaseRole(agentId: string, role: 'leader' | 'participant' | 'observer'): void {
+    this.communicationService.setPhaseRole(agentId, role);
+  }
+
+  /**
+   * Report task completion for progress velocity calculation
+   */
+  async reportTaskProgress(agentId: string, action: 'completed' | 'failed'): Promise<void> {
+    // Emit task progress event for fair share scheduler
+    await eventBus.emit(action === 'completed' ? 'task_completed' : 'task_failed', {
+      agentId,
+      timestamp: new Date(),
+      action
+    });
+  }
+
+  /**
+   * Report agent blocker for priority boost
+   */
+  async reportAgentBlocker(agentId: string, blocker: string): Promise<void> {
+    // Update work state to blocked
+    this.updateAgentWorkState(agentId, 'blocked');
+
+    // Emit error event for scheduler
+    await eventBus.emit('agent_error', {
+      agentId,
+      error: blocker,
+      timestamp: new Date(),
+      errorType: 'blocker'
+    });
+  }
+
+  /**
+   * Clear agent blocker and resume normal work
+   */
+  async clearAgentBlocker(agentId: string): Promise<void> {
+    // Update work state back to active
+    this.updateAgentWorkState(agentId, 'active');
+  }
+
   async terminateAgent(agentId: string): Promise<void> {
     this.logger.info(`Terminating agent ${agentId}`);
     
