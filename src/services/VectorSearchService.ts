@@ -7,6 +7,7 @@
 import { LanceDBService, type VectorDocument, type VectorSearchResult, type Collection } from './LanceDBService.js';
 import { Logger } from '../utils/logger.js';
 import type { DatabaseManager } from '../database/index.js';
+import { EmbeddingClient } from './EmbeddingClient.js';
 
 export interface VectorSearchConfig {
   dataPath?: string;
@@ -59,6 +60,7 @@ export class VectorSearchService {
   private lanceDB: LanceDBService;
   private logger: Logger;
   private config: VectorSearchConfig;
+  private embeddingClient: EmbeddingClient;
 
   // Expose LanceDB service for advanced operations
   get lanceDBService(): LanceDBService {
@@ -70,30 +72,85 @@ export class VectorSearchService {
     config: VectorSearchConfig = {}
   ) {
     this.logger = new Logger('vector-search');
+    this.embeddingClient = new EmbeddingClient();
+
     this.config = {
-      embeddingModel: 'Xenova/all-MiniLM-L6-v2',
+      // Dynamic embedding model selection - will be determined at runtime
+      embeddingModel: 'dynamic',
       chunkSize: 512,
       chunkOverlap: 50,
       temperature: 0.1,
       ...config
     };
 
-    // Initialize LanceDB service
+    // Initialize LanceDB service with dynamic model determination
     this.lanceDB = new LanceDBService(this.db, {
       embeddingModel: this.config.embeddingModel,
       dataPath: this.config.dataPath
     });
-    
-    this.logger.info('VectorSearchService initialized with LanceDB', {
-      embeddingModel: this.config.embeddingModel
-    });
+
+    this.logger.info('VectorSearchService initialized with GPU-aware embedding client');
+  }
+
+  /**
+   * Check if GPU service is available
+   */
+  async checkGPUService(): Promise<boolean> {
+    try {
+      const response = await fetch('http://localhost:8765/health', {
+        signal: AbortSignal.timeout(2000)
+      });
+      return response.ok;
+    } catch {
+      this.logger.warn('GPU embedding service unavailable, using local embeddings');
+      return false;
+    }
+  }
+
+  /**
+   * Get current active embedding model info
+   */
+  async getActiveEmbeddingModel(): Promise<string> {
+    const gpuAvailable = await this.checkGPUService();
+    if (gpuAvailable) {
+      const modelInfo = this.embeddingClient.getActiveModelInfo();
+      this.logger.info(`Using GPU embedding model: ${modelInfo.name} (${modelInfo.dimensions}D)`);
+      return modelInfo.api_model_name;
+    } else {
+      this.logger.info('Using local MiniLM-L6-v2 embeddings (384D)');
+      return 'Xenova/all-MiniLM-L6-v2';
+    }
   }
 
   /**
    * Initialize the service
    */
   async initialize(): Promise<{ success: boolean; error?: string }> {
-    return await this.lanceDB.initialize();
+    try {
+      // Update config with determined model
+      const activeModel = await this.getActiveEmbeddingModel();
+      this.config.embeddingModel = activeModel;
+
+      // Re-initialize LanceDB with actual model
+      this.lanceDB = new LanceDBService(this.db, {
+        embeddingModel: this.config.embeddingModel,
+        dataPath: this.config.dataPath
+      });
+
+      const result = await this.lanceDB.initialize();
+
+      if (result.success) {
+        this.logger.info('VectorSearchService initialized successfully', {
+          embeddingModel: this.config.embeddingModel,
+          gpuAccelerated: this.config.embeddingModel !== 'Xenova/all-MiniLM-L6-v2'
+        });
+      }
+
+      return result;
+    } catch (error) {
+      this.logger.error('Failed to initialize VectorSearchService', { error });
+      return { success: false, error: error.message };
+    }
   }
 
   /**

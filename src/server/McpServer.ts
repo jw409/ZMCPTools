@@ -86,6 +86,9 @@ import {
   SearchKnowledgeGraphSchema,
   FindRelatedEntitiesSchema,
 } from "../tools/knowledgeGraphTools.js";
+import { gpuKnowledgeTools } from "../tools/knowledgeGraphGPUTools.js";
+import { hybridSearchTools } from "../tools/hybridSearchTools.js";
+import { unifiedSearchTools } from "../tools/unifiedSearchTool.js";
 import type { McpTool, McpProgressContext } from "../schemas/tools/index.js";
 
 export interface McpServerOptions {
@@ -601,8 +604,14 @@ export class McpToolsServer {
       ...this.webScrapingMcpTools.getTools(),
       // Analysis and file operation tools
       ...this.analysisMcpTools.getTools(),
-      // Knowledge graph tools
+      // Knowledge graph tools (original)
       ...this.knowledgeGraphMcpTools.getTools(),
+      // GPU-accelerated knowledge graph tools (NEW)
+      ...gpuKnowledgeTools,
+      // Hybrid search tools (BM25 + GPU embeddings)
+      ...hybridSearchTools,
+      // Unified search tools (configurable BM25 + Qwen3 + Reranker)
+      ...unifiedSearchTools,
       // TreeSummary tools
       ...this.treeSummaryTools.getTools(),
       // Communication tools

@@ -11,6 +11,7 @@ import { homedir } from 'os';
 import { Logger } from '../utils/logger.js';
 import type { DatabaseManager } from '../database/index.js';
 import { pipeline, env } from '@xenova/transformers';
+import { StoragePathResolver, type StorageScope } from './StoragePathResolver.js';
 
 export interface LanceDBConfig {
   dataPath?: string;
@@ -18,6 +19,11 @@ export interface LanceDBConfig {
   embeddingModel?: string;
   apiKey?: string;
   vectorDimension?: number;
+
+  // Dom0/DomU isolation options
+  storageScope?: StorageScope;
+  projectPath?: string;
+  preferLocal?: boolean;
 }
 
 export interface VectorDocument {
@@ -240,8 +246,8 @@ export class LanceDBService {
       ...config
     };
 
-    // Set up data directory
-    this.dataPath = config.dataPath || join(homedir(), '.mcptools', 'lancedb');
+    // Set up data directory using StoragePathResolver for Dom0/DomU isolation
+    this.dataPath = this.resolveLanceDBPath(config);
     this.ensureDataDirectory();
 
     // Initialize HuggingFace embedding function
@@ -257,6 +263,38 @@ export class LanceDBService {
       embeddingModel: this.config.embeddingModel,
       vectorDimension: this.config.vectorDimension
     });
+  }
+
+  /**
+   * Resolve LanceDB storage path using StoragePathResolver
+   * Supports Dom0/DomU isolation while maintaining backward compatibility
+   */
+  private resolveLanceDBPath(config: LanceDBConfig): string {
+    // If explicit dataPath provided, use it (backward compatibility)
+    if (config.dataPath) {
+      return config.dataPath;
+    }
+
+    // Use StoragePathResolver for Dom0/DomU isolation
+    const storageConfig = StoragePathResolver.getStorageConfig({
+      preferLocal: config.preferLocal,
+      projectPath: config.projectPath,
+      forceScope: config.storageScope
+    });
+
+    // Ensure storage directories exist
+    StoragePathResolver.ensureStorageDirectories(storageConfig);
+
+    // Get LanceDB path using resolver
+    const lanceDbPath = StoragePathResolver.getLanceDBPath(storageConfig);
+
+    this.logger.info('Resolved LanceDB path', {
+      scope: storageConfig.scope,
+      path: lanceDbPath,
+      projectPath: storageConfig.projectPath || 'current'
+    });
+
+    return lanceDbPath;
   }
 
   /**

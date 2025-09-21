@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { join } from 'path';
 import { homedir } from 'os';
 import { v4 as uuidv4 } from 'uuid';
+import { StoragePathResolver } from '../services/StoragePathResolver.js';
 
 // Contract and test scenario schemas
 const ContractSchema = z.object({
@@ -62,8 +63,13 @@ export class TypeScriptContractExecutor {
   private runId = uuidv4();
 
   constructor(dbPath?: string) {
-    const defaultPath = join(homedir(), '.mcptools', 'data', 'contracts.db');
-    this.db = new Database(dbPath || defaultPath);
+    if (!dbPath) {
+      // Use StoragePathResolver for Dom0/DomU isolation
+      const storageConfig = StoragePathResolver.getStorageConfig({ preferLocal: true });
+      StoragePathResolver.ensureStorageDirectories(storageConfig);
+      dbPath = StoragePathResolver.getSQLitePath(storageConfig, 'contracts');
+    }
+    this.db = new Database(dbPath);
   }
 
   /**
