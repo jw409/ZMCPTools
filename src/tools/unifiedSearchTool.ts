@@ -3,14 +3,70 @@
  * Single MCP method combining BM25, Qwen3 embeddings, and reranker with configurable pipeline
  */
 
-import { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import { KnowledgeGraphService } from '../services/KnowledgeGraphService.js';
+import { zodToJsonSchema } from 'zod-to-json-schema';
+import { RealFileIndexingService } from '../services/RealFileIndexingService.js';
 import { EmbeddingClient } from '../services/EmbeddingClient.js';
-import { BM25Service } from '../services/BM25Service.js';
 import { Logger } from '../utils/logger.js';
 
 const logger = new Logger('unified-search');
+
+/**
+ * Analyze query to suggest optimal search method configuration
+ */
+function analyzeQuery(query: string): {
+  suggestedBM25: boolean;
+  suggestedSemantic: boolean;
+  suggestedReranker: boolean;
+  reasoning: string;
+} {
+  const lowercaseQuery = query.toLowerCase();
+
+  // Check for exact code patterns
+  const hasCodeSymbols = /[A-Z][a-z]+[A-Z]|[a-z]+_[a-z]+|\.[a-z]+\(|\w+\.\w+/.test(query); // camelCase, snake_case, method calls, object.property
+  const hasFileExtensions = /\.[a-z]{1,4}\b/.test(lowercaseQuery); // .js, .py, .tsx, etc.
+  const hasImportStatements = /import|from\s+|require\(/.test(lowercaseQuery);
+  const hasCodeKeywords = /function|class|interface|async|await|return|export|const|let|var/.test(lowercaseQuery);
+  const hasSpecialChars = /[{}()\[\]<>=!&|]/.test(query);
+
+  // Check for conceptual queries
+  const hasQuestionWords = /how|what|why|when|where|which/.test(lowercaseQuery);
+  const hasConceptualTerms = /logic|strategy|pattern|approach|implement|handle|manage|process/.test(lowercaseQuery);
+  const hasNaturalLanguage = query.split(' ').length > 3 && !hasCodeSymbols;
+
+  // Check for high-precision indicators
+  const isComplexQuery = query.split(' ').length > 5;
+  const hasMultipleConcepts = (query.match(/\b(and|or|with|using|for)\b/gi) || []).length > 1;
+
+  // Decision logic
+  const shouldUseBM25 = hasCodeSymbols || hasFileExtensions || hasImportStatements || hasCodeKeywords || hasSpecialChars;
+  const shouldUseSemantic = hasQuestionWords || hasConceptualTerms || hasNaturalLanguage || (!shouldUseBM25 && query.split(' ').length > 1);
+  const shouldUseReranker = isComplexQuery || hasMultipleConcepts;
+
+  // Generate reasoning
+  let reasoning = "Auto-routing: ";
+  if (shouldUseBM25 && shouldUseSemantic) {
+    reasoning += "Hybrid search recommended - query contains both exact terms and concepts";
+  } else if (shouldUseBM25) {
+    reasoning += "BM25 search recommended - query contains code symbols, keywords, or file patterns";
+  } else if (shouldUseSemantic) {
+    reasoning += "Semantic search recommended - query is conceptual or natural language";
+  } else {
+    reasoning += "Hybrid search as fallback - query type unclear";
+  }
+
+  if (shouldUseReranker) {
+    reasoning += " + reranker for complex multi-concept query";
+  }
+
+  return {
+    suggestedBM25: shouldUseBM25 || (!shouldUseBM25 && !shouldUseSemantic), // fallback to BM25 if nothing detected
+    suggestedSemantic: shouldUseSemantic || (!shouldUseBM25 && !shouldUseSemantic), // fallback to semantic if nothing detected
+    suggestedReranker: shouldUseReranker,
+    reasoning
+  };
+}
 
 // Unified search parameter schema
 const UnifiedSearchSchema = z.object({
@@ -44,44 +100,48 @@ const UnifiedSearchSchema = z.object({
  */
 export const searchKnowledgeGraphUnified: Tool = {
   name: 'search_knowledge_graph_unified',
-  description: `**Unified search pipeline combining three proven technologies with measurable impact:**
+  description: `**Smart file search across codebases with automatic indexing and configurable search methods.**
 
-🎯 **Core Capabilities:**
-- **BM25 Sparse Search**: Exact keyword matching, technical terms, acronyms (set use_bm25=true)
-- **Qwen3-0.6B GPU Embeddings**: 1024D semantic understanding, 16x faster than CPU (set use_qwen3_embeddings=true)
-- **Neural Reranker**: 99.2% relevance accuracy for final precision (set use_reranker=true)
+🎯 **When to Use BM25 Search (use_bm25=true):**
+- Finding exact function/variable names: "getUserById", "handleSubmit", "DatabaseConnection"
+- Searching for specific error messages or log strings: "Connection timeout"
+- Locating import statements: "import React from", "from django.db"
+- Finding technical acronyms or abbreviations: "JWT", "API", "SQL", "HTTP"
+- Searching for exact file names or paths: "config.json", "src/components/"
+- Looking for specific code patterns: "async function", "class extends"
 
-🔬 **Measurable Pipeline Modes:**
-1. **Pure BM25**: \`{use_bm25: true, use_qwen3_embeddings: false, use_reranker: false}\`
-2. **Pure Semantic**: \`{use_bm25: false, use_qwen3_embeddings: true, use_reranker: false}\`
-3. **Pure Reranker**: \`{use_bm25: false, use_qwen3_embeddings: true, use_reranker: true}\` (needs embeddings)
-4. **Hybrid BM25+Semantic**: \`{use_bm25: true, use_qwen3_embeddings: true, use_reranker: false}\`
-5. **Full Pipeline**: \`{use_bm25: true, use_qwen3_embeddings: true, use_reranker: true}\` ⭐ **Best Quality**
+🧠 **When to Use Semantic Search (use_qwen3_embeddings=true):**
+- Understanding concepts: "user authentication logic", "password validation flow"
+- Finding similar implementations: "code that handles file uploads"
+- Searching by functionality: "functions that process user input"
+- Exploring documentation: "how to configure database connections"
+- Finding patterns: "error handling strategies", "validation approaches"
+- Conceptual queries: "security middleware", "data transformation logic"
 
-⚡ **Performance Stats:**
-- BM25: ~50ms for keyword matching
-- Qwen3 GPU: ~200ms for 1024D embeddings
-- Reranker: ~100ms for top-50 candidates
-- Full pipeline: ~350ms total with proven 99.2% accuracy
+⚖️ **When to Use Hybrid Mode (both=true):**
+- General code exploration when you're not sure about exact terms
+- Finding all code related to a feature: "user profile management"
+- Comprehensive searches: "authentication AND login AND security"
+- When bridging exact matches with related concepts
 
-🎛️ **Tuning Parameters:**
-- \`bm25_weight/semantic_weight\`: Control fusion balance (sum should ≈ 1.0)
-- \`candidate_limit\`: Stage 1 retrieval size (more = better recall, slower)
-- \`final_limit\`: Stage 2 output size
-- \`use_reranker\`: Two-stage retrieval for maximum precision
+🎯 **When to Enable Reranker (use_reranker=true):**
+- Critical searches where precision matters most
+- When you have many candidates and need the best matches
+- Final verification before making important code changes
+- Research tasks requiring highest quality results
 
-📊 **When to Use Each Mode:**
-- **Technical docs/code**: Enable BM25 for exact matches
-- **Conceptual queries**: Enable semantic embeddings
-- **Critical searches**: Enable reranker for best quality
-- **Research/analysis**: Full pipeline for comprehensive results
-- **Benchmarking**: Single flags to measure individual component impact
+📝 **Smart Defaults - Let the Tool Choose:**
+- \`{use_bm25: true, use_qwen3_embeddings: true}\` - Balanced hybrid search (recommended)
+- \`{use_bm25: true, use_qwen3_embeddings: false}\` - Fast exact matching
+- \`{use_bm25: false, use_qwen3_embeddings: true}\` - Conceptual understanding
+- \`{use_reranker: true}\` - Add this for maximum precision (requires semantic search)
 
-🧪 **MTEB Benchmark Ready**: Designed for systematic evaluation against standard datasets.
+🚀 **Automatic Repository Indexing:**
+Automatically indexes all code files in the repository for fast search. Supports TypeScript, JavaScript, Python, Java, C++, Rust, PHP, HTML, CSS, and more.
 
-Returns detailed metrics showing each component's contribution to prove synergistic effects.`,
+Returns real file paths, content snippets, and extracted code symbols (functions, classes, etc.).`,
 
-  inputSchema: UnifiedSearchSchema,
+  inputSchema: zodToJsonSchema(UnifiedSearchSchema),
 
   async handler({
     repository_path,
@@ -113,12 +173,21 @@ Returns detailed metrics showing each component's contribution to prove synergis
     };
 
     try {
+      // Analyze query for smart routing suggestions
+      const queryAnalysis = analyzeQuery(query);
+
       // Validate configuration
       if (!use_bm25 && !use_qwen3_embeddings) {
         return {
           success: false,
           error: "Must enable at least one search method (BM25 or embeddings)",
-          suggestion: "Set use_bm25=true or use_qwen3_embeddings=true"
+          suggestion: "Set use_bm25=true or use_qwen3_embeddings=true",
+          auto_routing_suggestion: {
+            use_bm25: queryAnalysis.suggestedBM25,
+            use_qwen3_embeddings: queryAnalysis.suggestedSemantic,
+            use_reranker: queryAnalysis.suggestedReranker,
+            reasoning: queryAnalysis.reasoning
+          }
         };
       }
 
@@ -131,9 +200,12 @@ Returns detailed metrics showing each component's contribution to prove synergis
       }
 
       // Initialize services
-      const knowledgeGraph = new KnowledgeGraphService(repository_path);
+      const fileIndexingService = new RealFileIndexingService();
       const embeddingClient = new EmbeddingClient();
-      const bm25Service = new BM25Service();
+
+      // Index repository first (with caching to avoid re-indexing)
+      logger.info('Indexing repository files for search');
+      const indexingStats = await fileIndexingService.indexRepository(repository_path);
 
       // Check GPU availability
       const gpuAvailable = await embeddingClient.checkGPUService();
@@ -147,6 +219,12 @@ Returns detailed metrics showing each component's contribution to prove synergis
 
       metrics.gpu_available = gpuAvailable;
       metrics.model_used = gpuAvailable ? modelInfo.name : 'MiniLM-L6-v2';
+      metrics.indexing_stats = {
+        total_files: indexingStats.totalFiles,
+        indexed_files: indexingStats.indexedFiles,
+        languages: indexingStats.languages,
+        indexing_time_ms: indexingStats.indexingTimeMs
+      };
 
       // STAGE 1: Candidate Retrieval
       let allCandidates: any[] = [];
@@ -157,41 +235,21 @@ Returns detailed metrics showing each component's contribution to prove synergis
       if (use_bm25) {
         const bm25Start = Date.now();
 
-        // Get entities for BM25 indexing
-        const entities = await knowledgeGraph.searchEntities(query, {
-          limit: candidate_limit * 2,
-          threshold: 0.1,
-          entity_types,
-          include_relationships: false
-        });
+        // Search files using BM25
+        const bm25SearchResults = await fileIndexingService.searchKeyword(query, candidate_limit);
 
-        if (entities.entities && entities.entities.length > 0) {
-          // Index entities for BM25
-          const indexPromises = entities.entities.map(entity =>
-            bm25Service.indexDocument({
-              id: entity.id,
-              text: entity.description || entity.entity_name || '',
-              metadata: {
-                entity_type: entity.entity_type,
-                entity_name: entity.entity_name,
-                ...entity.properties
-              }
-            })
-          );
-          await Promise.all(indexPromises);
-
-          // Search with BM25
-          const bm25SearchResult = await bm25Service.search(query, {
-            limit: candidate_limit,
-            min_score: min_score_threshold
-          });
-
-          bm25Results = bm25SearchResult.documents.map(doc => ({
-            ...entities.entities?.find(e => e.id === doc.id),
-            bm25_score: doc.score,
-            search_method: 'bm25'
-          }));
-        }
+        bm25Results = bm25SearchResults.map(result => ({
+          id: result.filePath,
+          entity_name: result.filePath.split('/').pop() || result.filePath,
+          entity_type: 'file',
+          description: `File: ${result.filePath}`,
+          file_path: result.filePath,
+          content: result.content,
+          relevant_symbols: result.relevantSymbols,
+          bm25_score: result.score,
+          search_method: 'bm25',
+          match_type: result.matchType
+        }));
 
         metrics.stage_timings.bm25_ms = Date.now() - bm25Start;
         metrics.component_scores.bm25_results = bm25Results.length;
@@ -201,17 +259,20 @@ Returns detailed metrics showing each component's contribution to prove synergis
       if (use_qwen3_embeddings) {
         const semanticStart = Date.now();
 
-        const semanticSearchResult = await knowledgeGraph.searchEntities(query, {
-          limit: candidate_limit,
-          threshold: min_score_threshold,
-          entity_types,
-          include_relationships: false
-        });
+        // Search files using semantic similarity
+        const semanticSearchResults = await fileIndexingService.searchSemantic(query, candidate_limit);
 
-        semanticResults = (semanticSearchResult.entities || []).map(entity => ({
-          ...entity,
-          semantic_score: entity.confidence_score || 0,
-          search_method: 'semantic'
+        semanticResults = semanticSearchResults.map(result => ({
+          id: result.filePath,
+          entity_name: result.filePath.split('/').pop() || result.filePath,
+          entity_type: 'file',
+          description: `File: ${result.filePath}`,
+          file_path: result.filePath,
+          content: result.content,
+          relevant_symbols: result.relevantSymbols,
+          semantic_score: result.score,
+          search_method: 'semantic',
+          match_type: result.matchType
         }));
 
         metrics.stage_timings.semantic_ms = Date.now() - semanticStart;
@@ -334,6 +395,13 @@ Returns detailed metrics showing each component's contribution to prove synergis
             bm25: use_bm25,
             semantic: use_qwen3_embeddings,
             reranker: use_reranker
+          },
+          auto_routing_analysis: {
+            suggested_bm25: queryAnalysis.suggestedBM25,
+            suggested_semantic: queryAnalysis.suggestedSemantic,
+            suggested_reranker: queryAnalysis.suggestedReranker,
+            reasoning: queryAnalysis.reasoning,
+            user_overrode: use_bm25 !== queryAnalysis.suggestedBM25 || use_qwen3_embeddings !== queryAnalysis.suggestedSemantic
           },
           gpu_accelerated: gpuAvailable,
           model_used: metrics.model_used,
