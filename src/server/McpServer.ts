@@ -90,6 +90,7 @@ import { gpuKnowledgeTools } from "../tools/knowledgeGraphGPUTools.js";
 import { hybridSearchTools } from "../tools/hybridSearchTools.js";
 import { unifiedSearchTools } from "../tools/unifiedSearchTool.js";
 import { codeAcquisitionTools } from "../tools/codeAcquisitionTool.js";
+import { collaborativeOrchestrationTools } from "../tools/collaborativeOrchestrationTool.js";
 import type { McpTool, McpProgressContext } from "../schemas/tools/index.js";
 
 export interface McpServerOptions {
@@ -615,6 +616,8 @@ export class McpToolsServer {
       ...unifiedSearchTools,
       // Code acquisition tools (clone and auto-index repositories)
       ...codeAcquisitionTools,
+      // Collaborative orchestration tools (three-agent teams)
+      ...collaborativeOrchestrationTools,
       // TreeSummary tools
       ...this.treeSummaryTools.getTools(),
       // Communication tools

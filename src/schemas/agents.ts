@@ -235,12 +235,24 @@ export const AGENT_TYPE_DEFINITIONS: AgentTypeDefinitions = {
     roomNamingPattern: 'bugfix_{timestamp}'
   },
   planner_agent: {
-    description: 'Strategic planning, task breakdown, and project coordination with execution capabilities',
-    defaultCapabilities: ['project_planning', 'task_management', 'coordination', 'strategic_execution'],
-    defaultAllowedCategories: ['core_tools', 'execution_tools', 'communication_tools', 'knowledge_graph_tools', 'orchestration_tools', 'analysis_tools', 'thinking_tools', 'file_tools'],
-    defaultDisallowedCategories: ['browser_tools', 'web_tools'],
+    description: 'Strategic planner and boss agent that coordinates collaborative teams and manages objectives',
+    defaultCapabilities: ['strategic_planning', 'team_coordination', 'objective_management', 'decision_making', 'knowledge_synthesis'],
+    // ENHANCED: Generous permissions for coordination but no direct execution
+    defaultAllowedCategories: [
+      'core_tools',           // Read, Write, Edit, MultiEdit, LS, Glob, Grep
+      'communication_tools',  // Room coordination - CRITICAL for team leadership
+      'knowledge_graph_tools', // Search and memory - CRITICAL for decision making
+      'orchestration_tools',  // orchestrate_objective, create_task - CRITICAL for planning
+      'analysis_tools',       // Project analysis for planning
+      'thinking_tools',       // Sequential thinking for complex planning
+      'file_tools',           // File operations for understanding project structure
+      'cache_tools'           // Foundation caching for efficiency
+    ],
+    // STRATEGIC: Planners coordinate but don't execute directly
+    defaultDisallowedCategories: ['execution_tools', 'browser_tools', 'web_tools'],
     autoCreateRoom: true,
-    roomNamingPattern: 'planner_{timestamp}'
+    roomNamingPattern: 'collab-planner_{timestamp}',
+    maxConcurrentAgents: 3  // Allow multiple planning sessions
   },
   security_agent: {
     description: 'Security analysis, vulnerability assessment, and security implementation',
@@ -266,22 +278,45 @@ export const AGENT_TYPE_DEFINITIONS: AgentTypeDefinitions = {
     autoCreateRoom: true,
     roomNamingPattern: 'data_{timestamp}'
   },
-  // Three-agent collaboration specialized types
+  // Three-agent collaboration specialized types - ENHANCED PERMISSIONS
   implementer_agent: {
-    description: 'Specialized implementer focused on coding, building, and execution',
-    defaultCapabilities: ['implementation', 'coding', 'building', 'execution'],
-    defaultAllowedCategories: ['core_tools', 'execution_tools', 'communication_tools', 'knowledge_graph_tools', 'file_tools', 'analysis_tools'],
-    defaultDisallowedCategories: ['agent_tools', 'orchestration_tools', 'browser_tools', 'web_tools'],
+    description: 'Enhanced implementer with generous execution permissions for productive collaboration',
+    defaultCapabilities: ['implementation', 'coding', 'building', 'execution', 'file_operations', 'testing'],
+    // EXPANDED: More generous permissions to fix permission starvation
+    defaultAllowedCategories: [
+      'core_tools',           // Read, Write, Edit, MultiEdit, LS, Glob, Grep
+      'execution_tools',      // Bash - CRITICAL
+      'communication_tools',  // Room coordination
+      'knowledge_graph_tools', // Search and memory
+      'file_tools',           // File operations
+      'analysis_tools',       // Project analysis
+      'cache_tools'           // Foundation caching for efficiency
+    ],
+    // REDUCED: Only block agent spawning and orchestration
+    defaultDisallowedCategories: ['agent_tools', 'orchestration_tools'],
     autoCreateRoom: true,
-    roomNamingPattern: 'implementer_{timestamp}'
+    roomNamingPattern: 'collab-implementer_{timestamp}',
+    maxConcurrentAgents: 5
   },
   tester_agent: {
-    description: 'Specialized tester focused on verification, validation, and quality assurance',
-    defaultCapabilities: ['testing', 'verification', 'validation', 'quality_assurance'],
-    defaultAllowedCategories: ['core_tools', 'execution_tools', 'communication_tools', 'knowledge_graph_tools', 'file_tools', 'browser_tools', 'analysis_tools'],
+    description: 'Enhanced tester with browser automation and testing capabilities',
+    defaultCapabilities: ['testing', 'verification', 'validation', 'quality_assurance', 'browser_automation', 'test_execution'],
+    // EXPANDED: More generous permissions including browser tools
+    defaultAllowedCategories: [
+      'core_tools',           // Read, Write, Edit, MultiEdit, LS, Glob, Grep
+      'execution_tools',      // Bash - CRITICAL for test execution
+      'communication_tools',  // Room coordination
+      'knowledge_graph_tools', // Search and memory
+      'file_tools',           // File operations for test setup
+      'analysis_tools',       // Project analysis for test planning
+      'browser_tools',        // E2E testing automation
+      'cache_tools'           // Foundation caching
+    ],
+    // REDUCED: Only block agent spawning, orchestration, and web scraping
     defaultDisallowedCategories: ['agent_tools', 'orchestration_tools', 'web_tools'],
     autoCreateRoom: true,
-    roomNamingPattern: 'tester_{timestamp}'
+    roomNamingPattern: 'collab-tester_{timestamp}',
+    maxConcurrentAgents: 3
   },
   general_agent: {
     description: 'General purpose agent with balanced capabilities',
@@ -298,7 +333,18 @@ export const TOOL_CATEGORY_MAPPINGS: Record<ToolCategory, string[]> = {
   core_tools: ['Read', 'Write', 'Edit', 'MultiEdit', 'LS', 'Glob', 'Grep'],
   execution_tools: ['Bash', 'Task'],
   communication_tools: ['mcp__zmcp-tools__join_room', 'mcp__zmcp-tools__send_message', 'mcp__zmcp-tools__wait_for_messages'],
-  knowledge_graph_tools: ['mcp__zmcp-tools__store_knowledge_memory', 'mcp__zmcp-tools__search_knowledge_graph'],
+  knowledge_graph_tools: [
+    'mcp__zmcp-tools__store_knowledge_memory',
+    'mcp__zmcp-tools__search_knowledge_graph',
+    'mcp__zmcp-tools__find_related_entities',
+    'mcp__zmcp-tools__create_knowledge_relationship',
+    'mcp__zmcp-tools__get_memory_status',
+    // NEW: Unified search and code acquisition tools
+    'search_knowledge_graph_unified',
+    'acquire_repository',
+    'list_acquisitions',
+    'remove_acquisition'
+  ],
   agent_tools: ['mcp__zmcp-tools__spawn_agent', 'mcp__zmcp-tools__list_agents', 'mcp__zmcp-tools__terminate_agent'],
   orchestration_tools: ['mcp__zmcp-tools__orchestrate_objective', 'mcp__zmcp-tools__create_task'],
   file_tools: ['mcp__zmcp-tools__list_files', 'mcp__zmcp-tools__find_files', 'mcp__zmcp-tools__easy_replace'],

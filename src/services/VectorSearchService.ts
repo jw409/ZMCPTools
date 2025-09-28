@@ -75,21 +75,21 @@ export class VectorSearchService {
     this.embeddingClient = new EmbeddingClient();
 
     this.config = {
-      // Dynamic embedding model selection - will be determined at runtime
-      embeddingModel: 'dynamic',
+      // TalentOS embedding model selection - will use Qwen3 0.6B when available
+      embeddingModel: 'qwen3',
       chunkSize: 512,
       chunkOverlap: 50,
       temperature: 0.1,
       ...config
     };
 
-    // Initialize LanceDB service with dynamic model determination
+    // Initialize LanceDB service with TalentOS integration
     this.lanceDB = new LanceDBService(this.db, {
       embeddingModel: this.config.embeddingModel,
       dataPath: this.config.dataPath
     });
 
-    this.logger.info('VectorSearchService initialized with GPU-aware embedding client');
+    this.logger.info('VectorSearchService initialized with TalentOS GPU-aware embedding client');
   }
 
   /**
@@ -111,14 +111,15 @@ export class VectorSearchService {
    * Get current active embedding model info
    */
   async getActiveEmbeddingModel(): Promise<string> {
+    // Check if TalentOS GPU service is available first
     const gpuAvailable = await this.checkGPUService();
+
     if (gpuAvailable) {
-      const modelInfo = this.embeddingClient.getActiveModelInfo();
-      this.logger.info(`Using GPU embedding model: ${modelInfo.name} (${modelInfo.dimensions}D)`);
-      return modelInfo.api_model_name;
+      this.logger.info('Using TalentOS Qwen3 0.6B for LanceDB vector store (1024D)');
+      return 'qwen3'; // Will trigger TalentOS embedding function
     } else {
-      this.logger.info('Using local MiniLM-L6-v2 embeddings (384D)');
-      return 'Xenova/all-MiniLM-L6-v2';
+      this.logger.info('TalentOS unavailable, using Xenova/all-MiniLM-L6-v2 for LanceDB vector store (384D)');
+      return 'Xenova/all-MiniLM-L6-v2'; // Fallback to HuggingFace
     }
   }
 
