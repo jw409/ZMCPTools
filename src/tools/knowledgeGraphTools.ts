@@ -244,6 +244,38 @@ export class KnowledgeGraphMcpTools {
     const params = MemoryStatusSchema.parse(mappedArgs);
     return await getMemoryStatus(this.db, params);
   }
+
+  private async updateKnowledgeEntity(args: any): Promise<UpdateKnowledgeEntityResponse> {
+    const mappedArgs: UpdateKnowledgeEntityInput = {
+      repository_path: args.repository_path || args.repositoryPath,
+      entity_id: args.entity_id || args.entityId,
+      updates: args.updates,
+      re_embed: args.re_embed !== undefined ? args.re_embed : args.reEmbed
+    };
+    const params = UpdateKnowledgeEntitySchema.parse(mappedArgs);
+    return await updateKnowledgeEntity(this.db, params);
+  }
+
+  private async exportKnowledgeGraph(args: any): Promise<ExportKnowledgeGraphResponse> {
+    const mappedArgs: ExportKnowledgeGraphInput = {
+      repository_path: args.repository_path || args.repositoryPath,
+      output_format: args.output_format || args.outputFormat,
+      include_embeddings: args.include_embeddings !== undefined ? args.include_embeddings : args.includeEmbeddings,
+      output_file: args.output_file || args.outputFile
+    };
+    const params = ExportKnowledgeGraphSchema.parse(mappedArgs);
+    return await exportKnowledgeGraph(this.db, params);
+  }
+
+  private async wipeKnowledgeGraph(args: any): Promise<WipeKnowledgeGraphResponse> {
+    const mappedArgs: WipeKnowledgeGraphInput = {
+      repository_path: args.repository_path || args.repositoryPath,
+      confirm: args.confirm,
+      backup_first: args.backup_first !== undefined ? args.backup_first : args.backupFirst
+    };
+    const params = WipeKnowledgeGraphSchema.parse(mappedArgs);
+    return await wipeKnowledgeGraph(this.db, params);
+  }
 }
 
 // Re-export schemas for MCP server registration
@@ -785,226 +817,218 @@ export async function getMemoryStatus(
   }
 }
 
-  private async updateKnowledgeEntity(args: any): Promise<UpdateKnowledgeEntityResponse> {
-    const params = UpdateKnowledgeEntitySchema.parse(args);
 
-    try {
-      const kgService = this.db.getKnowledgeGraphService(params.repository_path);
+/**
+ * Update knowledge entity metadata or content with optional re-embedding
+ */
+export async function updateKnowledgeEntity(
+  db: DatabaseManager,
+  args: UpdateKnowledgeEntityInput
+): Promise<UpdateKnowledgeEntityResponse> {
+  try {
+    const vectorService = new VectorSearchService(db);
+    await vectorService.initialize();
+    const kgService = new KnowledgeGraphService(db, vectorService);
+    const existingEntity = await kgService.getEntity(args.entity_id);
+    if (!existingEntity) {
+      throw new Error(`Entity not found: ${args.entity_id}`);
+    }
 
-      // Get existing entity
-      const existingEntity = await kgService.getEntity(params.entity_id);
-      if (!existingEntity) {
-        throw new Error(`Entity not found: ${params.entity_id}`);
-      }
+    const fieldsUpdated: string[] = [];
+    const updates: any = {};
 
-      // Track which fields are being updated
-      const fieldsUpdated: string[] = [];
-      const updates: any = {};
+    if (args.updates.entity_name !== undefined) {
+      updates.name = args.updates.entity_name;
+      fieldsUpdated.push('entity_name');
+    }
+    if (args.updates.entity_description !== undefined) {
+      updates.description = args.updates.entity_description;
+      fieldsUpdated.push('entity_description');
+    }
+    if (args.updates.entity_type !== undefined) {
+      updates.type = args.updates.entity_type;
+      fieldsUpdated.push('entity_type');
+    }
+    if (args.updates.importance_score !== undefined) {
+      updates.importanceScore = args.updates.importance_score;
+      fieldsUpdated.push('importance_score');
+    }
+    if (args.updates.confidence_score !== undefined) {
+      updates.confidenceScore = args.updates.confidence_score;
+      fieldsUpdated.push('confidence_score');
+    }
+    if (args.updates.properties !== undefined) {
+      updates.properties = { ...existingEntity.properties, ...args.updates.properties };
+      fieldsUpdated.push('properties');
+    }
 
-      if (params.updates.entity_name !== undefined) {
-        updates.name = params.updates.entity_name;
-        fieldsUpdated.push('entity_name');
-      }
-      if (params.updates.entity_description !== undefined) {
-        updates.description = params.updates.entity_description;
-        fieldsUpdated.push('entity_description');
-      }
-      if (params.updates.entity_type !== undefined) {
-        updates.type = params.updates.entity_type;
-        fieldsUpdated.push('entity_type');
-      }
-      if (params.updates.importance_score !== undefined) {
-        updates.importanceScore = params.updates.importance_score;
-        fieldsUpdated.push('importance_score');
-      }
-      if (params.updates.confidence_score !== undefined) {
-        updates.confidenceScore = params.updates.confidence_score;
-        fieldsUpdated.push('confidence_score');
-      }
-      if (params.updates.properties !== undefined) {
-        updates.properties = { ...existingEntity.properties, ...params.updates.properties };
-        fieldsUpdated.push('properties');
-      }
+    const needsReEmbed = args.re_embed ||
+      (args.updates.entity_description !== undefined &&
+       args.updates.entity_description !== existingEntity.description);
 
-      // Determine if re-embedding is needed
-      const needsReEmbed = params.re_embed ||
-        (params.updates.entity_description !== undefined &&
-         params.updates.entity_description !== existingEntity.description);
+    await kgService.updateEntity(args.entity_id, updates);
 
-      // Update entity in database
-      await kgService.updateEntity(params.entity_id, updates);
+    let reEmbedded = false;
+    if (needsReEmbed) {
+      const embeddingText = updates.description || existingEntity.description || updates.name || existingEntity.name;
+      await vectorService.updateEntityEmbedding(args.entity_id, embeddingText);
+      reEmbedded = true;
+    }
 
-      // Re-embed if needed
-      let reEmbedded = false;
-      if (needsReEmbed) {
-        const vectorService = this.db.getVectorSearchService(params.repository_path);
-        const embeddingText = updates.description || existingEntity.description || updates.name || existingEntity.name;
-        await vectorService.updateEntityEmbedding(params.entity_id, embeddingText);
-        reEmbedded = true;
-      }
+    return {
+      success: true,
+      entity_id: args.entity_id,
+      fields_updated: fieldsUpdated,
+      re_embedded: reEmbedded,
+      message: `Entity updated successfully. ${fieldsUpdated.length} fields changed${reEmbedded ? ', re-embedded' : ''}.`
+    };
 
+  } catch (error) {
+    logger.error('Failed to update knowledge entity', error);
+    throw new Error(`Failed to update entity: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+/**
+ * Export entire knowledge graph to file or return data
+ */
+export async function exportKnowledgeGraph(
+  db: DatabaseManager,
+  args: ExportKnowledgeGraphInput
+): Promise<ExportKnowledgeGraphResponse> {
+  try {
+    const vectorService = new VectorSearchService(db);
+    await vectorService.initialize();
+    const kgService = new KnowledgeGraphService(db, vectorService);
+    const entities = await kgService.getAllEntities();
+    const relationships = await kgService.getAllRelationships();
+
+    const exportData: any = {
+      entities: entities.map(e => ({
+        id: e.id,
+        type: e.type,
+        name: e.name,
+        description: e.description,
+        importance_score: e.importanceScore,
+        confidence_score: e.confidenceScore,
+        properties: e.properties,
+        discovered_by: e.discoveredBy,
+        created_at: e.createdAt,
+        ...(args.include_embeddings && e.embedding ? { embedding: e.embedding } : {})
+      })),
+      relationships: relationships.map(r => ({
+        id: r.id,
+        from_entity_id: r.fromEntityId,
+        to_entity_id: r.toEntityId,
+        type: r.type,
+        strength: r.strength,
+        confidence: r.confidence,
+        context: r.context,
+        discovered_by: r.discoveredBy,
+        created_at: r.createdAt
+      }))
+    };
+
+    let formattedData: string;
+    if (args.output_format === 'jsonl') {
+      const lines = exportData.entities.map((e: any) => JSON.stringify({ type: 'entity', ...e }))
+        .concat(exportData.relationships.map((r: any) => JSON.stringify({ type: 'relationship', ...r })));
+      formattedData = lines.join('\n');
+    } else if (args.output_format === 'csv') {
+      const entityFields = ['id', 'type', 'name', 'description', 'importance_score', 'confidence_score'];
+      const csvLines = [
+        entityFields.join(','),
+        ...exportData.entities.map((e: any) =>
+          entityFields.map(f => JSON.stringify(e[f] || '')).join(',')
+        )
+      ];
+      formattedData = csvLines.join('\n');
+    } else {
+      formattedData = JSON.stringify(exportData, null, 2);
+    }
+
+    const sizeInBytes = Buffer.byteLength(formattedData, 'utf8');
+    const dataSize = sizeInBytes > 1024 * 1024 ? `${(sizeInBytes / (1024 * 1024)).toFixed(2)}MB` :
+      sizeInBytes > 1024 ? `${(sizeInBytes / 1024).toFixed(2)}KB` : `${sizeInBytes}B`;
+
+    if (args.output_file) {
+      const fs = await import('fs/promises');
+      await fs.writeFile(args.output_file, formattedData, 'utf8');
       return {
         success: true,
-        entity_id: params.entity_id,
-        fields_updated: fieldsUpdated,
-        re_embedded: reEmbedded,
-        message: `Entity updated successfully. ${fieldsUpdated.length} fields changed${reEmbedded ? ', re-embedded' : ''}.`
+        total_entities: entities.length,
+        total_relationships: relationships.length,
+        output_file: args.output_file,
+        data_size: dataSize,
+        export_format: args.output_format,
+        message: `Exported ${entities.length} entities and ${relationships.length} relationships to ${args.output_file}`
       };
-
-    } catch (error) {
-      logger.error('Failed to update knowledge entity', error);
-      throw new Error(`Failed to update entity: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }
-
-  private async exportKnowledgeGraph(args: any): Promise<ExportKnowledgeGraphResponse> {
-    const params = ExportKnowledgeGraphSchema.parse(args);
-
-    try {
-      const kgService = this.db.getKnowledgeGraphService(params.repository_path);
-
-      // Get all entities and relationships
-      const entities = await kgService.getAllEntities();
-      const relationships = await kgService.getAllRelationships();
-
-      // Prepare export data
-      const exportData: any = {
-        entities: entities.map(e => ({
-          id: e.id,
-          type: e.type,
-          name: e.name,
-          description: e.description,
-          importance_score: e.importanceScore,
-          confidence_score: e.confidenceScore,
-          properties: e.properties,
-          discovered_by: e.discoveredBy,
-          created_at: e.createdAt,
-          ...(params.include_embeddings && e.embedding ? { embedding: e.embedding } : {})
-        })),
-        relationships: relationships.map(r => ({
-          id: r.id,
-          from_entity_id: r.fromEntityId,
-          to_entity_id: r.toEntityId,
-          type: r.type,
-          strength: r.strength,
-          confidence: r.confidence,
-          context: r.context,
-          discovered_by: r.discoveredBy,
-          created_at: r.createdAt
-        }))
-      };
-
-      // Format data based on output format
-      let formattedData: string;
-      let dataSize: string;
-
-      if (params.output_format === 'jsonl') {
-        const lines = exportData.entities.map((e: any) => JSON.stringify({ type: 'entity', ...e }))
-          .concat(exportData.relationships.map((r: any) => JSON.stringify({ type: 'relationship', ...r })));
-        formattedData = lines.join('\n');
-      } else if (params.output_format === 'csv') {
-        // Simple CSV format (entities only, relationships would need separate file)
-        const entityFields = ['id', 'type', 'name', 'description', 'importance_score', 'confidence_score'];
-        const csvLines = [
-          entityFields.join(','),
-          ...exportData.entities.map((e: any) =>
-            entityFields.map(f => JSON.stringify(e[f] || '')).join(',')
-          )
-        ];
-        formattedData = csvLines.join('\n');
-      } else {
-        formattedData = JSON.stringify(exportData, null, 2);
-      }
-
-      // Calculate size
-      const sizeInBytes = Buffer.byteLength(formattedData, 'utf8');
-      if (sizeInBytes > 1024 * 1024) {
-        dataSize = `${(sizeInBytes / (1024 * 1024)).toFixed(2)}MB`;
-      } else if (sizeInBytes > 1024) {
-        dataSize = `${(sizeInBytes / 1024).toFixed(2)}KB`;
-      } else {
-        dataSize = `${sizeInBytes}B`;
-      }
-
-      // Write to file if output_file specified
-      if (params.output_file) {
-        const fs = await import('fs/promises');
-        await fs.writeFile(params.output_file, formattedData, 'utf8');
-
-        return {
-          success: true,
-          total_entities: entities.length,
-          total_relationships: relationships.length,
-          output_file: params.output_file,
-          data_size: dataSize,
-          export_format: params.output_format,
-          message: `Exported ${entities.length} entities and ${relationships.length} relationships to ${params.output_file}`
-        };
-      } else {
-        return {
-          success: true,
-          total_entities: entities.length,
-          total_relationships: relationships.length,
-          data_size: dataSize,
-          export_format: params.output_format,
-          message: `Exported ${entities.length} entities and ${relationships.length} relationships`,
-          data: exportData
-        };
-      }
-
-    } catch (error) {
-      logger.error('Failed to export knowledge graph', error);
-      throw new Error(`Failed to export knowledge graph: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }
-
-  private async wipeKnowledgeGraph(args: any): Promise<WipeKnowledgeGraphResponse> {
-    const params = WipeKnowledgeGraphSchema.parse(args);
-
-    if (!params.confirm) {
-      throw new Error('Wipe operation requires explicit confirmation. Set confirm=true to proceed.');
-    }
-
-    try {
-      const kgService = this.db.getKnowledgeGraphService(params.repository_path);
-
-      // Create backup if requested
-      let backupFile: string | undefined;
-      if (params.backup_first) {
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        backupFile = `/tmp/knowledge-graph-backup-${timestamp}.json`;
-
-        const exportResult = await this.exportKnowledgeGraph({
-          repository_path: params.repository_path,
-          output_format: 'json',
-          include_embeddings: true,
-          output_file: backupFile
-        });
-
-        logger.info(`Created backup at ${backupFile}`);
-      }
-
-      // Get counts before wiping
-      const entities = await kgService.getAllEntities();
-      const relationships = await kgService.getAllRelationships();
-      const entityCount = entities.length;
-      const relationshipCount = relationships.length;
-
-      // Wipe all data
-      await kgService.wipeAllData();
-
+    } else {
       return {
         success: true,
-        entities_removed: entityCount,
-        relationships_removed: relationshipCount,
-        insights_removed: 0, // Insights are part of entities
-        backup_file: backupFile,
-        message: `Wiped ${entityCount} entities and ${relationshipCount} relationships${backupFile ? `. Backup saved to ${backupFile}` : ''}`
+        total_entities: entities.length,
+        total_relationships: relationships.length,
+        data_size: dataSize,
+        export_format: args.output_format,
+        message: `Exported ${entities.length} entities and ${relationships.length} relationships`,
+        data: exportData
       };
-
-    } catch (error) {
-      logger.error('Failed to wipe knowledge graph', error);
-      throw new Error(`Failed to wipe knowledge graph: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
+  } catch (error) {
+    logger.error('Failed to export knowledge graph', error);
+    throw new Error(`Failed to export knowledge graph: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+/**
+ * Wipe all knowledge graph data (DESTRUCTIVE)
+ */
+export async function wipeKnowledgeGraph(
+  db: DatabaseManager,
+  args: WipeKnowledgeGraphInput
+): Promise<WipeKnowledgeGraphResponse> {
+  if (!args.confirm) {
+    throw new Error('Wipe operation requires explicit confirmation. Set confirm=true to proceed.');
+  }
+
+  try {
+    const vectorService = new VectorSearchService(db);
+    await vectorService.initialize();
+    const kgService = new KnowledgeGraphService(db, vectorService);
+
+    let backupFile: string | undefined;
+    if (args.backup_first) {
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      backupFile = `/tmp/knowledge-graph-backup-${timestamp}.json`;
+
+      await exportKnowledgeGraph(db, {
+        repository_path: args.repository_path,
+        output_format: 'json',
+        include_embeddings: true,
+        output_file: backupFile
+      });
+
+      logger.info(`Created backup at ${backupFile}`);
+    }
+
+    const entities = await kgService.getAllEntities();
+    const relationships = await kgService.getAllRelationships();
+    const entityCount = entities.length;
+    const relationshipCount = relationships.length;
+
+    await kgService.wipeAllData();
+
+    return {
+      success: true,
+      entities_removed: entityCount,
+      relationships_removed: relationshipCount,
+      insights_removed: 0,
+      backup_file: backupFile,
+      message: `Wiped ${entityCount} entities and ${relationshipCount} relationships${backupFile ? `. Backup saved to ${backupFile}` : ''}`
+    };
+
+  } catch (error) {
+    logger.error('Failed to wipe knowledge graph', error);
+    throw new Error(`Failed to wipe knowledge graph: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
