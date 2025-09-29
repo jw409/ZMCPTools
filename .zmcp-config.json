@@ -1,0 +1,21 @@
+{
+  "version": "1.0",
+  "project_name": "ZMCPTools",
+  "gpu_embeddings": {
+    "enabled": true,
+    "talentos_endpoint": "http://localhost:8765",
+    "model": "gemma_embed",
+    "dimensions": 768,
+    "fallback_cpu": true
+  },
+  "storage": {
+    "mode": "project_local",
+    "database_path": "./var/db/zmcp_local.db",
+    "vector_storage": "./var/storage/lancedb/"
+  },
+  "performance": {
+    "enable_gpu_acceleration": true,
+    "batch_size": 50,
+    "timeout": 30000
+  }
+}

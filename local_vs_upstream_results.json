@@ -1,0 +1,54 @@
+{
+  "local_gpu": [
+    {
+      "method": "Local GPU (Gemma-768D)",
+      "dimensions": 768,
+      "time": 0.24934172630310059,
+      "best_match": "GPU_EMBEDDING_TEST_CRITERIA.md",
+      "similarity": 0.5199062940802993,
+      "avg_similarity": 0.44345295483170566
+    },
+    {
+      "method": "Local GPU (Gemma-768D)",
+      "dimensions": 768,
+      "time": 0.13862037658691406,
+      "best_match": "CLAUDE.md",
+      "similarity": 0.4977559610569333,
+      "avg_similarity": 0.4169843661592289
+    },
+    {
+      "method": "Local GPU (Gemma-768D)",
+      "dimensions": 768,
+      "time": 0.13758397102355957,
+      "best_match": "GPU_EMBEDDING_TEST_CRITERIA.md",
+      "similarity": 0.4654145613792127,
+      "avg_similarity": 0.38692379202948657
+    }
+  ],
+  "upstream_cpu": [
+    {
+      "method": "Upstream Baseline (MiniLM-384D CPU)",
+      "dimensions": 384,
+      "time": 2.9666924476623535,
+      "best_match": "docs/unified_search_llm_prompt.md",
+      "similarity": 0.5414096713066101,
+      "avg_similarity": 0.18993408977985382
+    },
+    {
+      "method": "Upstream Baseline (MiniLM-384D CPU)",
+      "dimensions": 384,
+      "time": 1.9383132457733154,
+      "best_match": "CLAUDE.md",
+      "similarity": 0.5487690567970276,
+      "avg_similarity": 0.2012041062116623
+    },
+    {
+      "method": "Upstream Baseline (MiniLM-384D CPU)",
+      "dimensions": 384,
+      "time": 1.7941553592681885,
+      "best_match": "docs/LANCEDB.md",
+      "similarity": 0.48375242948532104,
+      "avg_similarity": 0.17816485464572906
+    }
+  ]
+}

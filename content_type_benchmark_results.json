@@ -1,0 +1,366 @@
+{
+  "results": {
+    "planning_concept": {
+      "query": "planning and task management strategies",
+      "expected_type": "docs",
+      "bm25_analysis": {
+        "counts": {
+          "docs": 0,
+          "code": 9,
+          "config": 1,
+          "other": 0
+        },
+        "percentages": {
+          "docs": 0.0,
+          "code": 90.0,
+          "config": 10.0,
+          "other": 0.0
+        },
+        "top_files": [
+          "bin/talentos/var/grok_session/chrome_profile_fresh/Default/Extensions/pnlccmojcmeohlpggmfnbbiapkmbliob/9.7.4.0_0/pwd-dict.json",
+          "archive/2025-09-06-pre-rescue/vllm_build/.deps/vllm-flash-attn-src/csrc/cutlass/docs/search/functions_f.js",
+          "archive/2025-09-06-pre-rescue/vllm_build/.deps/vllm-flash-attn-src/csrc/cutlass/docs/search/all_f.js",
+          "archive/2025-09-06-pre-rescue/vllm_build/.deps/flashmla-src/csrc/cutlass/docs/search/functions_f.js",
+          "archive/2025-09-06-pre-rescue/vllm_build/.deps/flashmla-src/csrc/cutlass/docs/search/all_f.js"
+        ]
+      },
+      "semantic_analysis": {
+        "counts": {
+          "docs": 10,
+          "code": 0,
+          "config": 0,
+          "other": 0
+        },
+        "percentages": {
+          "docs": 100.0,
+          "code": 0.0,
+          "config": 0.0,
+          "other": 0.0
+        },
+        "top_files": [
+          "TALENTOS_STATE_SNAPSHOT.md",
+          "NEXT_SESSION_TASKS.md",
+          "GPU_INFERENCE_WORKING.md",
+          "ZMCP_HANDOFF_TO_SONNET.md",
+          "WEBHOOK_INTEGRATION_GUIDE.md"
+        ]
+      },
+      "bm25_relevant": 0,
+      "semantic_relevant": 0,
+      "winner": "Semantic",
+      "bm25_score": 0.0,
+      "semantic_score": 100.0
+    },
+    "architecture_overview": {
+      "query": "system architecture and design patterns",
+      "expected_type": "docs",
+      "bm25_analysis": {
+        "counts": {
+          "docs": 0,
+          "code": 9,
+          "config": 1,
+          "other": 0
+        },
+        "percentages": {
+          "docs": 0.0,
+          "code": 90.0,
+          "config": 10.0,
+          "other": 0.0
+        },
+        "top_files": [
+          "bin/talentos/var/grok_session/chrome_profile_fresh/Default/Extensions/pnlccmojcmeohlpggmfnbbiapkmbliob/9.7.4.0_0/pwd-dict.json",
+          "archive/2025-09-06-pre-rescue/vllm_build/.deps/vllm-flash-attn-src/csrc/cutlass/docs/search/functions_f.js",
+          "archive/2025-09-06-pre-rescue/vllm_build/.deps/vllm-flash-attn-src/csrc/cutlass/docs/search/all_f.js",
+          "archive/2025-09-06-pre-rescue/vllm_build/.deps/flashmla-src/csrc/cutlass/docs/search/functions_f.js",
+          "archive/2025-09-06-pre-rescue/vllm_build/.deps/flashmla-src/csrc/cutlass/docs/search/all_f.js"
+        ]
+      },
+      "semantic_analysis": {
+        "counts": {
+          "docs": 10,
+          "code": 0,
+          "config": 0,
+          "other": 0
+        },
+        "percentages": {
+          "docs": 100.0,
+          "code": 0.0,
+          "config": 0.0,
+          "other": 0.0
+        },
+        "top_files": [
+          "dear-gemini-technical-architect-gpu-acceleration.md",
+          "recover.md",
+          "WWPOC_RESEARCH_DOCUMENT.md",
+          "TALENTOS_STATE_SNAPSHOT.md",
+          "dear-claude-12-gpu-crisis-fix-plan.md"
+        ]
+      },
+      "bm25_relevant": 0,
+      "semantic_relevant": 0,
+      "winner": "Semantic",
+      "bm25_score": 0.0,
+      "semantic_score": 100.0
+    },
+    "usage_instructions": {
+      "query": "how to use and configure the system",
+      "expected_type": "docs",
+      "bm25_analysis": {
+        "counts": {
+          "docs": 0,
+          "code": 5,
+          "config": 5,
+          "other": 0
+        },
+        "percentages": {
+          "docs": 0.0,
+          "code": 50.0,
+          "config": 50.0,
+          "other": 0.0
+        },
+        "top_files": [
+          "bin/talentos/var/grok_session/chrome_profile_fresh/Default/Extensions/nkbihfbeogaeaoehlefnkodbefgpgknn/12.22.1_0/scripts/policy-load.js",
+          "bin/talentos/var/grok_session/chrome_profile_fresh/Default/Extensions/pnlccmojcmeohlpggmfnbbiapkmbliob/9.7.4.0_0/pwd-dict.json",
+          "bin/talentos/var/grok_session/chrome_profile_fresh/Default/Extensions/nkbihfbeogaeaoehlefnkodbefgpgknn/12.22.1_0/background-2.js",
+          "bin/talentos/var/grok_session/chrome_profile_fresh/TrustTokenKeyCommitments/2025.5.15.1/keys.json",
+          "bin/talentos/var/grok_session/chrome_profile_undetected/TrustTokenKeyCommitments/2025.5.15.1/keys.json"
+        ]
+      },
+      "semantic_analysis": {
+        "counts": {
+          "docs": 10,
+          "code": 0,
+          "config": 0,
+          "other": 0
+        },
+        "percentages": {
+          "docs": 100.0,
+          "code": 0.0,
+          "config": 0.0,
+          "other": 0.0
+        },
+        "top_files": [
+          "TALENTOS_STATE_SNAPSHOT.md",
+          "NEXT_SESSION_TASKS.md",
+          "ZMCP_EMBEDDING_INTEGRATION_PLAN.md",
+          "dear-gemini-local-models-working.md",
+          "response_plan_infrastructure.md"
+        ]
+      },
+      "bm25_relevant": 0,
+      "semantic_relevant": 0,
+      "winner": "Semantic",
+      "bm25_score": 0.0,
+      "semantic_score": 100.0
+    },
+    "function_implementation": {
+      "query": "searchKnowledgeGraphUnified function implementation",
+      "expected_type": "code",
+      "bm25_analysis": {
+        "counts": {
+          "docs": 3,
+          "code": 7,
+          "config": 0,
+          "other": 0
+        },
+        "percentages": {
+          "docs": 30.0,
+          "code": 70.0,
+          "config": 0.0,
+          "other": 0.0
+        },
+        "top_files": [
+          "bin/talentos/var/grok_session/chrome_profile_fresh/Default/Extensions/nkbihfbeogaeaoehlefnkodbefgpgknn/12.22.1_0/scripts/lockdown-install.js",
+          "bin/talentos/var/grok_session/chrome_profile_fresh/Default/Extensions/nkbihfbeogaeaoehlefnkodbefgpgknn/12.22.1_0/common-3.js",
+          "bin/talentos/var/grok_session/chrome_profile_fresh/Default/Extensions/nkbihfbeogaeaoehlefnkodbefgpgknn/12.22.1_0/background-5.js",
+          "bin/talentos/var/grok_session/chrome_profile_fresh/Default/Extensions/nkbihfbeogaeaoehlefnkodbefgpgknn/12.22.1_0/ui-3.js",
+          "bin/talentos/var/grok_session/chrome_profile_fresh/Default/Extensions/nkbihfbeogaeaoehlefnkodbefgpgknn/12.22.1_0/content-script-0.js"
+        ]
+      },
+      "semantic_analysis": {
+        "counts": {
+          "docs": 4,
+          "code": 6,
+          "config": 0,
+          "other": 0
+        },
+        "percentages": {
+          "docs": 40.0,
+          "code": 60.0,
+          "config": 0.0,
+          "other": 0.0
+        },
+        "top_files": [
+          "test_gemma_search_workload.py",
+          "dear-gemini-technical-architect-gpu-acceleration.md",
+          "user_feedback_system.py",
+          "recover.md",
+          "WWPOC_RESEARCH_DOCUMENT.md"
+        ]
+      },
+      "bm25_relevant": 0,
+      "semantic_relevant": 0,
+      "winner": "BM25",
+      "bm25_score": 70.0,
+      "semantic_score": 60.0
+    },
+    "class_definition": {
+      "query": "RealFileIndexingService class definition",
+      "expected_type": "code",
+      "bm25_analysis": {
+        "counts": {
+          "docs": 0,
+          "code": 10,
+          "config": 0,
+          "other": 0
+        },
+        "percentages": {
+          "docs": 0.0,
+          "code": 100.0,
+          "config": 0.0,
+          "other": 0.0
+        },
+        "top_files": [
+          "archive/2025-09-06-pre-rescue/vllm_build/.deps/vllm-flash-attn-src/csrc/cutlass/docs/search/functions_f.js",
+          "archive/2025-09-06-pre-rescue/vllm_build/.deps/vllm-flash-attn-src/csrc/cutlass/docs/search/all_f.js",
+          "archive/2025-09-06-pre-rescue/vllm_build/.deps/flashmla-src/csrc/cutlass/docs/search/functions_f.js",
+          "archive/2025-09-06-pre-rescue/vllm_build/.deps/flashmla-src/csrc/cutlass/docs/search/all_f.js",
+          "archive/2025-09-06-pre-rescue/vllm_build/.deps/cutlass-src/docs/search/functions_f.js"
+        ]
+      },
+      "semantic_analysis": {
+        "counts": {
+          "docs": 4,
+          "code": 6,
+          "config": 0,
+          "other": 0
+        },
+        "percentages": {
+          "docs": 40.0,
+          "code": 60.0,
+          "config": 0.0,
+          "other": 0.0
+        },
+        "top_files": [
+          "test_gemma_search_workload.py",
+          "dear-gemini-technical-architect-gpu-acceleration.md",
+          "user_feedback_system.py",
+          "recover.md",
+          "WWPOC_RESEARCH_DOCUMENT.md"
+        ]
+      },
+      "bm25_relevant": 0,
+      "semantic_relevant": 0,
+      "winner": "BM25",
+      "bm25_score": 100.0,
+      "semantic_score": 60.0
+    },
+    "import_statements": {
+      "query": "EmbeddingClient import and usage",
+      "expected_type": "code",
+      "bm25_analysis": {
+        "counts": {
+          "docs": 0,
+          "code": 9,
+          "config": 1,
+          "other": 0
+        },
+        "percentages": {
+          "docs": 0.0,
+          "code": 90.0,
+          "config": 10.0,
+          "other": 0.0
+        },
+        "top_files": [
+          "bin/talentos/var/grok_session/chrome_profile_fresh/Default/Extensions/pnlccmojcmeohlpggmfnbbiapkmbliob/9.7.4.0_0/pwd-dict.json",
+          "archive/2025-09-06-pre-rescue/vllm_build/.deps/vllm-flash-attn-src/csrc/cutlass/docs/search/functions_f.js",
+          "archive/2025-09-06-pre-rescue/vllm_build/.deps/vllm-flash-attn-src/csrc/cutlass/docs/search/all_f.js",
+          "archive/2025-09-06-pre-rescue/vllm_build/.deps/flashmla-src/csrc/cutlass/docs/search/functions_f.js",
+          "archive/2025-09-06-pre-rescue/vllm_build/.deps/flashmla-src/csrc/cutlass/docs/search/all_f.js"
+        ]
+      },
+      "semantic_analysis": {
+        "counts": {
+          "docs": 7,
+          "code": 3,
+          "config": 0,
+          "other": 0
+        },
+        "percentages": {
+          "docs": 70.0,
+          "code": 30.0,
+          "config": 0.0,
+          "other": 0.0
+        },
+        "top_files": [
+          "test_gemma_search_workload.py",
+          "TALENTOS_STATE_SNAPSHOT.md",
+          "NEXT_SESSION_TASKS.md",
+          "gpu_model_direct.py",
+          "ZMCP_EMBEDDING_INTEGRATION_PLAN.md"
+        ]
+      },
+      "bm25_relevant": 0,
+      "semantic_relevant": 0,
+      "winner": "BM25",
+      "bm25_score": 90.0,
+      "semantic_score": 30.0
+    },
+    "configuration_setup": {
+      "query": "service configuration and endpoints",
+      "expected_type": "config",
+      "bm25_analysis": {
+        "counts": {
+          "docs": 0,
+          "code": 9,
+          "config": 1,
+          "other": 0
+        },
+        "percentages": {
+          "docs": 0.0,
+          "code": 90.0,
+          "config": 10.0,
+          "other": 0.0
+        },
+        "top_files": [
+          "bin/talentos/var/grok_session/chrome_profile_fresh/Default/Extensions/nkbihfbeogaeaoehlefnkodbefgpgknn/12.22.1_0/background-2.js",
+          "bin/talentos/var/grok_session/chrome_profile_fresh/Default/Extensions/pnlccmojcmeohlpggmfnbbiapkmbliob/9.7.4.0_0/pwd-dict.json",
+          "archive/2025-09-06-pre-rescue/vllm_build/.deps/vllm-flash-attn-src/csrc/cutlass/docs/search/functions_f.js",
+          "archive/2025-09-06-pre-rescue/vllm_build/.deps/vllm-flash-attn-src/csrc/cutlass/docs/search/all_f.js",
+          "archive/2025-09-06-pre-rescue/vllm_build/.deps/flashmla-src/csrc/cutlass/docs/search/functions_f.js"
+        ]
+      },
+      "semantic_analysis": {
+        "counts": {
+          "docs": 4,
+          "code": 6,
+          "config": 0,
+          "other": 0
+        },
+        "percentages": {
+          "docs": 40.0,
+          "code": 60.0,
+          "config": 0.0,
+          "other": 0.0
+        },
+        "top_files": [
+          "test_gemma_search_workload.py",
+          "dear-gemini-technical-architect-gpu-acceleration.md",
+          "user_feedback_system.py",
+          "recover.md",
+          "WWPOC_RESEARCH_DOCUMENT.md"
+        ]
+      },
+      "bm25_relevant": 0,
+      "semantic_relevant": 0,
+      "winner": "BM25",
+      "bm25_score": 10.0,
+      "semantic_score": 0.0
+    }
+  },
+  "summary": {
+    "bm25_wins": 4,
+    "semantic_wins": 3,
+    "recommendation": "Use HYBRID: BM25 for code, Semantic for documentation"
+  }
+}

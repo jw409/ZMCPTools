@@ -1,0 +1,1800 @@
+{
+  "dataset": "real_project_files",
+  "random_seed": 42,
+  "query_count": 5,
+  "indexed_files": 39660,
+  "method_aggregates": {
+    "BM25_Only": {
+      "metrics": {
+        "precision_1": {
+          "mean": 0.2,
+          "std": 0.4472135954999579,
+          "min": 0.0,
+          "max": 1.0
+        },
+        "precision_3": {
+          "mean": 0.06666666666666667,
+          "std": 0.14907119849998599,
+          "min": 0.0,
+          "max": 0.3333333333333333
+        },
+        "precision_5": {
+          "mean": 0.04,
+          "std": 0.08944271909999159,
+          "min": 0.0,
+          "max": 0.2
+        },
+        "precision_10": {
+          "mean": 0.02,
+          "std": 0.044721359549995794,
+          "min": 0.0,
+          "max": 0.1
+        },
+        "recall_3": {
+          "mean": 0.1,
+          "std": 0.22360679774997896,
+          "min": 0.0,
+          "max": 0.5
+        },
+        "recall_5": {
+          "mean": 0.1,
+          "std": 0.22360679774997896,
+          "min": 0.0,
+          "max": 0.5
+        },
+        "recall_10": {
+          "mean": 0.1,
+          "std": 0.22360679774997896,
+          "min": 0.0,
+          "max": 0.5
+        },
+        "mrr": {
+          "mean": 0.2,
+          "std": 0.4472135954999579,
+          "min": 0.0,
+          "max": 1.0
+        },
+        "ndcg_3": {
+          "mean": 0.15,
+          "std": 0.33541019662496846,
+          "min": 0.0,
+          "max": 0.75
+        },
+        "ndcg_5": {
+          "mean": 0.15,
+          "std": 0.33541019662496846,
+          "min": 0.0,
+          "max": 0.75
+        },
+        "ndcg_10": {
+          "mean": 0.15,
+          "std": 0.33541019662496846,
+          "min": 0.0,
+          "max": 0.75
+        }
+      },
+      "avg_timing_ms": 36.42072677612305,
+      "query_count": 5
+    },
+    "Semantic_Only": {
+      "metrics": {
+        "precision_1": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "precision_3": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "precision_5": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "precision_10": {
+          "mean": 0.02,
+          "std": 0.044721359549995794,
+          "min": 0.0,
+          "max": 0.1
+        },
+        "recall_3": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "recall_5": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "recall_10": {
+          "mean": 0.1,
+          "std": 0.22360679774997896,
+          "min": 0.0,
+          "max": 0.5
+        },
+        "mrr": {
+          "mean": 0.03333333333333333,
+          "std": 0.07453559924999299,
+          "min": 0.0,
+          "max": 0.16666666666666666
+        },
+        "ndcg_3": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "ndcg_5": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "ndcg_10": {
+          "mean": 0.004411764705882353,
+          "std": 0.009865005783087308,
+          "min": 0.0,
+          "max": 0.022058823529411766
+        }
+      },
+      "avg_timing_ms": 34.13581848144531,
+      "query_count": 5
+    },
+    "Hybrid_BM25_Semantic": {
+      "metrics": {
+        "precision_1": {
+          "mean": 0.2,
+          "std": 0.4472135954999579,
+          "min": 0.0,
+          "max": 1.0
+        },
+        "precision_3": {
+          "mean": 0.06666666666666667,
+          "std": 0.14907119849998599,
+          "min": 0.0,
+          "max": 0.3333333333333333
+        },
+        "precision_5": {
+          "mean": 0.04,
+          "std": 0.08944271909999159,
+          "min": 0.0,
+          "max": 0.2
+        },
+        "precision_10": {
+          "mean": 0.02,
+          "std": 0.044721359549995794,
+          "min": 0.0,
+          "max": 0.1
+        },
+        "recall_3": {
+          "mean": 0.1,
+          "std": 0.22360679774997896,
+          "min": 0.0,
+          "max": 0.5
+        },
+        "recall_5": {
+          "mean": 0.1,
+          "std": 0.22360679774997896,
+          "min": 0.0,
+          "max": 0.5
+        },
+        "recall_10": {
+          "mean": 0.1,
+          "std": 0.22360679774997896,
+          "min": 0.0,
+          "max": 0.5
+        },
+        "mrr": {
+          "mean": 0.2,
+          "std": 0.4472135954999579,
+          "min": 0.0,
+          "max": 1.0
+        },
+        "ndcg_3": {
+          "mean": 0.15,
+          "std": 0.33541019662496846,
+          "min": 0.0,
+          "max": 0.75
+        },
+        "ndcg_5": {
+          "mean": 0.15,
+          "std": 0.33541019662496846,
+          "min": 0.0,
+          "max": 0.75
+        },
+        "ndcg_10": {
+          "mean": 0.15,
+          "std": 0.33541019662496846,
+          "min": 0.0,
+          "max": 0.75
+        }
+      },
+      "avg_timing_ms": 69.52047348022461,
+      "query_count": 5
+    },
+    "Semantic_Reranked": {
+      "metrics": {
+        "precision_1": {
+          "mean": 0.2,
+          "std": 0.4472135954999579,
+          "min": 0.0,
+          "max": 1.0
+        },
+        "precision_3": {
+          "mean": 0.06666666666666667,
+          "std": 0.14907119849998599,
+          "min": 0.0,
+          "max": 0.3333333333333333
+        },
+        "precision_5": {
+          "mean": 0.04,
+          "std": 0.08944271909999159,
+          "min": 0.0,
+          "max": 0.2
+        },
+        "precision_10": {
+          "mean": 0.04,
+          "std": 0.05477225575051661,
+          "min": 0.0,
+          "max": 0.1
+        },
+        "recall_3": {
+          "mean": 0.1,
+          "std": 0.22360679774997896,
+          "min": 0.0,
+          "max": 0.5
+        },
+        "recall_5": {
+          "mean": 0.1,
+          "std": 0.22360679774997896,
+          "min": 0.0,
+          "max": 0.5
+        },
+        "recall_10": {
+          "mean": 0.2,
+          "std": 0.27386127875258304,
+          "min": 0.0,
+          "max": 0.5
+        },
+        "mrr": {
+          "mean": 0.22,
+          "std": 0.4381780460041329,
+          "min": 0.0,
+          "max": 1.0
+        },
+        "ndcg_3": {
+          "mean": 0.1411764705882353,
+          "std": 0.31568018505879386,
+          "min": 0.0,
+          "max": 0.7058823529411765
+        },
+        "ndcg_5": {
+          "mean": 0.1411764705882353,
+          "std": 0.31568018505879386,
+          "min": 0.0,
+          "max": 0.7058823529411765
+        },
+        "ndcg_10": {
+          "mean": 0.1414694393382353,
+          "std": 0.3155170481240318,
+          "min": 0.0,
+          "max": 0.7058823529411765
+        }
+      },
+      "avg_timing_ms": 33.34994316101074,
+      "query_count": 5
+    }
+  },
+  "all_results": [
+    {
+      "method_name": "BM25_Only",
+      "query_id": "embedding_service",
+      "query_text": "GPU embedding service implementation",
+      "results": [
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/050-Examine-current-embedding-service-implementation.json",
+          "score": 4.5,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/050-Implement-GPUServiceClient-ts-for-embedding-servic.json",
+          "score": 4.5,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "talent-os/var/archived-scripts/embedding-services/gpu_embedding_service.py",
+          "score": 4.5,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "talent-os/var/archived-scripts/embedding-services/gpu_embedding_service_persistent.py",
+          "score": 4.5,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "talent-os/var/archived-scripts/embedding-services/gpu_embedding_service_optimized.py",
+          "score": 4.5,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "talent-os/var/archived-scripts/embedding-services/gpu_embedding_service_fixed.py",
+          "score": 4.5,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "talent-os/var/archived-scripts/embedding-services/gpu_embedding_service_enhanced.py",
+          "score": 4.5,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "talent-os/var/archived-scripts/embedding-services/gpu_embedding_service_daemon.py",
+          "score": 4.5,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "talent-os/bin/gpu_batch_embedding_service.py",
+          "score": 4.5,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "talent-os/bin/gpu_serial_embedding_service.py",
+          "score": 4.5,
+          "match_type": "keyword"
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.0,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.0,
+        "mrr": 0.0,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.0
+      },
+      "timing_ms": 32.67502784729004,
+      "method_config": {
+        "method": "BM25_Only",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "BM25_Only",
+      "query_id": "real_file_indexing",
+      "query_text": "file indexing and parsing service",
+      "results": [
+        {
+          "file_path": "ZMCPTools/src/services/RealFileIndexingService.ts",
+          "score": 4.5,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Examine-etc--directory-structure-and-files.json",
+          "score": 3.0,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Stop-current-8889-simple-service-and-clean-state.json",
+          "score": 3.0,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Check-service-status-for-ports-8888-and-8765.json",
+          "score": 3.0,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/030-Investigate-and-fix-service-crashes-for-stability.json",
+          "score": 3.0,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Identify--md-files-needing-consolidation-and-prope.json",
+          "score": 3.0,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/070-Test-service-stability-under-load-and-model-loadin.json",
+          "score": 3.0,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Create-core-service-plugins-for-inference-and-mode.json",
+          "score": 3.0,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Review-existing-ZMCP-tools-and-services.json",
+          "score": 3.0,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Research-AST-parsing-strategies-for-Python-and-Typ.json",
+          "score": 3.0,
+          "match_type": "keyword"
+        }
+      ],
+      "metrics": {
+        "precision_1": 1.0,
+        "precision_3": 0.3333333333333333,
+        "precision_5": 0.2,
+        "precision_10": 0.1,
+        "recall_3": 0.5,
+        "recall_5": 0.5,
+        "recall_10": 0.5,
+        "mrr": 1.0,
+        "ndcg_3": 0.75,
+        "ndcg_5": 0.75,
+        "ndcg_10": 0.75
+      },
+      "timing_ms": 40.531158447265625,
+      "method_config": {
+        "method": "BM25_Only",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "BM25_Only",
+      "query_id": "knowledge_graph_search",
+      "query_text": "semantic search knowledge graph",
+      "results": [
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Search-knowledge-graph-for-current-embedding-model.json",
+          "score": 4.5,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Search-knowledge-graph-for-spawn_agent-and-talent.json",
+          "score": 4.5,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Search-knowledge-graph-for-cleanup-and-organizatio.json",
+          "score": 4.5,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Create-ZMCP-knowledge-swizzler-for-semantic-search.json",
+          "score": 4.5,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Search-knowledge-graph-for-existing-solutions.json",
+          "score": 4.5,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "ZMCPTools/tests/test-knowledge-graph-search.py",
+          "score": 4.5,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "test_gpu_semantic_search.py",
+          "score": 3.0,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "dear-gemini-knowledge-graph-specialist-dense-connections.md",
+          "score": 3.0,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/done/100-Knowledge-graph-integration-working.json",
+          "score": 3.0,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/done/030-Apply-CUDA-fix-configuration-from-knowledge-graph.json",
+          "score": 3.0,
+          "match_type": "keyword"
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.0,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.0,
+        "mrr": 0.0,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.0
+      },
+      "timing_ms": 31.672239303588867,
+      "method_config": {
+        "method": "BM25_Only",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "BM25_Only",
+      "query_id": "unified_search",
+      "query_text": "unified search method with BM25 and embeddings",
+      "results": [
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/070-Test-unified-search-with-real-queries.json",
+          "score": 4.5,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "unified_search.py",
+          "score": 3.0,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Create-plugin-infrastructure-with-discovery-and-re.json",
+          "score": 3.0,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Define-separate-dense-and-sparse-search-APIs.json",
+          "score": 3.0,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/070-Test-search-with-real-queries.json",
+          "score": 3.0,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Research-and-analyze-missing-endpoints-in-port-900.json",
+          "score": 3.0,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Search-knowledge-graph-for-spawn_agent-and-talent.json",
+          "score": 3.0,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Compare-semantic-search--Gemma-vs-MiniLM-vs-BM25.json",
+          "score": 3.0,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Integrate-with-existing-wrapper-and-exit-tools.json",
+          "score": 3.0,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Create-GitHub-issue--2--BM25-sparse-search.json",
+          "score": 3.0,
+          "match_type": "keyword"
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.0,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.0,
+        "mrr": 0.0,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.0
+      },
+      "timing_ms": 52.56533622741699,
+      "method_config": {
+        "method": "BM25_Only",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "BM25_Only",
+      "query_id": "benchmark_testing",
+      "query_text": "reproducible benchmark evaluation",
+      "results": [
+        {
+          "file_path": "ZMCPTools/README_REPRODUCIBLE_BENCHMARK.md",
+          "score": 3.0,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "ZMCPTools/benchmarks/reproducible_search_benchmark.py",
+          "score": 3.0,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "federalist_benchmark_30s.py",
+          "score": 1.5,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "gpu_batch_benchmark_1758249081.json",
+          "score": 1.5,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "mega_librarian_benchmarks_v2.json",
+          "score": 1.5,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "benchmark_mega_librarian.py",
+          "score": 1.5,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "embeddings_benchmark.py",
+          "score": 1.5,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "mega_librarian_benchmarks.json",
+          "score": 1.5,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Benchmark-tool-hooks-to-8889.json",
+          "score": 1.5,
+          "match_type": "keyword"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Research-scavenger-teacher-performance-evaluation.json",
+          "score": 1.5,
+          "match_type": "keyword"
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.0,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.0,
+        "mrr": 0.0,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.0
+      },
+      "timing_ms": 24.65987205505371,
+      "method_config": {
+        "method": "BM25_Only",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "Semantic_Only",
+      "query_id": "embedding_service",
+      "query_text": "GPU embedding service implementation",
+      "results": [
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/050-Implement-GPUServiceClient-ts-for-embedding-servic.json",
+          "score": 1.7740000000000002,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/201-Create-Gemma7B-Embedding-Service.json",
+          "score": 1.7500000000000002,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Find-spec-for-gemma3embeddings-and-librarian-integ.json",
+          "score": 0.999,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "models/huggingface/models--google--embeddinggemma-300m/snapshots/c5cfa06e5e282a820e85d57f7fb053207494f41d/added_tokens.json",
+          "score": 0.999,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "talent-os/tests/test_gpu_embeddings.py",
+          "score": 0.998,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "talent-os/testing/gpu/test_gpu_embedding.py",
+          "score": 0.998,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "talent-os/.venv/lib/python3.12/site-packages/sentence_transformers/evaluation/EmbeddingSimilarityEvaluator.py",
+          "score": 0.998,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "talent-os/var/knowledge_sync/UNIFIED_LANCEDB_EMBEDDING_PLAN_a7b8ade6.json",
+          "score": 0.997,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "talent-os/.venv/lib/python3.12/site-packages/torch/ao/nn/quantized/modules/embedding_ops.py",
+          "score": 0.997,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "talent-os/.venv/lib/python3.12/site-packages/torch/nn/quantized/modules/embedding_ops.py",
+          "score": 0.996,
+          "match_type": "semantic"
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.0,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.0,
+        "mrr": 0.0,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.0
+      },
+      "timing_ms": 33.80012512207031,
+      "method_config": {
+        "method": "Semantic_Only",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "Semantic_Only",
+      "query_id": "real_file_indexing",
+      "query_text": "file indexing and parsing service",
+      "results": [
+        {
+          "file_path": "ZMCPTools/src/services/WebScrapingService.ts",
+          "score": 0.896,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Create-GitHub-issue-for-SQLite-Analysis-Service-wi.json",
+          "score": 0.895,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "ZMCPTools/src/services/FileOperationsService.ts",
+          "score": 0.895,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "ZMCPTools/src/services/TaskService.ts",
+          "score": 0.893,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Create-GitHub-issue-for-Service---Port-Discovery.json",
+          "score": 0.89,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "ZMCPTools/src/services/FoundationCacheService.ts",
+          "score": 0.89,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "ZMCPTools/src/services/DynamicInteractionService.ts",
+          "score": 0.888,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "talent-os/.venv/lib/python3.12/site-packages/playwright/driver/package/lib/server/chromium/crServiceWorker.js",
+          "score": 0.886,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Enhance-AgentMonitoringService-integration.json",
+          "score": 0.884,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "ZMCPTools/src/services/MemoryService.ts",
+          "score": 0.879,
+          "match_type": "semantic"
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.0,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.0,
+        "mrr": 0.0,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.0
+      },
+      "timing_ms": 32.07898139953613,
+      "method_config": {
+        "method": "Semantic_Only",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "Semantic_Only",
+      "query_id": "knowledge_graph_search",
+      "query_text": "semantic search knowledge graph",
+      "results": [
+        {
+          "file_path": "archive/2025-09-06-pre-rescue/pytorch/third_party/NVTX/docs/doxygen/search/variables_4.js",
+          "score": 0.899,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "archive/2025-09-06-pre-rescue/vllm_build/.deps/flashmla-src/csrc/cutlass/docs/search/enums_1.js",
+          "score": 0.899,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "archive/2025-09-06-pre-rescue/vllm_build/.deps/cutlass-src/docs/search/files_5.js",
+          "score": 0.899,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "archive/2025-09-06-pre-rescue/vllm_build/.deps/cutlass-src/docs/search/search.js",
+          "score": 0.899,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "talent-os/.venv/lib/python3.12/site-packages/bitsandbytes/research/autograd/_functions.py",
+          "score": 0.899,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "test_gemma_search_workload.py",
+          "score": 0.898,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/070-Test-unified-search-with-real-queries.json",
+          "score": 0.898,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "archive/2025-09-06-pre-rescue/pytorch/third_party/NVTX/docs/doxygen/search/classes_2.js",
+          "score": 0.898,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "archive/2025-09-06-pre-rescue/pytorch/third_party/NVTX/docs/doxygen/search/groups_8.js",
+          "score": 0.898,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "archive/2025-09-06-pre-rescue/pytorch/third_party/NVTX/docs/doxygen/search/all_9.js",
+          "score": 0.898,
+          "match_type": "semantic"
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.0,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.0,
+        "mrr": 0.0,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.0
+      },
+      "timing_ms": 31.935930252075195,
+      "method_config": {
+        "method": "Semantic_Only",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "Semantic_Only",
+      "query_id": "unified_search",
+      "query_text": "unified search method with BM25 and embeddings",
+      "results": [
+        {
+          "file_path": "talent-os/var/knowledge_sync/UNIFIED_LANCEDB_EMBEDDING_PLAN_a7b8ade6.json",
+          "score": 1.8840000000000001,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "talent-os/docs/UNIFIED_LANCEDB_EMBEDDING_PLAN.md",
+          "score": 1.863,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Create-simple-unified-search-that-works.json",
+          "score": 1.7960000000000003,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Search-knowledge-graph-for-current-embedding-model.json",
+          "score": 1.7730000000000001,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "unified_search.py",
+          "score": 1.7670000000000001,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "ZMCPTools/src/tools/unifiedSearchTool.ts",
+          "score": 1.7600000000000002,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/070-Test-unified-search-with-real-queries.json",
+          "score": 1.7540000000000002,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Create-unified-search-across-both-indexes.json",
+          "score": 1.7530000000000001,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Compare-EmbeddingGemma-vs-MiniLM-vs-BM25-search-qu.json",
+          "score": 1.7480000000000002,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/050-Implement-2-worker-search-pool-with-EmbeddingGemma.json",
+          "score": 1.731,
+          "match_type": "semantic"
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.1,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.5,
+        "mrr": 0.16666666666666666,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.022058823529411766
+      },
+      "timing_ms": 39.10970687866211,
+      "method_config": {
+        "method": "Semantic_Only",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "Semantic_Only",
+      "query_id": "benchmark_testing",
+      "query_text": "reproducible benchmark evaluation",
+      "results": [
+        {
+          "file_path": ".venv/lib/python3.12/site-packages/torch/utils/benchmark/utils/sparse_fuzzer.py",
+          "score": 0.999,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "archive/2025-09-06-pre-rescue/vllm_build/vllm/benchmarks/lib/endpoint_request_func.py",
+          "score": 0.998,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "archive/2025-09-06-pre-rescue/vllm/vllm/benchmarks/lib/utils.py",
+          "score": 0.998,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "archive/2025-09-06-pre-rescue/vllm/.venv/lib/python3.11/site-packages/torch/utils/benchmark/examples/compare.py",
+          "score": 0.998,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "talent-os/bin/benchmark_gpu_vs_cpu.py",
+          "score": 0.998,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "gpu_benchmarks/benchmark_embeddings_actual.py",
+          "score": 0.997,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "archive/2025-09-06-pre-rescue/vllm_build/.deps/vllm-flash-attn-src/hopper/benchmark_attn.py",
+          "score": 0.997,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "archive/2025-09-06-pre-rescue/vllm/.venv/lib/python3.11/site-packages/torch/utils/benchmark/examples/spectral_ops_fuzz_test.py",
+          "score": 0.997,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": ".venv/lib/python3.12/site-packages/sympy/functions/elementary/benchmarks/bench_exp.py",
+          "score": 0.997,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "gpu_benchmarks/benchmark_embeddings_progressive.py",
+          "score": 0.996,
+          "match_type": "semantic"
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.0,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.0,
+        "mrr": 0.0,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.0
+      },
+      "timing_ms": 33.75434875488281,
+      "method_config": {
+        "method": "Semantic_Only",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "Hybrid_BM25_Semantic",
+      "query_id": "embedding_service",
+      "query_text": "GPU embedding service implementation",
+      "results": [
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/050-Implement-GPUServiceClient-ts-for-embedding-servic.json",
+          "score": 0.03252247488101534,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/201-Create-Gemma7B-Embedding-Service.json",
+          "score": 0.02928692699490662,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "talent-os/bin/gpu_batch_embedding_service.py",
+          "score": 0.02819138376017471,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/050-Examine-current-embedding-service-implementation.json",
+          "score": 0.01639344262295082,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "talent-os/var/archived-scripts/embedding-services/gpu_embedding_service.py",
+          "score": 0.015873015873015872,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Find-spec-for-gemma3embeddings-and-librarian-integ.json",
+          "score": 0.015873015873015872,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "talent-os/var/archived-scripts/embedding-services/gpu_embedding_service_persistent.py",
+          "score": 0.015625,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "models/huggingface/models--google--embeddinggemma-300m/snapshots/c5cfa06e5e282a820e85d57f7fb053207494f41d/added_tokens.json",
+          "score": 0.015625,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "talent-os/var/archived-scripts/embedding-services/gpu_embedding_service_optimized.py",
+          "score": 0.015384615384615385,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "talent-os/tests/test_gpu_embeddings.py",
+          "score": 0.015384615384615385,
+          "match_type": "hybrid"
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.0,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.0,
+        "mrr": 0.0,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.0
+      },
+      "timing_ms": 67.00921058654785,
+      "method_config": {
+        "method": "Hybrid_BM25_Semantic",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "Hybrid_BM25_Semantic",
+      "query_id": "real_file_indexing",
+      "query_text": "file indexing and parsing service",
+      "results": [
+        {
+          "file_path": "ZMCPTools/src/services/RealFileIndexingService.ts",
+          "score": 0.03047794966520434,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "ZMCPTools/src/services/FileOperationsService.ts",
+          "score": 0.028531243721117136,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "ZMCPTools/src/services/WebScrapingService.ts",
+          "score": 0.01639344262295082,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Examine-etc--directory-structure-and-files.json",
+          "score": 0.016129032258064516,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Create-GitHub-issue-for-SQLite-Analysis-Service-wi.json",
+          "score": 0.016129032258064516,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Stop-current-8889-simple-service-and-clean-state.json",
+          "score": 0.015873015873015872,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Check-service-status-for-ports-8888-and-8765.json",
+          "score": 0.015625,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "ZMCPTools/src/services/TaskService.ts",
+          "score": 0.015625,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/030-Investigate-and-fix-service-crashes-for-stability.json",
+          "score": 0.015384615384615385,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Create-GitHub-issue-for-Service---Port-Discovery.json",
+          "score": 0.015384615384615385,
+          "match_type": "hybrid"
+        }
+      ],
+      "metrics": {
+        "precision_1": 1.0,
+        "precision_3": 0.3333333333333333,
+        "precision_5": 0.2,
+        "precision_10": 0.1,
+        "recall_3": 0.5,
+        "recall_5": 0.5,
+        "recall_10": 0.5,
+        "mrr": 1.0,
+        "ndcg_3": 0.75,
+        "ndcg_5": 0.75,
+        "ndcg_10": 0.75
+      },
+      "timing_ms": 69.53096389770508,
+      "method_config": {
+        "method": "Hybrid_BM25_Semantic",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "Hybrid_BM25_Semantic",
+      "query_id": "knowledge_graph_search",
+      "query_text": "semantic search knowledge graph",
+      "results": [
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Search-knowledge-graph-for-current-embedding-model.json",
+          "score": 0.01639344262295082,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "archive/2025-09-06-pre-rescue/pytorch/third_party/NVTX/docs/doxygen/search/variables_4.js",
+          "score": 0.01639344262295082,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Search-knowledge-graph-for-spawn_agent-and-talent.json",
+          "score": 0.016129032258064516,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "archive/2025-09-06-pre-rescue/vllm_build/.deps/flashmla-src/csrc/cutlass/docs/search/enums_1.js",
+          "score": 0.016129032258064516,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Search-knowledge-graph-for-cleanup-and-organizatio.json",
+          "score": 0.015873015873015872,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "archive/2025-09-06-pre-rescue/vllm_build/.deps/cutlass-src/docs/search/files_5.js",
+          "score": 0.015873015873015872,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Create-ZMCP-knowledge-swizzler-for-semantic-search.json",
+          "score": 0.015625,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "archive/2025-09-06-pre-rescue/vllm_build/.deps/cutlass-src/docs/search/search.js",
+          "score": 0.015625,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Search-knowledge-graph-for-existing-solutions.json",
+          "score": 0.015384615384615385,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "talent-os/.venv/lib/python3.12/site-packages/bitsandbytes/research/autograd/_functions.py",
+          "score": 0.015384615384615385,
+          "match_type": "hybrid"
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.0,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.0,
+        "mrr": 0.0,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.0
+      },
+      "timing_ms": 63.41099739074707,
+      "method_config": {
+        "method": "Hybrid_BM25_Semantic",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "Hybrid_BM25_Semantic",
+      "query_id": "unified_search",
+      "query_text": "unified search method with BM25 and embeddings",
+      "results": [
+        {
+          "file_path": "unified_search.py",
+          "score": 0.0315136476426799,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/070-Test-unified-search-with-real-queries.json",
+          "score": 0.03131881575727918,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Create-simple-unified-search-that-works.json",
+          "score": 0.029571646010002173,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "talent-os/var/knowledge_sync/UNIFIED_LANCEDB_EMBEDDING_PLAN_a7b8ade6.json",
+          "score": 0.01639344262295082,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "talent-os/docs/UNIFIED_LANCEDB_EMBEDDING_PLAN.md",
+          "score": 0.016129032258064516,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Create-plugin-infrastructure-with-discovery-and-re.json",
+          "score": 0.015873015873015872,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Define-separate-dense-and-sparse-search-APIs.json",
+          "score": 0.015625,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Search-knowledge-graph-for-current-embedding-model.json",
+          "score": 0.015625,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/070-Test-search-with-real-queries.json",
+          "score": 0.015384615384615385,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Research-and-analyze-missing-endpoints-in-port-900.json",
+          "score": 0.015151515151515152,
+          "match_type": "hybrid"
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.0,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.0,
+        "mrr": 0.0,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.0
+      },
+      "timing_ms": 90.78788757324219,
+      "method_config": {
+        "method": "Hybrid_BM25_Semantic",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "Hybrid_BM25_Semantic",
+      "query_id": "benchmark_testing",
+      "query_text": "reproducible benchmark evaluation",
+      "results": [
+        {
+          "file_path": "gpu_benchmarks/benchmark_embeddings_progressive.py",
+          "score": 0.027106227106227107,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "ZMCPTools/README_REPRODUCIBLE_BENCHMARK.md",
+          "score": 0.01639344262295082,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": ".venv/lib/python3.12/site-packages/torch/utils/benchmark/utils/sparse_fuzzer.py",
+          "score": 0.01639344262295082,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "ZMCPTools/benchmarks/reproducible_search_benchmark.py",
+          "score": 0.016129032258064516,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "archive/2025-09-06-pre-rescue/vllm_build/vllm/benchmarks/lib/endpoint_request_func.py",
+          "score": 0.016129032258064516,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "federalist_benchmark_30s.py",
+          "score": 0.015873015873015872,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "archive/2025-09-06-pre-rescue/vllm/vllm/benchmarks/lib/utils.py",
+          "score": 0.015873015873015872,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "gpu_batch_benchmark_1758249081.json",
+          "score": 0.015625,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "archive/2025-09-06-pre-rescue/vllm/.venv/lib/python3.11/site-packages/torch/utils/benchmark/examples/compare.py",
+          "score": 0.015625,
+          "match_type": "hybrid"
+        },
+        {
+          "file_path": "mega_librarian_benchmarks_v2.json",
+          "score": 0.015384615384615385,
+          "match_type": "hybrid"
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.0,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.0,
+        "mrr": 0.0,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.0
+      },
+      "timing_ms": 56.86330795288086,
+      "method_config": {
+        "method": "Hybrid_BM25_Semantic",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "Semantic_Reranked",
+      "query_id": "embedding_service",
+      "query_text": "GPU embedding service implementation",
+      "results": [
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/050-Implement-GPUServiceClient-ts-for-embedding-servic.json",
+          "score": 1.7740000000000002,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/201-Create-Gemma7B-Embedding-Service.json",
+          "score": 1.7500000000000002,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "talent-os/var/knowledge_sync/UNIFIED_LANCEDB_EMBEDDING_PLAN_a7b8ade6.json",
+          "score": 1.2961,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "gpu_benchmarks/benchmark_parallel_embeddings.py",
+          "score": 1.2883,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "talent-os/bin/benchmark_embedding_query.py",
+          "score": 1.2883,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Compare-EmbeddingGemma-vs-MiniLM-vs-BM25-search-qu.json",
+          "score": 1.287,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Create-simple-SQLite-embeddings-benchmark-database.json",
+          "score": 1.2844,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Run-EmbeddingGemma-vs-MiniLM-vs-BM25-benchmark.json",
+          "score": 1.2844,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "ZMCPTools/src/commands/embeddingStatus.ts",
+          "score": 1.1927999999999999,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Find-spec-for-gemma3embeddings-and-librarian-integ.json",
+          "score": 0.999,
+          "match_type": "semantic"
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.0,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.0,
+        "mrr": 0.0,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.0
+      },
+      "timing_ms": 33.41197967529297,
+      "method_config": {
+        "method": "Semantic_Reranked",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "Semantic_Reranked",
+      "query_id": "real_file_indexing",
+      "query_text": "file indexing and parsing service",
+      "results": [
+        {
+          "file_path": "ZMCPTools/src/services/VectorSearchService.ts",
+          "score": 1.3462800000000001,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "ZMCPTools/src/services/HybridSearchService.ts",
+          "score": 1.34316,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Create-ResultFinderService-for-bubbling-search.json",
+          "score": 1.1401000000000001,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "ZMCPTools/src/services/WebScrapingService.ts",
+          "score": 1.0752,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "ZMCPTools/src/services/FileOperationsService.ts",
+          "score": 1.074,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "ZMCPTools/src/services/TaskService.ts",
+          "score": 1.0715999999999999,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "ZMCPTools/src/services/FoundationCacheService.ts",
+          "score": 1.068,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "ZMCPTools/src/services/DynamicInteractionService.ts",
+          "score": 1.0655999999999999,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "ZMCPTools/src/services/MemoryService.ts",
+          "score": 1.0548,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "ZMCPTools/src/services/RealFileIndexingService.ts",
+          "score": 1.0548,
+          "match_type": "semantic"
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.1,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.5,
+        "mrr": 0.1,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.00146484375
+      },
+      "timing_ms": 31.126022338867188,
+      "method_config": {
+        "method": "Semantic_Reranked",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "Semantic_Reranked",
+      "query_id": "knowledge_graph_search",
+      "query_text": "semantic search knowledge graph",
+      "results": [
+        {
+          "file_path": "archive/2025-09-06-pre-rescue/pytorch/third_party/NVTX/docs/doxygen/search/variables_4.js",
+          "score": 1.1687,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "archive/2025-09-06-pre-rescue/vllm_build/.deps/flashmla-src/csrc/cutlass/docs/search/enums_1.js",
+          "score": 1.1687,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "archive/2025-09-06-pre-rescue/vllm_build/.deps/cutlass-src/docs/search/files_5.js",
+          "score": 1.1687,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "archive/2025-09-06-pre-rescue/vllm_build/.deps/cutlass-src/docs/search/search.js",
+          "score": 1.1687,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "talent-os/.venv/lib/python3.12/site-packages/bitsandbytes/research/autograd/_functions.py",
+          "score": 1.1687,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "test_gemma_search_workload.py",
+          "score": 1.1674,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/070-Test-unified-search-with-real-queries.json",
+          "score": 1.1674,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "archive/2025-09-06-pre-rescue/pytorch/third_party/NVTX/docs/doxygen/search/classes_2.js",
+          "score": 1.1674,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "archive/2025-09-06-pre-rescue/pytorch/third_party/NVTX/docs/doxygen/search/groups_8.js",
+          "score": 1.1674,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "archive/2025-09-06-pre-rescue/pytorch/third_party/NVTX/docs/doxygen/search/all_9.js",
+          "score": 1.1674,
+          "match_type": "semantic"
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.0,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.0,
+        "mrr": 0.0,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.0
+      },
+      "timing_ms": 31.061410903930664,
+      "method_config": {
+        "method": "Semantic_Reranked",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "Semantic_Reranked",
+      "query_id": "unified_search",
+      "query_text": "unified search method with BM25 and embeddings",
+      "results": [
+        {
+          "file_path": "ZMCPTools/src/tools/unifiedSearchTool.ts",
+          "score": 2.7456,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "ZMCPTools/docs/unified_search_llm_prompt.md",
+          "score": 2.67384,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "ZMCPTools/benchmarks/unified_search_benchmark.py",
+          "score": 2.66916,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "ZMCPTools/test_unified_search.py",
+          "score": 2.66604,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "talent-os/var/knowledge_sync/UNIFIED_LANCEDB_EMBEDDING_PLAN_a7b8ade6.json",
+          "score": 2.4492000000000003,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "talent-os/docs/UNIFIED_LANCEDB_EMBEDDING_PLAN.md",
+          "score": 2.4219,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Create-simple-unified-search-that-works.json",
+          "score": 2.3348000000000004,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/100-Search-knowledge-graph-for-current-embedding-model.json",
+          "score": 2.3049000000000004,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "unified_search.py",
+          "score": 2.2971000000000004,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "var/tasks/dom0/user/archive/purged-mvss-2025-09-17/070-Test-unified-search-with-real-queries.json",
+          "score": 2.2802000000000002,
+          "match_type": "semantic"
+        }
+      ],
+      "metrics": {
+        "precision_1": 1.0,
+        "precision_3": 0.3333333333333333,
+        "precision_5": 0.2,
+        "precision_10": 0.1,
+        "recall_3": 0.5,
+        "recall_5": 0.5,
+        "recall_10": 0.5,
+        "mrr": 1.0,
+        "ndcg_3": 0.7058823529411765,
+        "ndcg_5": 0.7058823529411765,
+        "ndcg_10": 0.7058823529411765
+      },
+      "timing_ms": 38.735151290893555,
+      "method_config": {
+        "method": "Semantic_Reranked",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "Semantic_Reranked",
+      "query_id": "benchmark_testing",
+      "query_text": "reproducible benchmark evaluation",
+      "results": [
+        {
+          "file_path": "ZMCPTools/benchmarks/unified_search_benchmark.py",
+          "score": 1.5490799999999998,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": ".venv/lib/python3.12/site-packages/torch/utils/benchmark/utils/sparse_fuzzer.py",
+          "score": 1.2987,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "archive/2025-09-06-pre-rescue/vllm_build/vllm/benchmarks/lib/endpoint_request_func.py",
+          "score": 1.2974,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "archive/2025-09-06-pre-rescue/vllm/vllm/benchmarks/lib/utils.py",
+          "score": 1.2974,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "archive/2025-09-06-pre-rescue/vllm/.venv/lib/python3.11/site-packages/torch/utils/benchmark/examples/compare.py",
+          "score": 1.2974,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "talent-os/bin/benchmark_gpu_vs_cpu.py",
+          "score": 1.2974,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "gpu_benchmarks/benchmark_embeddings_actual.py",
+          "score": 1.2961,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "archive/2025-09-06-pre-rescue/vllm_build/.deps/vllm-flash-attn-src/hopper/benchmark_attn.py",
+          "score": 1.2961,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": "archive/2025-09-06-pre-rescue/vllm/.venv/lib/python3.11/site-packages/torch/utils/benchmark/examples/spectral_ops_fuzz_test.py",
+          "score": 1.2961,
+          "match_type": "semantic"
+        },
+        {
+          "file_path": ".venv/lib/python3.12/site-packages/sympy/functions/elementary/benchmarks/bench_exp.py",
+          "score": 1.2961,
+          "match_type": "semantic"
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.0,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.0,
+        "mrr": 0.0,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.0
+      },
+      "timing_ms": 32.415151596069336,
+      "method_config": {
+        "method": "Semantic_Reranked",
+        "top_k": 10
+      }
+    }
+  ],
+  "best_method": "BM25_Only",
+  "timestamp": 1758421202.1742208
+}

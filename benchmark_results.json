@@ -1,0 +1,1999 @@
+{
+  "dataset": "project_files",
+  "random_seed": 42,
+  "query_count": 5,
+  "method_aggregates": {
+    "BM25_Only": {
+      "metrics": {
+        "precision_1": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "precision_3": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "precision_5": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "precision_10": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "recall_3": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "recall_5": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "recall_10": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "mrr": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "ndcg_3": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "ndcg_5": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "ndcg_10": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        }
+      },
+      "avg_timing_ms": 0.018787384033203125,
+      "query_count": 5
+    },
+    "Semantic_Only": {
+      "metrics": {
+        "precision_1": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "precision_3": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "precision_5": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "precision_10": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "recall_3": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "recall_5": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "recall_10": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "mrr": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "ndcg_3": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "ndcg_5": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "ndcg_10": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        }
+      },
+      "avg_timing_ms": 3.795480728149414,
+      "query_count": 5
+    },
+    "Hybrid_BM25_Semantic": {
+      "metrics": {
+        "precision_1": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "precision_3": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "precision_5": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "precision_10": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "recall_3": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "recall_5": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "recall_10": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "mrr": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "ndcg_3": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "ndcg_5": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "ndcg_10": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        }
+      },
+      "avg_timing_ms": 1.4977455139160156,
+      "query_count": 5
+    },
+    "Semantic_Reranked": {
+      "metrics": {
+        "precision_1": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "precision_3": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "precision_5": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "precision_10": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "recall_3": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "recall_5": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "recall_10": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "mrr": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "ndcg_3": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "ndcg_5": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "ndcg_10": {
+          "mean": 0.0,
+          "std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        }
+      },
+      "avg_timing_ms": 535.5839729309082,
+      "query_count": 5
+    }
+  },
+  "all_results": [
+    {
+      "method_name": "BM25_Only",
+      "query_id": "embedding_service",
+      "query_text": "GPU embedding service implementation",
+      "results": [
+        {
+          "doc_id": "bm25_doc_0_892",
+          "score": 0.9447516864085272,
+          "rank": 1,
+          "content": "BM25 matched document 0 for query: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "bm25_doc_1_892",
+          "score": 0.8556637281163607,
+          "rank": 2,
+          "content": "BM25 matched document 1 for query: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "bm25_doc_2_892",
+          "score": 0.6277901192667488,
+          "rank": 3,
+          "content": "BM25 matched document 2 for query: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "bm25_doc_3_892",
+          "score": 0.5982978162290002,
+          "rank": 4,
+          "content": "BM25 matched document 3 for query: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "bm25_doc_4_892",
+          "score": 0.4262746911625323,
+          "rank": 5,
+          "content": "BM25 matched document 4 for query: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "bm25_doc_5_892",
+          "score": 0.16990244560240217,
+          "rank": 6,
+          "content": "BM25 matched document 5 for query: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "bm25_doc_6_892",
+          "score": 0.16233504392814446,
+          "rank": 7,
+          "content": "BM25 matched document 6 for query: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "bm25_doc_7_892",
+          "score": 0.1,
+          "rank": 8,
+          "content": "BM25 matched document 7 for query: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "bm25_doc_8_892",
+          "score": 0.1,
+          "rank": 9,
+          "content": "BM25 matched document 8 for query: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "bm25_doc_9_892",
+          "score": 0.1,
+          "rank": 10,
+          "content": "BM25 matched document 9 for query: GPU embedding service implemen..."
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.0,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.0,
+        "mrr": 0.0,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.0
+      },
+      "timing_ms": 0.04100799560546875,
+      "method_config": {
+        "method": "BM25_Only",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "BM25_Only",
+      "query_id": "reranker_implementation",
+      "query_text": "neural reranker model usage",
+      "results": [
+        {
+          "doc_id": "bm25_doc_0_818",
+          "score": 1.0393319390858695,
+          "rank": 1,
+          "content": "BM25 matched document 0 for query: neural reranker model usage..."
+        },
+        {
+          "doc_id": "bm25_doc_1_818",
+          "score": 0.9295717256947372,
+          "rank": 2,
+          "content": "BM25 matched document 1 for query: neural reranker model usage..."
+        },
+        {
+          "doc_id": "bm25_doc_2_818",
+          "score": 0.7335896464781693,
+          "rank": 3,
+          "content": "BM25 matched document 2 for query: neural reranker model usage..."
+        },
+        {
+          "doc_id": "bm25_doc_3_818",
+          "score": 0.5428484731477561,
+          "rank": 4,
+          "content": "BM25 matched document 3 for query: neural reranker model usage..."
+        },
+        {
+          "doc_id": "bm25_doc_4_818",
+          "score": 0.4524732784030294,
+          "rank": 5,
+          "content": "BM25 matched document 4 for query: neural reranker model usage..."
+        },
+        {
+          "doc_id": "bm25_doc_5_818",
+          "score": 0.19296504278978077,
+          "rank": 6,
+          "content": "BM25 matched document 5 for query: neural reranker model usage..."
+        },
+        {
+          "doc_id": "bm25_doc_6_818",
+          "score": 0.17160897717661155,
+          "rank": 7,
+          "content": "BM25 matched document 6 for query: neural reranker model usage..."
+        },
+        {
+          "doc_id": "bm25_doc_7_818",
+          "score": 0.1,
+          "rank": 8,
+          "content": "BM25 matched document 7 for query: neural reranker model usage..."
+        },
+        {
+          "doc_id": "bm25_doc_8_818",
+          "score": 0.1,
+          "rank": 9,
+          "content": "BM25 matched document 8 for query: neural reranker model usage..."
+        },
+        {
+          "doc_id": "bm25_doc_9_818",
+          "score": 0.1,
+          "rank": 10,
+          "content": "BM25 matched document 9 for query: neural reranker model usage..."
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.0,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.0,
+        "mrr": 0.0,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.0
+      },
+      "timing_ms": 0.015020370483398438,
+      "method_config": {
+        "method": "BM25_Only",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "BM25_Only",
+      "query_id": "knowledge_graph_search",
+      "query_text": "semantic search knowledge graph",
+      "results": [
+        {
+          "doc_id": "bm25_doc_0_424",
+          "score": 0.9018270018544894,
+          "rank": 1,
+          "content": "BM25 matched document 0 for query: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "bm25_doc_1_424",
+          "score": 0.820085089339067,
+          "rank": 2,
+          "content": "BM25 matched document 1 for query: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "bm25_doc_2_424",
+          "score": 0.6171084955212292,
+          "rank": 3,
+          "content": "BM25 matched document 2 for query: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "bm25_doc_3_424",
+          "score": 0.47637193611701156,
+          "rank": 4,
+          "content": "BM25 matched document 3 for query: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "bm25_doc_4_424",
+          "score": 0.3280127508353208,
+          "rank": 5,
+          "content": "BM25 matched document 4 for query: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "bm25_doc_5_424",
+          "score": 0.261652952810588,
+          "rank": 6,
+          "content": "BM25 matched document 5 for query: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "bm25_doc_6_424",
+          "score": 0.1,
+          "rank": 7,
+          "content": "BM25 matched document 6 for query: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "bm25_doc_7_424",
+          "score": 0.1,
+          "rank": 8,
+          "content": "BM25 matched document 7 for query: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "bm25_doc_8_424",
+          "score": 0.1,
+          "rank": 9,
+          "content": "BM25 matched document 8 for query: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "bm25_doc_9_424",
+          "score": 0.1,
+          "rank": 10,
+          "content": "BM25 matched document 9 for query: semantic search knowledge grap..."
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.0,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.0,
+        "mrr": 0.0,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.0
+      },
+      "timing_ms": 0.014781951904296875,
+      "method_config": {
+        "method": "BM25_Only",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "BM25_Only",
+      "query_id": "fastapi_endpoints",
+      "query_text": "FastAPI REST endpoint implementation",
+      "results": [
+        {
+          "doc_id": "bm25_doc_0_634",
+          "score": 0.9376727984309676,
+          "rank": 1,
+          "content": "BM25 matched document 0 for query: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "bm25_doc_1_634",
+          "score": 0.9265995844004145,
+          "rank": 2,
+          "content": "BM25 matched document 1 for query: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "bm25_doc_2_634",
+          "score": 0.7065632264883613,
+          "rank": 3,
+          "content": "BM25 matched document 2 for query: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "bm25_doc_3_634",
+          "score": 0.5383555978281824,
+          "rank": 4,
+          "content": "BM25 matched document 3 for query: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "bm25_doc_4_634",
+          "score": 0.33610274077779734,
+          "rank": 5,
+          "content": "BM25 matched document 4 for query: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "bm25_doc_5_634",
+          "score": 0.2227834478069955,
+          "rank": 6,
+          "content": "BM25 matched document 5 for query: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "bm25_doc_6_634",
+          "score": 0.1,
+          "rank": 7,
+          "content": "BM25 matched document 6 for query: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "bm25_doc_7_634",
+          "score": 0.1,
+          "rank": 8,
+          "content": "BM25 matched document 7 for query: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "bm25_doc_8_634",
+          "score": 0.1,
+          "rank": 9,
+          "content": "BM25 matched document 8 for query: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "bm25_doc_9_634",
+          "score": 0.1,
+          "rank": 10,
+          "content": "BM25 matched document 9 for query: FastAPI REST endpoint implemen..."
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.0,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.0,
+        "mrr": 0.0,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.0
+      },
+      "timing_ms": 0.012636184692382812,
+      "method_config": {
+        "method": "BM25_Only",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "BM25_Only",
+      "query_id": "error_handling",
+      "query_text": "error handling and logging patterns",
+      "results": [
+        {
+          "doc_id": "bm25_doc_0_276",
+          "score": 1.0789408328915955,
+          "rank": 1,
+          "content": "BM25 matched document 0 for query: error handling and logging pat..."
+        },
+        {
+          "doc_id": "bm25_doc_1_276",
+          "score": 0.7513025263554147,
+          "rank": 2,
+          "content": "BM25 matched document 1 for query: error handling and logging pat..."
+        },
+        {
+          "doc_id": "bm25_doc_2_276",
+          "score": 0.6771005042205462,
+          "rank": 3,
+          "content": "BM25 matched document 2 for query: error handling and logging pat..."
+        },
+        {
+          "doc_id": "bm25_doc_3_276",
+          "score": 0.5781123313567058,
+          "rank": 4,
+          "content": "BM25 matched document 3 for query: error handling and logging pat..."
+        },
+        {
+          "doc_id": "bm25_doc_4_276",
+          "score": 0.37573111138061605,
+          "rank": 5,
+          "content": "BM25 matched document 4 for query: error handling and logging pat..."
+        },
+        {
+          "doc_id": "bm25_doc_5_276",
+          "score": 0.2972325059692729,
+          "rank": 6,
+          "content": "BM25 matched document 5 for query: error handling and logging pat..."
+        },
+        {
+          "doc_id": "bm25_doc_6_276",
+          "score": 0.12376197811346082,
+          "rank": 7,
+          "content": "BM25 matched document 6 for query: error handling and logging pat..."
+        },
+        {
+          "doc_id": "bm25_doc_7_276",
+          "score": 0.1,
+          "rank": 8,
+          "content": "BM25 matched document 7 for query: error handling and logging pat..."
+        },
+        {
+          "doc_id": "bm25_doc_8_276",
+          "score": 0.1,
+          "rank": 9,
+          "content": "BM25 matched document 8 for query: error handling and logging pat..."
+        },
+        {
+          "doc_id": "bm25_doc_9_276",
+          "score": 0.1,
+          "rank": 10,
+          "content": "BM25 matched document 9 for query: error handling and logging pat..."
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.0,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.0,
+        "mrr": 0.0,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.0
+      },
+      "timing_ms": 0.01049041748046875,
+      "method_config": {
+        "method": "BM25_Only",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "Semantic_Only",
+      "query_id": "embedding_service",
+      "query_text": "GPU embedding service implementation",
+      "results": [
+        {
+          "doc_id": "semantic_doc_0_892",
+          "score": 0.9558169100378128,
+          "rank": 1,
+          "content": "Semantically similar document 0 for: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_1_892",
+          "score": 0.9196829422634774,
+          "rank": 2,
+          "content": "Semantically similar document 1 for: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_2_892",
+          "score": 0.7962726956153894,
+          "rank": 3,
+          "content": "Semantically similar document 2 for: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_3_892",
+          "score": 0.6835826775087145,
+          "rank": 4,
+          "content": "Semantically similar document 3 for: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_4_892",
+          "score": 0.6715401793104162,
+          "rank": 5,
+          "content": "Semantically similar document 4 for: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_5_892",
+          "score": 0.5610873107501202,
+          "rank": 6,
+          "content": "Semantically similar document 5 for: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_6_892",
+          "score": 0.5155720353117474,
+          "rank": 7,
+          "content": "Semantically similar document 6 for: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_7_892",
+          "score": 0.3736560403719497,
+          "rank": 8,
+          "content": "Semantically similar document 7 for: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_8_892",
+          "score": 0.27971401998551654,
+          "rank": 9,
+          "content": "Semantically similar document 8 for: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_9_892",
+          "score": 0.25347356267455273,
+          "rank": 10,
+          "content": "Semantically similar document 9 for: GPU embedding service implemen..."
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.0,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.0,
+        "mrr": 0.0,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.0
+      },
+      "timing_ms": 11.025428771972656,
+      "method_config": {
+        "method": "Semantic_Only",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "Semantic_Only",
+      "query_id": "reranker_implementation",
+      "query_text": "neural reranker model usage",
+      "results": [
+        {
+          "doc_id": "semantic_doc_0_818",
+          "score": 0.9179226982024667,
+          "rank": 1,
+          "content": "Semantically similar document 0 for: neural reranker model usage..."
+        },
+        {
+          "doc_id": "semantic_doc_1_818",
+          "score": 0.9031669302926303,
+          "rank": 2,
+          "content": "Semantically similar document 1 for: neural reranker model usage..."
+        },
+        {
+          "doc_id": "semantic_doc_2_818",
+          "score": 0.7624847981734064,
+          "rank": 3,
+          "content": "Semantically similar document 2 for: neural reranker model usage..."
+        },
+        {
+          "doc_id": "semantic_doc_3_818",
+          "score": 0.7160600561962898,
+          "rank": 4,
+          "content": "Semantically similar document 3 for: neural reranker model usage..."
+        },
+        {
+          "doc_id": "semantic_doc_4_818",
+          "score": 0.5807207425650056,
+          "rank": 5,
+          "content": "Semantically similar document 4 for: neural reranker model usage..."
+        },
+        {
+          "doc_id": "semantic_doc_5_818",
+          "score": 0.5868832537261515,
+          "rank": 6,
+          "content": "Semantically similar document 5 for: neural reranker model usage..."
+        },
+        {
+          "doc_id": "semantic_doc_6_818",
+          "score": 0.46968660739412804,
+          "rank": 7,
+          "content": "Semantically similar document 6 for: neural reranker model usage..."
+        },
+        {
+          "doc_id": "semantic_doc_7_818",
+          "score": 0.3966704869432821,
+          "rank": 8,
+          "content": "Semantically similar document 7 for: neural reranker model usage..."
+        },
+        {
+          "doc_id": "semantic_doc_8_818",
+          "score": 0.32357865819595943,
+          "rank": 9,
+          "content": "Semantically similar document 8 for: neural reranker model usage..."
+        },
+        {
+          "doc_id": "semantic_doc_9_818",
+          "score": 0.234843864751624,
+          "rank": 10,
+          "content": "Semantically similar document 9 for: neural reranker model usage..."
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.0,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.0,
+        "mrr": 0.0,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.0
+      },
+      "timing_ms": 3.413677215576172,
+      "method_config": {
+        "method": "Semantic_Only",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "Semantic_Only",
+      "query_id": "knowledge_graph_search",
+      "query_text": "semantic search knowledge graph",
+      "results": [
+        {
+          "doc_id": "semantic_doc_0_424",
+          "score": 0.9749224072636659,
+          "rank": 1,
+          "content": "Semantically similar document 0 for: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "semantic_doc_1_424",
+          "score": 0.824025173630559,
+          "rank": 2,
+          "content": "Semantically similar document 1 for: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "semantic_doc_2_424",
+          "score": 0.7941080435560856,
+          "rank": 3,
+          "content": "Semantically similar document 2 for: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "semantic_doc_3_424",
+          "score": 0.6857778003081239,
+          "rank": 4,
+          "content": "Semantically similar document 3 for: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "semantic_doc_4_424",
+          "score": 0.679828018352745,
+          "rank": 5,
+          "content": "Semantically similar document 4 for: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "semantic_doc_5_424",
+          "score": 0.5718237446056428,
+          "rank": 6,
+          "content": "Semantically similar document 5 for: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "semantic_doc_6_424",
+          "score": 0.5006059957252192,
+          "rank": 7,
+          "content": "Semantically similar document 6 for: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "semantic_doc_7_424",
+          "score": 0.3697121210427077,
+          "rank": 8,
+          "content": "Semantically similar document 7 for: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "semantic_doc_8_424",
+          "score": 0.34352897388804426,
+          "rank": 9,
+          "content": "Semantically similar document 8 for: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "semantic_doc_9_424",
+          "score": 0.2,
+          "rank": 10,
+          "content": "Semantically similar document 9 for: semantic search knowledge grap..."
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.0,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.0,
+        "mrr": 0.0,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.0
+      },
+      "timing_ms": 1.4827251434326172,
+      "method_config": {
+        "method": "Semantic_Only",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "Semantic_Only",
+      "query_id": "fastapi_endpoints",
+      "query_text": "FastAPI REST endpoint implementation",
+      "results": [
+        {
+          "doc_id": "semantic_doc_0_634",
+          "score": 0.9121083284524047,
+          "rank": 1,
+          "content": "Semantically similar document 0 for: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_1_634",
+          "score": 0.9173743840848252,
+          "rank": 2,
+          "content": "Semantically similar document 1 for: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_2_634",
+          "score": 0.8361102833975103,
+          "rank": 3,
+          "content": "Semantically similar document 2 for: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_3_634",
+          "score": 0.7460485669771575,
+          "rank": 4,
+          "content": "Semantically similar document 3 for: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_4_634",
+          "score": 0.6603788182285443,
+          "rank": 5,
+          "content": "Semantically similar document 4 for: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_5_634",
+          "score": 0.5015985924253061,
+          "rank": 6,
+          "content": "Semantically similar document 5 for: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_6_634",
+          "score": 0.4325486587322344,
+          "rank": 7,
+          "content": "Semantically similar document 6 for: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_7_634",
+          "score": 0.3604247209316632,
+          "rank": 8,
+          "content": "Semantically similar document 7 for: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_8_634",
+          "score": 0.3084675146677196,
+          "rank": 9,
+          "content": "Semantically similar document 8 for: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_9_634",
+          "score": 0.23903651536390458,
+          "rank": 10,
+          "content": "Semantically similar document 9 for: FastAPI REST endpoint implemen..."
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.0,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.0,
+        "mrr": 0.0,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.0
+      },
+      "timing_ms": 1.3365745544433594,
+      "method_config": {
+        "method": "Semantic_Only",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "Semantic_Only",
+      "query_id": "error_handling",
+      "query_text": "error handling and logging patterns",
+      "results": [
+        {
+          "doc_id": "semantic_doc_0_276",
+          "score": 0.9410854200333706,
+          "rank": 1,
+          "content": "Semantically similar document 0 for: error handling and logging pat..."
+        },
+        {
+          "doc_id": "semantic_doc_1_276",
+          "score": 0.8610437939830774,
+          "rank": 2,
+          "content": "Semantically similar document 1 for: error handling and logging pat..."
+        },
+        {
+          "doc_id": "semantic_doc_2_276",
+          "score": 0.8395991047838681,
+          "rank": 3,
+          "content": "Semantically similar document 2 for: error handling and logging pat..."
+        },
+        {
+          "doc_id": "semantic_doc_3_276",
+          "score": 0.6809753345135151,
+          "rank": 4,
+          "content": "Semantically similar document 3 for: error handling and logging pat..."
+        },
+        {
+          "doc_id": "semantic_doc_4_276",
+          "score": 0.5993386228086677,
+          "rank": 5,
+          "content": "Semantically similar document 4 for: error handling and logging pat..."
+        },
+        {
+          "doc_id": "semantic_doc_5_276",
+          "score": 0.5264103684219748,
+          "rank": 6,
+          "content": "Semantically similar document 5 for: error handling and logging pat..."
+        },
+        {
+          "doc_id": "semantic_doc_6_276",
+          "score": 0.5042510576373965,
+          "rank": 7,
+          "content": "Semantically similar document 6 for: error handling and logging pat..."
+        },
+        {
+          "doc_id": "semantic_doc_7_276",
+          "score": 0.37199589022053225,
+          "rank": 8,
+          "content": "Semantically similar document 7 for: error handling and logging pat..."
+        },
+        {
+          "doc_id": "semantic_doc_8_276",
+          "score": 0.3557527378188975,
+          "rank": 9,
+          "content": "Semantically similar document 8 for: error handling and logging pat..."
+        },
+        {
+          "doc_id": "semantic_doc_9_276",
+          "score": 0.23708999562898767,
+          "rank": 10,
+          "content": "Semantically similar document 9 for: error handling and logging pat..."
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.0,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.0,
+        "mrr": 0.0,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.0
+      },
+      "timing_ms": 1.7189979553222656,
+      "method_config": {
+        "method": "Semantic_Only",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "Hybrid_BM25_Semantic",
+      "query_id": "embedding_service",
+      "query_text": "GPU embedding service implementation",
+      "results": [
+        {
+          "doc_id": "bm25_doc_0_892",
+          "score": 0.01639344262295082,
+          "rank": 1,
+          "content": "Hybrid result 0 combining BM25+semantic for: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_0_892",
+          "score": 0.01639344262295082,
+          "rank": 2,
+          "content": "Hybrid result 1 combining BM25+semantic for: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "bm25_doc_1_892",
+          "score": 0.016129032258064516,
+          "rank": 3,
+          "content": "Hybrid result 2 combining BM25+semantic for: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_1_892",
+          "score": 0.016129032258064516,
+          "rank": 4,
+          "content": "Hybrid result 3 combining BM25+semantic for: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "bm25_doc_2_892",
+          "score": 0.015873015873015872,
+          "rank": 5,
+          "content": "Hybrid result 4 combining BM25+semantic for: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_2_892",
+          "score": 0.015873015873015872,
+          "rank": 6,
+          "content": "Hybrid result 5 combining BM25+semantic for: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "bm25_doc_3_892",
+          "score": 0.015625,
+          "rank": 7,
+          "content": "Hybrid result 6 combining BM25+semantic for: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_3_892",
+          "score": 0.015625,
+          "rank": 8,
+          "content": "Hybrid result 7 combining BM25+semantic for: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "bm25_doc_4_892",
+          "score": 0.015384615384615385,
+          "rank": 9,
+          "content": "Hybrid result 8 combining BM25+semantic for: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_4_892",
+          "score": 0.015384615384615385,
+          "rank": 10,
+          "content": "Hybrid result 9 combining BM25+semantic for: GPU embedding service implemen..."
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.0,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.0,
+        "mrr": 0.0,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.0
+      },
+      "timing_ms": 2.607107162475586,
+      "method_config": {
+        "method": "Hybrid_BM25_Semantic",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "Hybrid_BM25_Semantic",
+      "query_id": "reranker_implementation",
+      "query_text": "neural reranker model usage",
+      "results": [
+        {
+          "doc_id": "bm25_doc_0_818",
+          "score": 0.01639344262295082,
+          "rank": 1,
+          "content": "Hybrid result 0 combining BM25+semantic for: neural reranker model usage..."
+        },
+        {
+          "doc_id": "semantic_doc_0_818",
+          "score": 0.01639344262295082,
+          "rank": 2,
+          "content": "Hybrid result 1 combining BM25+semantic for: neural reranker model usage..."
+        },
+        {
+          "doc_id": "bm25_doc_1_818",
+          "score": 0.016129032258064516,
+          "rank": 3,
+          "content": "Hybrid result 2 combining BM25+semantic for: neural reranker model usage..."
+        },
+        {
+          "doc_id": "semantic_doc_1_818",
+          "score": 0.016129032258064516,
+          "rank": 4,
+          "content": "Hybrid result 3 combining BM25+semantic for: neural reranker model usage..."
+        },
+        {
+          "doc_id": "bm25_doc_2_818",
+          "score": 0.015873015873015872,
+          "rank": 5,
+          "content": "Hybrid result 4 combining BM25+semantic for: neural reranker model usage..."
+        },
+        {
+          "doc_id": "semantic_doc_2_818",
+          "score": 0.015873015873015872,
+          "rank": 6,
+          "content": "Hybrid result 5 combining BM25+semantic for: neural reranker model usage..."
+        },
+        {
+          "doc_id": "bm25_doc_3_818",
+          "score": 0.015625,
+          "rank": 7,
+          "content": "Hybrid result 6 combining BM25+semantic for: neural reranker model usage..."
+        },
+        {
+          "doc_id": "semantic_doc_3_818",
+          "score": 0.015625,
+          "rank": 8,
+          "content": "Hybrid result 7 combining BM25+semantic for: neural reranker model usage..."
+        },
+        {
+          "doc_id": "bm25_doc_4_818",
+          "score": 0.015384615384615385,
+          "rank": 9,
+          "content": "Hybrid result 8 combining BM25+semantic for: neural reranker model usage..."
+        },
+        {
+          "doc_id": "semantic_doc_4_818",
+          "score": 0.015384615384615385,
+          "rank": 10,
+          "content": "Hybrid result 9 combining BM25+semantic for: neural reranker model usage..."
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.0,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.0,
+        "mrr": 0.0,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.0
+      },
+      "timing_ms": 1.3132095336914062,
+      "method_config": {
+        "method": "Hybrid_BM25_Semantic",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "Hybrid_BM25_Semantic",
+      "query_id": "knowledge_graph_search",
+      "query_text": "semantic search knowledge graph",
+      "results": [
+        {
+          "doc_id": "bm25_doc_0_424",
+          "score": 0.01639344262295082,
+          "rank": 1,
+          "content": "Hybrid result 0 combining BM25+semantic for: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "semantic_doc_0_424",
+          "score": 0.01639344262295082,
+          "rank": 2,
+          "content": "Hybrid result 1 combining BM25+semantic for: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "bm25_doc_1_424",
+          "score": 0.016129032258064516,
+          "rank": 3,
+          "content": "Hybrid result 2 combining BM25+semantic for: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "semantic_doc_1_424",
+          "score": 0.016129032258064516,
+          "rank": 4,
+          "content": "Hybrid result 3 combining BM25+semantic for: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "bm25_doc_2_424",
+          "score": 0.015873015873015872,
+          "rank": 5,
+          "content": "Hybrid result 4 combining BM25+semantic for: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "semantic_doc_2_424",
+          "score": 0.015873015873015872,
+          "rank": 6,
+          "content": "Hybrid result 5 combining BM25+semantic for: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "bm25_doc_3_424",
+          "score": 0.015625,
+          "rank": 7,
+          "content": "Hybrid result 6 combining BM25+semantic for: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "semantic_doc_3_424",
+          "score": 0.015625,
+          "rank": 8,
+          "content": "Hybrid result 7 combining BM25+semantic for: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "bm25_doc_4_424",
+          "score": 0.015384615384615385,
+          "rank": 9,
+          "content": "Hybrid result 8 combining BM25+semantic for: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "semantic_doc_4_424",
+          "score": 0.015384615384615385,
+          "rank": 10,
+          "content": "Hybrid result 9 combining BM25+semantic for: semantic search knowledge grap..."
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.0,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.0,
+        "mrr": 0.0,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.0
+      },
+      "timing_ms": 1.3475418090820312,
+      "method_config": {
+        "method": "Hybrid_BM25_Semantic",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "Hybrid_BM25_Semantic",
+      "query_id": "fastapi_endpoints",
+      "query_text": "FastAPI REST endpoint implementation",
+      "results": [
+        {
+          "doc_id": "bm25_doc_0_634",
+          "score": 0.01639344262295082,
+          "rank": 1,
+          "content": "Hybrid result 0 combining BM25+semantic for: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_0_634",
+          "score": 0.01639344262295082,
+          "rank": 2,
+          "content": "Hybrid result 1 combining BM25+semantic for: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "bm25_doc_1_634",
+          "score": 0.016129032258064516,
+          "rank": 3,
+          "content": "Hybrid result 2 combining BM25+semantic for: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_1_634",
+          "score": 0.016129032258064516,
+          "rank": 4,
+          "content": "Hybrid result 3 combining BM25+semantic for: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "bm25_doc_2_634",
+          "score": 0.015873015873015872,
+          "rank": 5,
+          "content": "Hybrid result 4 combining BM25+semantic for: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_2_634",
+          "score": 0.015873015873015872,
+          "rank": 6,
+          "content": "Hybrid result 5 combining BM25+semantic for: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "bm25_doc_3_634",
+          "score": 0.015625,
+          "rank": 7,
+          "content": "Hybrid result 6 combining BM25+semantic for: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_3_634",
+          "score": 0.015625,
+          "rank": 8,
+          "content": "Hybrid result 7 combining BM25+semantic for: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "bm25_doc_4_634",
+          "score": 0.015384615384615385,
+          "rank": 9,
+          "content": "Hybrid result 8 combining BM25+semantic for: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_4_634",
+          "score": 0.015384615384615385,
+          "rank": 10,
+          "content": "Hybrid result 9 combining BM25+semantic for: FastAPI REST endpoint implemen..."
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.0,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.0,
+        "mrr": 0.0,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.0
+      },
+      "timing_ms": 1.085519790649414,
+      "method_config": {
+        "method": "Hybrid_BM25_Semantic",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "Hybrid_BM25_Semantic",
+      "query_id": "error_handling",
+      "query_text": "error handling and logging patterns",
+      "results": [
+        {
+          "doc_id": "bm25_doc_0_276",
+          "score": 0.01639344262295082,
+          "rank": 1,
+          "content": "Hybrid result 0 combining BM25+semantic for: error handling and logging pat..."
+        },
+        {
+          "doc_id": "semantic_doc_0_276",
+          "score": 0.01639344262295082,
+          "rank": 2,
+          "content": "Hybrid result 1 combining BM25+semantic for: error handling and logging pat..."
+        },
+        {
+          "doc_id": "bm25_doc_1_276",
+          "score": 0.016129032258064516,
+          "rank": 3,
+          "content": "Hybrid result 2 combining BM25+semantic for: error handling and logging pat..."
+        },
+        {
+          "doc_id": "semantic_doc_1_276",
+          "score": 0.016129032258064516,
+          "rank": 4,
+          "content": "Hybrid result 3 combining BM25+semantic for: error handling and logging pat..."
+        },
+        {
+          "doc_id": "bm25_doc_2_276",
+          "score": 0.015873015873015872,
+          "rank": 5,
+          "content": "Hybrid result 4 combining BM25+semantic for: error handling and logging pat..."
+        },
+        {
+          "doc_id": "semantic_doc_2_276",
+          "score": 0.015873015873015872,
+          "rank": 6,
+          "content": "Hybrid result 5 combining BM25+semantic for: error handling and logging pat..."
+        },
+        {
+          "doc_id": "bm25_doc_3_276",
+          "score": 0.015625,
+          "rank": 7,
+          "content": "Hybrid result 6 combining BM25+semantic for: error handling and logging pat..."
+        },
+        {
+          "doc_id": "semantic_doc_3_276",
+          "score": 0.015625,
+          "rank": 8,
+          "content": "Hybrid result 7 combining BM25+semantic for: error handling and logging pat..."
+        },
+        {
+          "doc_id": "bm25_doc_4_276",
+          "score": 0.015384615384615385,
+          "rank": 9,
+          "content": "Hybrid result 8 combining BM25+semantic for: error handling and logging pat..."
+        },
+        {
+          "doc_id": "semantic_doc_4_276",
+          "score": 0.015384615384615385,
+          "rank": 10,
+          "content": "Hybrid result 9 combining BM25+semantic for: error handling and logging pat..."
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.0,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.0,
+        "mrr": 0.0,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.0
+      },
+      "timing_ms": 1.1353492736816406,
+      "method_config": {
+        "method": "Hybrid_BM25_Semantic",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "Semantic_Reranked",
+      "query_id": "embedding_service",
+      "query_text": "GPU embedding service implementation",
+      "results": [
+        {
+          "doc_id": "semantic_doc_9_892",
+          "score": 0.6758472323417664,
+          "rank": 1,
+          "content": "Semantically similar document 9 for: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_10_892",
+          "score": 0.672493040561676,
+          "rank": 2,
+          "content": "Semantically similar document 10 for: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_14_892",
+          "score": 0.6724846959114075,
+          "rank": 3,
+          "content": "Semantically similar document 14 for: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_15_892",
+          "score": 0.6715553998947144,
+          "rank": 4,
+          "content": "Semantically similar document 15 for: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_19_892",
+          "score": 0.6687649488449097,
+          "rank": 5,
+          "content": "Semantically similar document 19 for: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_4_892",
+          "score": 0.6643790006637573,
+          "rank": 6,
+          "content": "Semantically similar document 4 for: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_28_892",
+          "score": 0.6618996262550354,
+          "rank": 7,
+          "content": "Semantically similar document 28 for: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_29_892",
+          "score": 0.6609761118888855,
+          "rank": 8,
+          "content": "Semantically similar document 29 for: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_18_892",
+          "score": 0.6592155694961548,
+          "rank": 9,
+          "content": "Semantically similar document 18 for: GPU embedding service implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_13_892",
+          "score": 0.658645510673523,
+          "rank": 10,
+          "content": "Semantically similar document 13 for: GPU embedding service implemen..."
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.0,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.0,
+        "mrr": 0.0,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.0
+      },
+      "timing_ms": 2369.884252548218,
+      "method_config": {
+        "method": "Semantic_Reranked",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "Semantic_Reranked",
+      "query_id": "reranker_implementation",
+      "query_text": "neural reranker model usage",
+      "results": [
+        {
+          "doc_id": "semantic_doc_28_818",
+          "score": 0.9128180742263794,
+          "rank": 1,
+          "content": "Semantically similar document 28 for: neural reranker model usage..."
+        },
+        {
+          "doc_id": "semantic_doc_20_818",
+          "score": 0.9111506938934326,
+          "rank": 2,
+          "content": "Semantically similar document 20 for: neural reranker model usage..."
+        },
+        {
+          "doc_id": "semantic_doc_24_818",
+          "score": 0.9095821976661682,
+          "rank": 3,
+          "content": "Semantically similar document 24 for: neural reranker model usage..."
+        },
+        {
+          "doc_id": "semantic_doc_18_818",
+          "score": 0.9095472693443298,
+          "rank": 4,
+          "content": "Semantically similar document 18 for: neural reranker model usage..."
+        },
+        {
+          "doc_id": "semantic_doc_3_818",
+          "score": 0.9067131280899048,
+          "rank": 5,
+          "content": "Semantically similar document 3 for: neural reranker model usage..."
+        },
+        {
+          "doc_id": "semantic_doc_23_818",
+          "score": 0.9062979817390442,
+          "rank": 6,
+          "content": "Semantically similar document 23 for: neural reranker model usage..."
+        },
+        {
+          "doc_id": "semantic_doc_1_818",
+          "score": 0.9050851464271545,
+          "rank": 7,
+          "content": "Semantically similar document 1 for: neural reranker model usage..."
+        },
+        {
+          "doc_id": "semantic_doc_4_818",
+          "score": 0.9040591716766357,
+          "rank": 8,
+          "content": "Semantically similar document 4 for: neural reranker model usage..."
+        },
+        {
+          "doc_id": "semantic_doc_22_818",
+          "score": 0.9014348983764648,
+          "rank": 9,
+          "content": "Semantically similar document 22 for: neural reranker model usage..."
+        },
+        {
+          "doc_id": "semantic_doc_21_818",
+          "score": 0.8994066119194031,
+          "rank": 10,
+          "content": "Semantically similar document 21 for: neural reranker model usage..."
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.0,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.0,
+        "mrr": 0.0,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.0
+      },
+      "timing_ms": 80.35898208618164,
+      "method_config": {
+        "method": "Semantic_Reranked",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "Semantic_Reranked",
+      "query_id": "knowledge_graph_search",
+      "query_text": "semantic search knowledge graph",
+      "results": [
+        {
+          "doc_id": "semantic_doc_1_424",
+          "score": 0.9041122198104858,
+          "rank": 1,
+          "content": "Semantically similar document 1 for: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "semantic_doc_24_424",
+          "score": 0.8783410787582397,
+          "rank": 2,
+          "content": "Semantically similar document 24 for: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "semantic_doc_18_424",
+          "score": 0.877966582775116,
+          "rank": 3,
+          "content": "Semantically similar document 18 for: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "semantic_doc_23_424",
+          "score": 0.8778035640716553,
+          "rank": 4,
+          "content": "Semantically similar document 23 for: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "semantic_doc_15_424",
+          "score": 0.877508819103241,
+          "rank": 5,
+          "content": "Semantically similar document 15 for: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "semantic_doc_2_424",
+          "score": 0.8766870498657227,
+          "rank": 6,
+          "content": "Semantically similar document 2 for: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "semantic_doc_28_424",
+          "score": 0.8766031861305237,
+          "rank": 7,
+          "content": "Semantically similar document 28 for: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "semantic_doc_3_424",
+          "score": 0.8763911724090576,
+          "rank": 8,
+          "content": "Semantically similar document 3 for: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "semantic_doc_29_424",
+          "score": 0.8742563128471375,
+          "rank": 9,
+          "content": "Semantically similar document 29 for: semantic search knowledge grap..."
+        },
+        {
+          "doc_id": "semantic_doc_14_424",
+          "score": 0.8710642457008362,
+          "rank": 10,
+          "content": "Semantically similar document 14 for: semantic search knowledge grap..."
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.0,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.0,
+        "mrr": 0.0,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.0
+      },
+      "timing_ms": 53.73692512512207,
+      "method_config": {
+        "method": "Semantic_Reranked",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "Semantic_Reranked",
+      "query_id": "fastapi_endpoints",
+      "query_text": "FastAPI REST endpoint implementation",
+      "results": [
+        {
+          "doc_id": "semantic_doc_1_634",
+          "score": 0.7738861441612244,
+          "rank": 1,
+          "content": "Semantically similar document 1 for: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_4_634",
+          "score": 0.7677689790725708,
+          "rank": 2,
+          "content": "Semantically similar document 4 for: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_15_634",
+          "score": 0.7657817602157593,
+          "rank": 3,
+          "content": "Semantically similar document 15 for: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_20_634",
+          "score": 0.7651671171188354,
+          "rank": 4,
+          "content": "Semantically similar document 20 for: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_19_634",
+          "score": 0.7619616985321045,
+          "rank": 5,
+          "content": "Semantically similar document 19 for: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_3_634",
+          "score": 0.7602008581161499,
+          "rank": 6,
+          "content": "Semantically similar document 3 for: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_9_634",
+          "score": 0.7581936717033386,
+          "rank": 7,
+          "content": "Semantically similar document 9 for: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_28_634",
+          "score": 0.7579441666603088,
+          "rank": 8,
+          "content": "Semantically similar document 28 for: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_23_634",
+          "score": 0.7538954019546509,
+          "rank": 9,
+          "content": "Semantically similar document 23 for: FastAPI REST endpoint implemen..."
+        },
+        {
+          "doc_id": "semantic_doc_24_634",
+          "score": 0.751766562461853,
+          "rank": 10,
+          "content": "Semantically similar document 24 for: FastAPI REST endpoint implemen..."
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.0,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.0,
+        "mrr": 0.0,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.0
+      },
+      "timing_ms": 83.5719108581543,
+      "method_config": {
+        "method": "Semantic_Reranked",
+        "top_k": 10
+      }
+    },
+    {
+      "method_name": "Semantic_Reranked",
+      "query_id": "error_handling",
+      "query_text": "error handling and logging patterns",
+      "results": [
+        {
+          "doc_id": "semantic_doc_20_276",
+          "score": 0.8483540415763855,
+          "rank": 1,
+          "content": "Semantically similar document 20 for: error handling and logging pat..."
+        },
+        {
+          "doc_id": "semantic_doc_24_276",
+          "score": 0.8468287587165833,
+          "rank": 2,
+          "content": "Semantically similar document 24 for: error handling and logging pat..."
+        },
+        {
+          "doc_id": "semantic_doc_22_276",
+          "score": 0.8452636003494263,
+          "rank": 3,
+          "content": "Semantically similar document 22 for: error handling and logging pat..."
+        },
+        {
+          "doc_id": "semantic_doc_10_276",
+          "score": 0.8451510667800903,
+          "rank": 4,
+          "content": "Semantically similar document 10 for: error handling and logging pat..."
+        },
+        {
+          "doc_id": "semantic_doc_23_276",
+          "score": 0.844170868396759,
+          "rank": 5,
+          "content": "Semantically similar document 23 for: error handling and logging pat..."
+        },
+        {
+          "doc_id": "semantic_doc_18_276",
+          "score": 0.8439472913742065,
+          "rank": 6,
+          "content": "Semantically similar document 18 for: error handling and logging pat..."
+        },
+        {
+          "doc_id": "semantic_doc_15_276",
+          "score": 0.8437204360961914,
+          "rank": 7,
+          "content": "Semantically similar document 15 for: error handling and logging pat..."
+        },
+        {
+          "doc_id": "semantic_doc_1_276",
+          "score": 0.843705952167511,
+          "rank": 8,
+          "content": "Semantically similar document 1 for: error handling and logging pat..."
+        },
+        {
+          "doc_id": "semantic_doc_28_276",
+          "score": 0.8434171080589294,
+          "rank": 9,
+          "content": "Semantically similar document 28 for: error handling and logging pat..."
+        },
+        {
+          "doc_id": "semantic_doc_3_276",
+          "score": 0.8419762253761292,
+          "rank": 10,
+          "content": "Semantically similar document 3 for: error handling and logging pat..."
+        }
+      ],
+      "metrics": {
+        "precision_1": 0.0,
+        "precision_3": 0.0,
+        "precision_5": 0.0,
+        "precision_10": 0.0,
+        "recall_3": 0.0,
+        "recall_5": 0.0,
+        "recall_10": 0.0,
+        "mrr": 0.0,
+        "ndcg_3": 0.0,
+        "ndcg_5": 0.0,
+        "ndcg_10": 0.0
+      },
+      "timing_ms": 90.36779403686523,
+      "method_config": {
+        "method": "Semantic_Reranked",
+        "top_k": 10
+      }
+    }
+  ],
+  "best_method": "BM25_Only",
+  "timestamp": 1758420355.5100229
+}
