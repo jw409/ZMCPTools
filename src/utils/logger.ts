@@ -1,6 +1,6 @@
 import { writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
+import { StoragePathResolver } from '../services/StoragePathResolver.js';
 
 export class Logger {
   private logDir: string;
@@ -8,7 +8,12 @@ export class Logger {
 
   constructor(category: string) {
     this.category = category;
-    this.logDir = join(homedir(), '.mcptools', 'logs', category);
+
+    // Use StoragePathResolver for project-local support
+    const storageConfig = StoragePathResolver.getStorageConfig({ preferLocal: true });
+    const basePath = StoragePathResolver.getBaseStoragePath(storageConfig);
+    this.logDir = join(basePath, 'logs', category);
+
     this.ensureLogDir();
   }
 

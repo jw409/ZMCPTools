@@ -7,7 +7,7 @@
 import { Logger } from '../utils/logger.js';
 import * as fs from 'fs';
 import * as path from 'path';
-import { homedir } from 'os';
+import { StoragePathResolver } from './StoragePathResolver.js';
 
 export interface EmbeddingConfig {
   active_model: 'gemma3' | 'qwen3' | 'minilm';
@@ -71,7 +71,6 @@ export class EmbeddingClient {
   private logger: Logger;
   private configPath: string;
   private config: EmbeddingConfig;
-  private mcptoolsDir: string;
 
   // Model specifications
   private readonly MODEL_SPECS: Record<string, ModelInfo> = {
@@ -117,8 +116,11 @@ export class EmbeddingClient {
 
   constructor() {
     this.logger = new Logger('embedding-client');
-    this.mcptoolsDir = path.join(homedir(), '.mcptools');
-    this.configPath = path.join(this.mcptoolsDir, 'embedding_config.json');
+
+    // Use StoragePathResolver for project-local support
+    const storageConfig = StoragePathResolver.getStorageConfig({ preferLocal: true });
+    const basePath = StoragePathResolver.getBaseStoragePath(storageConfig);
+    this.configPath = path.join(basePath, 'embedding_config.json');
     this.config = this.loadConfig();
   }
 
@@ -177,7 +179,8 @@ export class EmbeddingClient {
    * Get or create collection metadata file
    */
   private getCollectionMetadataPath(collectionName: string): string {
-    const lancedbDir = path.join(this.mcptoolsDir, 'lancedb');
+    const storageConfig = StoragePathResolver.getStorageConfig({ preferLocal: true });
+    const lancedbDir = StoragePathResolver.getLanceDBPath(storageConfig);
     return path.join(lancedbDir, `${collectionName}.metadata.json`);
   }
 

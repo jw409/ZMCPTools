@@ -3,13 +3,13 @@
  */
 
 import { randomInt } from 'crypto';
-import { homedir } from 'os';
 import { join } from 'path';
 import { existsSync, mkdirSync, unlinkSync } from 'fs';
 import { chromium, type Browser, type BrowserContext, type Page } from 'patchright';
 import { Logger } from '../utils/logger.js';
 import { PatternMatcher } from '../utils/patternMatcher.js';
 import { SitemapParser, type SitemapResult } from '../utils/sitemapParser.js';
+import { StoragePathResolver } from './StoragePathResolver.js';
 
 export interface BrowserManagerConfig {
   browserType: 'chrome';
@@ -66,16 +66,20 @@ export class BrowserManager {
   }
 
   private createDefaultUserDataDir(): string {
-    const browserDataRoot = join(homedir(), '.mcptools', 'browser_data');
+    // Use StoragePathResolver for project-local support
+    const storageConfig = StoragePathResolver.getStorageConfig({ preferLocal: true });
+    const basePath = StoragePathResolver.getBaseStoragePath(storageConfig);
+    const browserDataRoot = join(basePath, 'browser_data');
+
     if (!existsSync(browserDataRoot)) {
       mkdirSync(browserDataRoot, { recursive: true });
     }
-    
+
     const persistentDir = join(browserDataRoot, `${this.browserType}_${randomInt(1000, 9999)}`);
     if (!existsSync(persistentDir)) {
       mkdirSync(persistentDir, { recursive: true });
     }
-    
+
     return persistentDir;
   }
 

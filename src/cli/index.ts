@@ -10,14 +10,22 @@ import {
   CommunicationService,
   MemoryService,
 } from "../services/index.js";
+import { pathResolver } from "../utils/pathResolver.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const program = new Command();
 
-// Default data directory
-const DEFAULT_DATA_DIR = path.join(os.homedir(), ".mcptools", "data");
+// Helper function for database path resolution with project-local support
+function getDatabasePath(overrideDir?: string): string {
+  if (overrideDir) {
+    // Manual override with --data-dir
+    return path.join(overrideDir, "claude_mcp_tools.db");
+  }
+  // Automatic project-local detection
+  return pathResolver.getDatabasePath();
+}
 
 // Colors for console output
 const colors = {
@@ -44,15 +52,14 @@ program
   .description("Start the MCP server for agent orchestration")
   .option(
     "-d, --data-dir <path>",
-    "Data directory for SQLite database",
-    DEFAULT_DATA_DIR
+    "Override data directory (optional, defaults to project-local if available)"
   )
   .option("-p, --port <number>", "HTTP port for the MCP server", "4269")
   .option("-h, --host <address>", "HTTP host for the MCP server", "127.0.0.1")
   .option("-v, --verbose", "Enable verbose logging")
   .action(async (options) => {
     try {
-      const databasePath = path.join(options.dataDir, "claude_mcp_tools.db");
+      const databasePath = getDatabasePath(options.dataDir);
 
       if (options.verbose) {
         console.log(`📂 Using data directory: ${options.dataDir}`);
@@ -101,11 +108,11 @@ agentCmd
     "-s, --status <status>",
     "Status filter (active, idle, completed, terminated, failed)"
   )
-  .option("-d, --data-dir <path>", "Data directory", DEFAULT_DATA_DIR)
+  .option("-d, --data-dir <path>", "Override data directory (optional)")
   .action(async (options) => {
     try {
       const db = new DatabaseManager({
-        path: path.join(options.dataDir, "claude_mcp_tools.db"),
+        path: getDatabasePath(options.dataDir),
       });
       await db.initialize();
 
@@ -147,13 +154,13 @@ agentCmd
   )
   .requiredOption("-r, --repository <path>", "Repository path")
   .requiredOption("-d, --description <desc>", "Task description")
-  .option("--data-dir <path>", "Data directory", DEFAULT_DATA_DIR)
+  .option("--data-dir <path>", "Override data directory (optional)")
   .option("-c, --capabilities <caps...>", "Agent capabilities")
   .option("--depends-on <ids...>", "Agent IDs this agent depends on")
   .action(async (options) => {
     try {
       const db = new DatabaseManager({
-        path: path.join(options.dataDir, "claude_mcp_tools.db"),
+        path: getDatabasePath(options.dataDir),
       });
       await db.initialize();
 
@@ -185,11 +192,11 @@ agentCmd
   .command("terminate")
   .description("Terminate an agent")
   .requiredOption("-i, --id <agentId>", "Agent ID to terminate")
-  .option("--data-dir <path>", "Data directory", DEFAULT_DATA_DIR)
+  .option("--data-dir <path>", "Override data directory (optional)")
   .action(async (options) => {
     try {
       const db = new DatabaseManager({
-        path: path.join(options.dataDir, "claude_mcp_tools.db"),
+        path: getDatabasePath(options.dataDir),
       });
       await db.initialize();
 
@@ -219,11 +226,12 @@ program
   .option("-a, --agent <id>", "Monitor specific agent ID")
   .option("--interval <ms>", "Update interval in milliseconds", "2000")
   .option("--output-file <path>", "Save HTML output to file")
-  .option("-d, --data-dir <path>", "Data directory", DEFAULT_DATA_DIR)
+  .option("-d, --data-dir <path>", "Override data directory (optional)")
   .action(async (options) => {
     try {
       const { MonitorService } = await import('../services/MonitorService.js');
-      const monitor = new MonitorService(options.dataDir);
+      const dataDir = options.dataDir || path.dirname(getDatabasePath());
+      const monitor = new MonitorService(dataDir);
 
       await monitor.start({
         outputFormat: options.output,
@@ -248,11 +256,11 @@ taskCmd
   .description("List tasks")
   .option("-r, --repository <path>", "Repository path", process.cwd())
   .option("-s, --status <status>", "Status filter")
-  .option("-d, --data-dir <path>", "Data directory", DEFAULT_DATA_DIR)
+  .option("-d, --data-dir <path>", "Override data directory (optional)")
   .action(async (options) => {
     try {
       const db = new DatabaseManager({
-        path: path.join(options.dataDir, "claude_mcp_tools.db"),
+        path: getDatabasePath(options.dataDir),
       });
       await db.initialize();
 
@@ -293,11 +301,11 @@ taskCmd
   .option("-r, --repository <path>", "Repository path", process.cwd())
   .option("--type <type>", "Task type", "feature")
   .option("--priority <priority>", "Priority (low, medium, high)", "medium")
-  .option("--data-dir <path>", "Data directory", DEFAULT_DATA_DIR)
+  .option("--data-dir <path>", "Override data directory (optional)")
   .action(async (options) => {
     try {
       const db = new DatabaseManager({
-        path: path.join(options.dataDir, "claude_mcp_tools.db"),
+        path: getDatabasePath(options.dataDir),
       });
       await db.initialize();
 
@@ -333,11 +341,11 @@ memoryCmd
   .option("-r, --repository <path>", "Repository path", process.cwd())
   .option("-a, --agent <name>", "Agent name filter")
   .option("-l, --limit <number>", "Results limit", "10")
-  .option("-d, --data-dir <path>", "Data directory", DEFAULT_DATA_DIR)
+  .option("-d, --data-dir <path>", "Override data directory (optional)")
   .action(async (options) => {
     try {
       const db = new DatabaseManager({
-        path: path.join(options.dataDir, "claude_mcp_tools.db"),
+        path: getDatabasePath(options.dataDir),
       });
       await db.initialize();
 
@@ -379,11 +387,11 @@ memoryCmd
   .option("-a, --agent <agent>", "Agent name", "cli-user")
   .option("--type <type>", "Entry type", "insight")
   .option("--tags <tags...>", "Tags for the memory")
-  .option("-d, --data-dir <path>", "Data directory", DEFAULT_DATA_DIR)
+  .option("-d, --data-dir <path>", "Override data directory (optional)")
   .action(async (options) => {
     try {
       const db = new DatabaseManager({
-        path: path.join(options.dataDir, "claude_mcp_tools.db"),
+        path: getDatabasePath(options.dataDir),
       });
       await db.initialize();
 
@@ -418,11 +426,11 @@ roomCmd
   .command("list")
   .description("List communication rooms")
   .option("-r, --repository <path>", "Repository path", process.cwd())
-  .option("-d, --data-dir <path>", "Data directory", DEFAULT_DATA_DIR)
+  .option("-d, --data-dir <path>", "Override data directory (optional)")
   .action(async (options) => {
     try {
       const db = new DatabaseManager({
-        path: path.join(options.dataDir, "claude_mcp_tools.db"),
+        path: getDatabasePath(options.dataDir),
       });
       await db.initialize();
 
@@ -458,11 +466,11 @@ roomCmd
   .requiredOption("-n, --name <name>", "Room name")
   .option("-a, --agent <agent>", "Agent name", "cli-user")
   .option("-r, --repository <path>", "Repository path", process.cwd())
-  .option("-d, --data-dir <path>", "Data directory", DEFAULT_DATA_DIR)
+  .option("-d, --data-dir <path>", "Override data directory (optional)")
   .action(async (options) => {
     try {
       const db = new DatabaseManager({
-        path: path.join(options.dataDir, "claude_mcp_tools.db"),
+        path: getDatabasePath(options.dataDir),
       });
       await db.initialize();
 
@@ -541,11 +549,14 @@ program
 program
   .command("status")
   .description("Show system status")
-  .option("-d, --data-dir <path>", "Data directory", DEFAULT_DATA_DIR)
+  .option("-d, --data-dir <path>", "Override data directory (optional)")
   .action(async (options) => {
     try {
+      const dbPath = getDatabasePath(options.dataDir);
+      const isLocal = dbPath.includes('var/db');
+
       const db = new DatabaseManager({
-        path: path.join(options.dataDir, "claude_mcp_tools.db"),
+        path: dbPath,
       });
       await db.initialize();
 
@@ -556,7 +567,11 @@ program
 
       console.log(`\n📊 ZMCPTools TypeScript Status:\n`);
       console.log(`   🔗 Database: Connected`);
-      console.log(`   📁 Data Directory: ${options.dataDir}`);
+      console.log(`   📁 Database: ${dbPath}`);
+      console.log(`   📂 Storage mode: ${isLocal ? 'PROJECT-LOCAL' : 'GLOBAL'}`);
+      if (!isLocal) {
+        console.log(`   💡 To use project-local storage: export ZMCP_USE_LOCAL_DB=true`);
+      }
       console.log(`   📦 Version: 1.0.0 (TypeScript)`);
       console.log(`   🛠️  Build: ${path.join(process.cwd(), "dist")}`);
       console.log("");

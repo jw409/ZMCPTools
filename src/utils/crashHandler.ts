@@ -1,9 +1,9 @@
 import { writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
 import { Logger } from './logger.js';
 import type { DatabaseManager } from '../database/index.js';
 import { ScrapeJobRepository } from '../repositories/ScrapeJobRepository.js';
+import { StoragePathResolver } from '../services/StoragePathResolver.js';
 
 const logger = new Logger('CrashHandler');
 
@@ -15,7 +15,11 @@ export class CrashHandler {
   private scrapeJobRepository: ScrapeJobRepository | null = null;
 
   constructor() {
-    this.crashLogDir = join(homedir(), '.mcptools', 'logs', 'crashes');
+    // Use StoragePathResolver for project-local support
+    const storageConfig = StoragePathResolver.getStorageConfig({ preferLocal: true });
+    const basePath = StoragePathResolver.getBaseStoragePath(storageConfig);
+    this.crashLogDir = join(basePath, 'logs', 'crashes');
+
     this.ensureCrashLogDir();
   }
 

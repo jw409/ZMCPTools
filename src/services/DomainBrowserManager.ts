@@ -3,11 +3,11 @@
  */
 
 import { join } from 'path';
-import { homedir } from 'os';
 import { existsSync, mkdirSync } from 'fs';
 import { URL } from 'url';
 import { BrowserManager, type BrowserManagerConfig } from './BrowserManager.js';
 import { Logger } from '../utils/logger.js';
+import { StoragePathResolver } from './StoragePathResolver.js';
 
 export interface DomainBrowserManagerConfig {
   baseDataDir?: string;
@@ -25,7 +25,16 @@ export class DomainBrowserManager {
 
   private constructor(config: DomainBrowserManagerConfig = {}) {
     this.logger = new Logger('domain-browser-manager');
-    this.baseDataDir = config.baseDataDir || join(homedir(), '.mcptools', 'browser_data');
+
+    // Use StoragePathResolver for project-local support
+    if (config.baseDataDir) {
+      this.baseDataDir = config.baseDataDir;
+    } else {
+      const storageConfig = StoragePathResolver.getStorageConfig({ preferLocal: true });
+      const basePath = StoragePathResolver.getBaseStoragePath(storageConfig);
+      this.baseDataDir = join(basePath, 'browser_data');
+    }
+
     this.defaultBrowserConfig = {
       browserType: 'chrome',
       headless: true,
@@ -33,7 +42,7 @@ export class DomainBrowserManager {
       retryDelay: 2000,
       ...config.defaultBrowserConfig,
     };
-    
+
     // Ensure base data directory exists
     if (!existsSync(this.baseDataDir)) {
       mkdirSync(this.baseDataDir, { recursive: true });

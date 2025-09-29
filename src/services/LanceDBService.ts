@@ -70,10 +70,12 @@ class HuggingFaceEmbeddingFunction {
     // Configure HuggingFace Transformers environment
     env.allowLocalModels = true;
     env.allowRemoteModels = true;
-    
-    // Set cache directory to ~/.mcptools/data/model_cache
-    env.cacheDir = join(homedir(), '.mcptools', 'data', 'model_cache');
-    
+
+    // Use StoragePathResolver for model cache directory
+    const storageConfig = StoragePathResolver.getStorageConfig({ preferLocal: true });
+    const basePath = StoragePathResolver.getBaseStoragePath(storageConfig);
+    env.cacheDir = join(basePath, 'model_cache');
+
     // Ensure cache directory exists
     if (!existsSync(env.cacheDir)) {
       mkdirSync(env.cacheDir, { recursive: true });

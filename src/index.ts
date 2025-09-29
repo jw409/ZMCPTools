@@ -10,13 +10,12 @@ import { CrashHandler, wrapMainServer } from './utils/crashHandler.js';
 import path from 'path';
 import './TEST_LOCAL_VERSION.js';
 import os from 'os';
+import { pathResolver } from './utils/pathResolver.js';
+import { mkdirSync } from 'fs';
 
 // Export key components for testing and external use
 export { ClaudeProcess, ClaudeSpawner, ProcessReaper } from './process/index.js';
 export type { ClaudeSpawnConfig } from './process/index.js';
-
-// Default configuration
-const DEFAULT_DATA_DIR = path.join(os.homedir(), '.mcptools', 'data');
 
 async function mainServer() {
   // Parse command line arguments for transport options
@@ -24,19 +23,28 @@ async function mainServer() {
   const transportIndex = args.indexOf('--transport');
   const portIndex = args.indexOf('--port');
   const hostIndex = args.indexOf('--host');
-  
+
   const transport = (transportIndex !== -1 && args[transportIndex + 1]) ? args[transportIndex + 1] : 'stdio';
   const httpPort = (portIndex !== -1 && args[portIndex + 1]) ? parseInt(args[portIndex + 1]) : 4269;
   const httpHost = (hostIndex !== -1 && args[hostIndex + 1]) ? args[hostIndex + 1] : '127.0.0.1';
 
-  // Get data directory from environment or use default
-  const dataDir = process.env.MCPTOOLS_DATA_DIR || DEFAULT_DATA_DIR;
-  const databasePath = path.join(dataDir, 'claude_mcp_tools.db');
+  // Use PathResolver for project-local database support
+  const databasePath = pathResolver.getDatabasePath();
+  const isLocal = pathResolver.isUsingLocalDatabase();
+
+  // Ensure directory exists for project-local databases
+  if (isLocal) {
+    const dbDir = path.dirname(databasePath);
+    mkdirSync(dbDir, { recursive: true });
+  }
 
   // MCP servers must not output to stdout - using stderr for startup messages
   process.stderr.write('🚀 Starting ZMCPTools TypeScript Server...\n');
-  process.stderr.write(`📁 Data directory: ${dataDir}\n`);
-  process.stderr.write(`🗃️ Database path: ${databasePath}\n`);
+  process.stderr.write(`🗃️  Database: ${databasePath}\n`);
+  process.stderr.write(`📂 Storage mode: ${isLocal ? 'PROJECT-LOCAL' : 'GLOBAL'}\n`);
+  if (!isLocal) {
+    process.stderr.write(`💡 To use project-local storage: export ZMCP_USE_LOCAL_DB=true\n`);
+  }
   process.stderr.write(`🌐 Transport: ${transport.toUpperCase()}\n`);
   if (transport === 'http') {
     process.stderr.write(`🌐 HTTP Host: ${httpHost}:${httpPort}\n`);

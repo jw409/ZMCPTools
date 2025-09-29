@@ -7,8 +7,8 @@
 import { Logger } from '../utils/logger.js';
 import * as fs from 'fs';
 import * as path from 'path';
-import { homedir } from 'os';
 import Database from 'better-sqlite3';
+import { StoragePathResolver } from './StoragePathResolver.js';
 
 export interface BM25Document {
   id: string;
@@ -35,7 +35,6 @@ export class BM25Service {
   private logger: Logger;
   private db: Database.Database;
   private config: BM25Config;
-  private mcptoolsDir: string;
 
   private readonly DEFAULT_CONFIG: BM25Config = {
     database_path: '',  // Will be set in constructor
@@ -47,11 +46,14 @@ export class BM25Service {
 
   constructor(config?: Partial<BM25Config>) {
     this.logger = new Logger('bm25-service');
-    this.mcptoolsDir = path.join(homedir(), '.mcptools');
+
+    // Use StoragePathResolver for project-local support
+    const storageConfig = StoragePathResolver.getStorageConfig({ preferLocal: true });
+    const defaultDbPath = StoragePathResolver.getSQLitePath(storageConfig, 'bm25_index');
 
     this.config = {
       ...this.DEFAULT_CONFIG,
-      database_path: path.join(this.mcptoolsDir, 'bm25_index.db'),
+      database_path: defaultDbPath,
       ...config
     };
 
