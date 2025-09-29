@@ -248,7 +248,7 @@ export class ResourceManager {
       {
         uriTemplate: "vector://status",
         name: "Vector Database Status",
-        description: "ChromaDB connection status and health information",
+        description: "LanceDB connection status, TalentOS GPU integration info, and embedding model details (Stock vs Enhanced mode)",
         mimeType: "application/json",
         _meta: {
           "params": {}
@@ -1037,13 +1037,46 @@ export class ResourceManager {
       const connectionStatus = await this.vectorSearchService.testConnection();
       const collections = await this.vectorSearchService.listCollections();
 
+      // Check TalentOS GPU service status
+      let talentosStatus = null;
+      try {
+        const response = await fetch('http://localhost:8765/health', {
+          signal: AbortSignal.timeout(2000)
+        });
+        if (response.ok) {
+          const health = await response.json();
+          talentosStatus = {
+            available: true,
+            device: health.device,
+            status: health.status,
+            vram_free_gb: health.vram_free_gb,
+            vram_usage_gb: health.vram_usage_gb,
+            models_available: health.models_available || [],
+            models_loaded: health.models_loaded || {}
+          };
+        }
+      } catch (error) {
+        talentosStatus = {
+          available: false,
+          error: 'TalentOS embedding service (port 8765) unavailable'
+        };
+      }
+
+      // Determine mode based on TalentOS availability
+      const mode = talentosStatus?.available ? 'TalentOS Enhanced' : 'Stock ZMCP';
+      const versionInfo = connectionStatus.version || 'LanceDB Vector Store';
+      const enhancedVersion = talentosStatus?.available
+        ? `${versionInfo} + TalentOS GPU (Qwen3 0.6B)`
+        : versionInfo;
+
       return {
         uri: "vector://status",
         mimeType: "application/json",
         text: JSON.stringify(
           {
             status: connectionStatus.connected ? "connected" : "disconnected",
-            version: connectionStatus.version,
+            mode: mode,
+            version: enhancedVersion,
             error: connectionStatus.error,
             collections: {
               total: collections.length,
@@ -1051,6 +1084,13 @@ export class ResourceManager {
                 (sum, col) => sum + col.count,
                 0
               ),
+            },
+            talentos_integration: talentosStatus,
+            embedding_info: {
+              active_model: talentosStatus?.available ? 'qwen3_06b' : 'Xenova/all-MiniLM-L6-v2',
+              dimensions: talentosStatus?.available ? 1024 : 384,
+              acceleration: talentosStatus?.available ? 'GPU (16x faster)' : 'CPU baseline',
+              endpoint: talentosStatus?.available ? 'http://localhost:8765' : 'local'
             },
             timestamp: new Date().toISOString(),
           },
@@ -1065,6 +1105,7 @@ export class ResourceManager {
         text: JSON.stringify(
           {
             status: "error",
+            mode: "Unknown",
             error:
               error instanceof Error
                 ? error.message

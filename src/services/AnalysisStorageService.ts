@@ -10,6 +10,7 @@ import * as path from 'path';
 import { homedir } from 'os';
 import Database from 'better-sqlite3';
 import { Logger } from '../utils/logger.js';
+import { StoragePathResolver } from './StoragePathResolver.js';
 
 export interface ContextPaths {
   project: string | null;    // Current repo (domU) - project_map.db
@@ -135,14 +136,26 @@ export class AnalysisStorageService {
     if (!contexts.ecosystem && contexts.project) {
       // Check if we're in a known ecosystem based on project path
       if (contexts.project.includes('/dev/meshly/')) {
-        contexts.ecosystem = path.join(homedir(), 'dev/meshly/var/analysis/system_patterns.db');
+        const meshlyConfig = StoragePathResolver.getStorageConfig({
+          forceScope: 'dom0',
+          projectPath: path.join(homedir(), 'dev/meshly')
+        });
+        StoragePathResolver.ensureStorageDirectories(meshlyConfig);
+        contexts.ecosystem = StoragePathResolver.getSQLitePath(meshlyConfig, 'system_patterns');
       } else if (contexts.project.includes('/dev/game1/')) {
-        contexts.ecosystem = path.join(homedir(), 'dev/game1/var/analysis/system_patterns.db');
+        const game1Config = StoragePathResolver.getStorageConfig({
+          forceScope: 'dom0',
+          projectPath: path.join(homedir(), 'dev/game1')
+        });
+        StoragePathResolver.ensureStorageDirectories(game1Config);
+        contexts.ecosystem = StoragePathResolver.getSQLitePath(game1Config, 'system_patterns');
       }
     }
 
-    // Optional global context
-    contexts.global = path.join(homedir(), '.mcptools/data/analysis/global_patterns.db');
+    // Optional global context using StoragePathResolver
+    const globalConfig = StoragePathResolver.getStorageConfig({ forceScope: 'dom0' });
+    StoragePathResolver.ensureStorageDirectories(globalConfig);
+    contexts.global = StoragePathResolver.getSQLitePath(globalConfig, 'global_patterns');
 
     // Cache the result
     this.contextCache.set(cacheKey, contexts);

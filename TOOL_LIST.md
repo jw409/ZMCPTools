@@ -1,11 +1,11 @@
 # ZMCPTools - Complete Tool Reference
 
-This document provides a comprehensive reference for all 61 MCP tools available in ZMCPTools. Tools are organized by category for easy navigation and understanding.
+This document provides a comprehensive reference for all 62 MCP tools available in ZMCPTools. Tools are organized by category for easy navigation and understanding.
 
 ## Table of Contents
 
 - [Multi-Agent Orchestration (13 tools)](#multi-agent-orchestration)
-- [Browser Automation (12 tools)](#browser-automation)
+- [Browser Automation (13 tools)](#browser-automation)
 - [Browser AI DOM Tools (5 tools)](#browser-ai-dom-tools)
 - [Communication & Coordination (10 tools)](#communication--coordination)
 - [Documentation & Web Scraping (9 tools)](#documentation--web-scraping)
@@ -40,13 +40,14 @@ This document provides a comprehensive reference for all 61 MCP tools available 
 
 ## Browser Automation
 
-**12 tools for advanced web automation and interaction**
+**13 tools for advanced web automation and interaction**
 
 | Tool Name | Description |
 |-----------|-------------|
 | `create_browser_session` | Create a new browser session with intelligent auto-close and session management |
 | `navigate_and_scrape` | Navigate to a URL and optionally scrape content in one operation. Auto-creates session if needed |
 | `interact_with_page` | Perform multiple interactions with a page: click, type, hover, select, screenshot, wait, scroll |
+| `perform_dynamic_interaction` | Perform intelligent, goal-oriented interactions with dynamic web pages using state-aware execution loop. Handles modern SPAs, React, Vue, Angular applications with automatic waiting, verification, and retry logic. |
 | `manage_browser_sessions` | Manage browser sessions: list, close, cleanup idle sessions, get status |
 | `navigate_to_url` | [LEGACY] Navigate to a URL in an existing browser session. Use navigate_and_scrape instead |
 | `scrape_content` | [LEGACY] Scrape content from the current page. Use navigate_and_scrape instead |
@@ -166,7 +167,7 @@ This document provides a comprehensive reference for all 61 MCP tools available 
 ## Tool Categories Summary
 
 - **Multi-Agent Orchestration**: 13 tools for coordinating AI agent teams
-- **Browser Automation**: 12 tools for web automation (8 legacy tools for backward compatibility)
+- **Browser Automation**: 13 tools for web automation (8 legacy tools for backward compatibility)
 - **Browser AI DOM Tools**: 5 tools for intelligent DOM analysis
 - **Communication & Coordination**: 10 tools for agent collaboration
 - **Documentation & Web Scraping**: 9 tools for intelligent documentation collection
@@ -175,7 +176,7 @@ This document provides a comprehensive reference for all 61 MCP tools available 
 - **Tree Summary System**: 5 tools for project structure caching
 - **Progress Reporting**: 1 tool for progress tracking
 
-**Total: 61 Professional MCP Tools**
+**Total: 62 Professional MCP Tools**
 
 ## Usage Notes
 

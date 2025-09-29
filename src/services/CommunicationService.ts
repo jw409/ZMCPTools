@@ -2,6 +2,7 @@ import { DatabaseManager } from '../database/index.js';
 import { CommunicationRepository } from '../repositories/CommunicationRepository.js';
 import { PathUtils } from '../utils/pathUtils.js';
 import { eventBus } from './EventBus.js';
+import { FairShareScheduler } from './FairShareScheduler.js';
 import type { ChatRoom, ChatMessage, NewChatRoom, NewChatMessage, MessageType, MessageFilter, SendMessageRequest } from '../schemas/index.js';
 
 export interface CreateRoomRequest {
@@ -25,9 +26,11 @@ export interface CommunicationServiceMessageFilter {
 
 export class CommunicationService {
   private commRepo: CommunicationRepository;
+  private fairShareScheduler: FairShareScheduler;
 
   constructor(private db: DatabaseManager) {
     this.commRepo = new CommunicationRepository(db);
+    this.fairShareScheduler = new FairShareScheduler();
   }
 
   // Room management
@@ -557,6 +560,93 @@ export class CommunicationService {
     };
   }
 
+  // Fair Share Communication Methods
+
+  /**
+   * Get next agent who should speak based on fair share priority
+   */
+  async getNextSpeaker(roomName: string): Promise<string | null> {
+    const participants = await this.getRoomParticipants(roomName);
+    return this.fairShareScheduler.getNextSpeaker(roomName, participants);
+  }
+
+  /**
+   * Update agent work state for priority calculation
+   */
+  updateAgentWorkState(agentId: string, state: 'idle' | 'active' | 'blocked' | 'critical' | 'completing'): void {
+    this.fairShareScheduler.updateAgentWorkState(agentId, state);
+  }
+
+  /**
+   * Set phase leadership role for priority calculation
+   */
+  setPhaseRole(agentId: string, role: 'leader' | 'participant' | 'observer'): void {
+    this.fairShareScheduler.setPhaseRole(agentId, role);
+  }
+
+  /**
+   * Check if agent should be allowed to speak (fair share enforcement)
+   */
+  async shouldAllowMessage(roomName: string, agentId: string): Promise<{ allowed: boolean; reason: string }> {
+    const nextSpeaker = await this.getNextSpeaker(roomName);
+
+    if (!nextSpeaker) {
+      return { allowed: true, reason: 'No other participants' };
+    }
+
+    if (nextSpeaker === agentId) {
+      return { allowed: true, reason: 'Highest priority speaker' };
+    }
+
+    // Check if agent has critical priority that overrides turn order
+    const agentPriority = this.fairShareScheduler.calculateCommunicationPriority(agentId);
+    const nextSpeakerPriority = this.fairShareScheduler.calculateCommunicationPriority(nextSpeaker);
+
+    if (agentPriority.priority >= 8.0) {
+      return { allowed: true, reason: `Critical priority (${agentPriority.priority.toFixed(1)})` };
+    }
+
+    if (agentPriority.priority > nextSpeakerPriority.priority + 2.0) {
+      return { allowed: true, reason: `Significantly higher priority (+${(agentPriority.priority - nextSpeakerPriority.priority).toFixed(1)})` };
+    }
+
+    return {
+      allowed: false,
+      reason: `${nextSpeaker} has higher priority (${nextSpeakerPriority.priority.toFixed(1)} vs ${agentPriority.priority.toFixed(1)})`
+    };
+  }
+
+  /**
+   * Send message with fair share priority enforcement
+   */
+  async sendPriorityMessage(request: SendMessageRequest, enforceFairShare = true): Promise<ChatMessage> {
+    if (enforceFairShare && request.messageType !== 'system') {
+      const priorityCheck = await this.shouldAllowMessage(request.roomName, request.agentName);
+
+      if (!priorityCheck.allowed) {
+        throw new Error(`Message blocked by fair share scheduler: ${priorityCheck.reason}`);
+      }
+    }
+
+    // Use existing sendMessage method
+    return await this.sendMessage(request);
+  }
+
+  /**
+   * Get communication priority debugging info
+   */
+  getCommunicationDebugInfo(agentId: string): {
+    metrics: any;
+    priority: any;
+    recentHistory: any[];
+  } {
+    return {
+      metrics: this.fairShareScheduler.getAgentMetrics(agentId),
+      priority: this.fairShareScheduler.calculateCommunicationPriority(agentId),
+      recentHistory: this.fairShareScheduler.getPriorityHistory(10)
+    };
+  }
+
   private processMentions(
     mentions: string[],
     roomName: string,
@@ -568,7 +658,7 @@ export class CommunicationService {
     // - Send notifications to mentioned agents
     // - Trigger webhooks or events
     // - Update agent attention/priority systems
-    
+
     process.stderr.write(`Processing mentions in ${roomName}: ${mentions.join(', ')}\\n`);
   }
 

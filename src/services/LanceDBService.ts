@@ -11,6 +11,8 @@ import { homedir } from 'os';
 import { Logger } from '../utils/logger.js';
 import type { DatabaseManager } from '../database/index.js';
 import { pipeline, env } from '@xenova/transformers';
+import { StoragePathResolver, type StorageScope } from './StoragePathResolver.js';
+import { TalentOSEmbeddingFunction } from './TalentOSEmbeddingFunction.js';
 
 export interface LanceDBConfig {
   dataPath?: string;
@@ -18,6 +20,11 @@ export interface LanceDBConfig {
   embeddingModel?: string;
   apiKey?: string;
   vectorDimension?: number;
+
+  // Dom0/DomU isolation options
+  storageScope?: StorageScope;
+  projectPath?: string;
+  preferLocal?: boolean;
 }
 
 export interface VectorDocument {
@@ -223,10 +230,11 @@ class HuggingFaceEmbeddingFunction {
 export class LanceDBService {
   private connection: lancedb.Connection | null = null;
   private tables: Map<string, lancedb.Table> = new Map();
-  private embeddingFunction: HuggingFaceEmbeddingFunction;
+  private embeddingFunction: HuggingFaceEmbeddingFunction | TalentOSEmbeddingFunction;
   private logger: Logger;
   private config: LanceDBConfig;
   private dataPath: string;
+  private usingTalentOS: boolean = false;
 
   constructor(
     private db: DatabaseManager,
@@ -240,23 +248,52 @@ export class LanceDBService {
       ...config
     };
 
-    // Set up data directory
-    this.dataPath = config.dataPath || join(homedir(), '.mcptools', 'lancedb');
+    // Set up data directory using StoragePathResolver for Dom0/DomU isolation
+    this.dataPath = this.resolveLanceDBPath(config);
     this.ensureDataDirectory();
 
-    // Initialize HuggingFace embedding function
-    const modelName = this.getModelName();
-    this.embeddingFunction = new HuggingFaceEmbeddingFunction(modelName);
-    
-    // Update vector dimension based on the selected model
-    this.config.vectorDimension = this.embeddingFunction.getDimension();
+    // Initialize embedding function - TalentOS if available, HuggingFace fallback
+    this.initializeEmbeddingFunction();
 
     this.logger.info('LanceDBService initialized', {
       dataPath: this.dataPath,
       embeddingProvider: this.config.embeddingProvider,
       embeddingModel: this.config.embeddingModel,
-      vectorDimension: this.config.vectorDimension
+      vectorDimension: this.config.vectorDimension,
+      usingTalentOS: this.usingTalentOS
     });
+  }
+
+  /**
+   * Resolve LanceDB storage path using StoragePathResolver
+   * Supports Dom0/DomU isolation while maintaining backward compatibility
+   */
+  private resolveLanceDBPath(config: LanceDBConfig): string {
+    // If explicit dataPath provided, use it (backward compatibility)
+    if (config.dataPath) {
+      return config.dataPath;
+    }
+
+    // Use StoragePathResolver for Dom0/DomU isolation
+    const storageConfig = StoragePathResolver.getStorageConfig({
+      preferLocal: config.preferLocal,
+      projectPath: config.projectPath,
+      forceScope: config.storageScope
+    });
+
+    // Ensure storage directories exist
+    StoragePathResolver.ensureStorageDirectories(storageConfig);
+
+    // Get LanceDB path using resolver
+    const lanceDbPath = StoragePathResolver.getLanceDBPath(storageConfig);
+
+    this.logger.info('Resolved LanceDB path', {
+      scope: storageConfig.scope,
+      path: lanceDbPath,
+      projectPath: storageConfig.projectPath || 'current'
+    });
+
+    return lanceDbPath;
   }
 
   /**
@@ -984,6 +1021,35 @@ export class LanceDBService {
         connected: false,
         error: errorMsg
       };
+    }
+  }
+
+  /**
+   * Initialize the appropriate embedding function based on availability
+   */
+  private initializeEmbeddingFunction(): void {
+    const modelName = this.getModelName();
+
+    // Check if this is a TalentOS model request
+    if (modelName === 'qwen3' || modelName === 'talentos' || modelName.startsWith('qwen3_')) {
+      this.logger.info('Initializing TalentOS embedding function', { model: modelName });
+
+      // Use TalentOS embedding function with Qwen3 0.6B
+      this.embeddingFunction = new TalentOSEmbeddingFunction({
+        modelName: 'qwen3_06b', // Always use Qwen3 0.6B per user request
+        endpoint: 'http://localhost:8765'
+      });
+
+      this.usingTalentOS = true;
+      this.config.vectorDimension = 1024; // Qwen3 0.6B dimensions
+
+    } else {
+      this.logger.info('Initializing HuggingFace embedding function', { model: modelName });
+
+      // Use HuggingFace embedding function as fallback
+      this.embeddingFunction = new HuggingFaceEmbeddingFunction(modelName);
+      this.usingTalentOS = false;
+      this.config.vectorDimension = this.embeddingFunction.getDimension();
     }
   }
 

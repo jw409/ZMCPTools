@@ -5,6 +5,7 @@ import { homedir } from 'os';
 import { mkdirSync, existsSync, statSync } from 'fs';
 import { readFile, access, stat, readdir } from 'fs/promises';
 import Database from 'better-sqlite3';
+import { StoragePathResolver } from './StoragePathResolver.js';
 
 export interface CacheEntry {
   id: string;
@@ -98,13 +99,10 @@ export class FoundationCacheService {
   }
 
   private initializeCacheDatabase(): void {
-    const dbPath = join(homedir(), '.mcptools', 'data', 'foundation_cache.db');
-    
-    // Ensure directory exists
-    const dbDir = dirname(dbPath);
-    if (!existsSync(dbDir)) {
-      mkdirSync(dbDir, { recursive: true });
-    }
+    // Use StoragePathResolver for Dom0/DomU isolation
+    const storageConfig = StoragePathResolver.getStorageConfig({ preferLocal: true });
+    StoragePathResolver.ensureStorageDirectories(storageConfig);
+    const dbPath = StoragePathResolver.getSQLitePath(storageConfig, 'foundation_cache');
 
     this.db = new Database(dbPath, {
       timeout: 30000,
