@@ -206,25 +206,20 @@ Returns ranked results with combined scores and detailed statistics.`,
  */
 export const reindexKnowledgeBase: Tool = {
   name: 'reindex_knowledge_base',
-  description: `Re-index the knowledge base for optimal hybrid search performance.
+  description: `Bulk index files or rebuild embeddings.
 
-**What it does**:
-- Rebuilds both BM25 (keyword) and vector (semantic) indexes
-- Optimizes for hybrid search performance
-- Updates embeddings with latest GPU models
-- Clears stale index data
+**Use for**:
+- External data import (GitHub repos, docs directories)
+- Model migration (requires re-embedding with new dimensions)
+- Index corruption recovery
 
-**When to use**:
-- After switching embedding models (qwen3 ↔ gemma3 ↔ minilm)
-- Knowledge base content has significantly changed
-- Search quality degradation noticed
-- After GPU service configuration changes
+**Not for**: Incremental updates - use store_knowledge_memory (embeds immediately).
 
-**Performance**:
-- Small knowledge base (<1000 docs): ~30 seconds
-- Large knowledge base (>5000 docs): ~5 minutes
+**Requires GPU** (gemma3). Fails if service unavailable.
 
-**Note**: This operation will temporarily affect search performance during rebuilding.`,
+**Params**: index_files (bool, default false), file_patterns (["*.py","*.md"]), batch_size (default 100).
+
+**Returns**: files_indexed, embeddings_generated, duration_ms.`,
   inputSchema: ReindexKnowledgeBaseSchema,
 
   async handler({ repository_path, force_reindex, embedding_model, batch_size }) {

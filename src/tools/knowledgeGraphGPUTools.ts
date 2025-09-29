@@ -35,22 +35,13 @@ const SwitchEmbeddingModeSchema = z.object({
  */
 export const searchKnowledgeGraphGPU: Tool = {
   name: 'search_knowledge_graph_gpu',
-  description: `GPU-accelerated semantic search using Qwen3-0.6B embeddings (16x faster than CPU).
+  description: `GPU semantic search with Gemma3-768D embeddings (~10x faster than baseline).
 
-**Performance**: 1,637 docs/sec with 1024-dimensional embeddings for superior semantic understanding.
+**Requires**: Embedding service at GPU_EMBEDDING_SERVICE_URL (default: http://localhost:8765). Local: systemctl --user start embedding-service. **Fails if GPU unavailable** - use baseline search_knowledge_graph for CPU fallback.
 
-**Use when**:
-- In TalentOS context with GPU available
-- Need highest quality semantic search
-- Large document collections (>100 docs)
+**Params**: use_bm25 (default false, experimental), model (reserved for future - currently fixed gemma3), use_reranker (deferred).
 
-**Automatic fallback**: Falls back to local MiniLM if GPU service unavailable.
-
-**Quality comparison**:
-- Qwen3-0.6B (GPU): 0.705 quality score, 1024 dimensions
-- MiniLM-L6-v2 (CPU): Basic quality, 384 dimensions
-
-Returns enhanced results with GPU acceleration when available, seamless fallback otherwise.`,
+**Returns**: Entity results + metadata (model_used: 'gemma3', dimensions: 768).`,
   inputSchema: SearchKnowledgeGraphGPUSchema,
 
   async handler({ repository_path, query, limit, threshold, entity_types, include_relationships }) {
@@ -106,17 +97,9 @@ Returns enhanced results with GPU acceleration when available, seamless fallback
  */
 export const getEmbeddingStatus: Tool = {
   name: 'get_embedding_status',
-  description: `Get comprehensive status of the embedding service and active models.
+  description: `GPU service diagnostics at configured endpoint (default localhost:8765).
 
-Returns:
-- GPU service health and availability
-- Active embedding model and dimensions
-- VRAM usage and free memory
-- Available models and their status
-- Performance metrics
-- Collection compatibility info
-
-Use this to debug embedding issues or verify GPU acceleration status.`,
+**Returns**: service health, active model, VRAM usage, **project-local LanceDB collection status** (which collections exist at repository_path/var/storage/lancedb/, vector counts, model compatibility). Use to verify GPU before operations or debug collection issues.`,
   inputSchema: GetEmbeddingStatusSchema,
 
   async handler({ repository_path }) {
@@ -138,6 +121,33 @@ Use this to debug embedding issues or verify GPU acceleration status.`,
         logger.debug('Could not fetch GPU service details', { error: error.message });
       }
 
+      // Check project-local collections if repository_path provided
+      let projectCollections = {};
+      if (repository_path) {
+        const projectLanceDbPath = `${repository_path}/var/storage/lancedb`;
+        try {
+          const fs = await import('fs');
+          const path = await import('path');
+          if (fs.existsSync(projectLanceDbPath)) {
+            const collections = fs.readdirSync(projectLanceDbPath)
+              .filter(name => name.endsWith('.lance'));
+            projectCollections = {
+              path: projectLanceDbPath,
+              collections: collections.map(name => name.replace('.lance', '')),
+              count: collections.length
+            };
+          } else {
+            projectCollections = {
+              path: projectLanceDbPath,
+              status: 'not_initialized',
+              message: 'Project-local LanceDB not yet created'
+            };
+          }
+        } catch (error) {
+          logger.debug('Could not check project collections', { error: error.message });
+        }
+      }
+
       return {
         success: true,
         status: healthStatus.status,
@@ -154,11 +164,9 @@ Use this to debug embedding issues or verify GPU acceleration status.`,
           vram_free_gb: gpuServiceDetails?.vram_free_gb || 'unknown',
           loaded_models: gpuServiceDetails?.loaded_count || 0
         },
-        collections: healthStatus.collections,
+        project_collections: projectCollections,
+        global_collections: healthStatus.collections,
         warnings: healthStatus.warnings,
-        performance_note: healthStatus.gpu_available ?
-          "GPU acceleration active - 16x faster than CPU" :
-          "CPU fallback mode - consider checking GPU service",
         last_validation: healthStatus.last_validation
       };
 

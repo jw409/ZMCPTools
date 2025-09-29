@@ -69,6 +69,20 @@ export const MemoryStatusSchema = z.object({
   repository_path: z.string().min(1).describe("The absolute path to the repository to analyze")
 }).describe("Get comprehensive memory status including pollution indicators, context distribution, and quality metrics.");
 
+export const UpdateKnowledgeEntitySchema = z.object({
+  repository_path: z.string().min(1).describe("The absolute path to the repository"),
+  entity_id: z.string().min(1).describe("The ID of the entity to update"),
+  updates: z.object({
+    entity_name: z.string().optional().describe("New name for the entity"),
+    entity_description: z.string().optional().describe("New description for the entity"),
+    entity_type: entityTypeSchema.optional().describe("New type for the entity"),
+    importance_score: z.number().min(0).max(1).optional().describe("New importance score (0.0 to 1.0)"),
+    confidence_score: z.number().min(0).max(1).optional().describe("New confidence score (0.0 to 1.0)"),
+    properties: z.record(z.string(), z.string()).optional().describe("Properties to merge with existing properties")
+  }).describe("Fields to update - only provided fields will be changed"),
+  re_embed: z.boolean().optional().describe("Force re-embedding. Auto-enabled if description changes")
+}).describe("Update entity metadata or content with optional re-embedding. Updates: importance_score, confidence_score, entity_type, entity_name, entity_description, properties. Re-embedding: Auto if description changes, or force with re_embed=true. Requires GPU if re-embedding.");
+
 export const ExportKnowledgeGraphSchema = z.object({
   repository_path: z.string().min(1).describe("The absolute path to the repository to export knowledge from"),
   output_format: z.enum(['json', 'jsonl', 'csv']).default('json').describe("Output format for the exported data"),
@@ -90,6 +104,7 @@ export type FindRelatedEntitiesInput = z.infer<typeof FindRelatedEntitiesSchema>
 export type PruneMemoryInput = z.infer<typeof PruneMemorySchema>;
 export type CompactMemoryInput = z.infer<typeof CompactMemorySchema>;
 export type MemoryStatusInput = z.infer<typeof MemoryStatusSchema>;
+export type UpdateKnowledgeEntityInput = z.infer<typeof UpdateKnowledgeEntitySchema>;
 export type ExportKnowledgeGraphInput = z.infer<typeof ExportKnowledgeGraphSchema>;
 export type WipeKnowledgeGraphInput = z.infer<typeof WipeKnowledgeGraphSchema>;
 
@@ -206,6 +221,14 @@ export const MemoryStatusResponseSchema = z.object({
   recommendations: z.array(z.string()).describe("Recommended cleanup actions based on analysis")
 }).describe("Comprehensive status of memory health and pollution indicators");
 
+export const UpdateKnowledgeEntityResponseSchema = z.object({
+  success: z.boolean().describe("Whether the update was successful"),
+  entity_id: z.string().describe("The ID of the updated entity"),
+  fields_updated: z.array(z.string()).describe("List of fields that were updated"),
+  re_embedded: z.boolean().describe("Whether the entity was re-embedded"),
+  message: z.string().describe("Summary of the update operation")
+}).describe("Response from updating a knowledge entity");
+
 export const ExportKnowledgeGraphResponseSchema = z.object({
   success: z.boolean().describe("Whether the export operation was successful"),
   total_entities: z.number().describe("Number of entities exported"),
@@ -234,5 +257,6 @@ export type FindRelatedEntitiesResponse = z.infer<typeof FindRelatedEntitiesResp
 export type PruneMemoryResponse = z.infer<typeof PruneMemoryResponseSchema>;
 export type CompactMemoryResponse = z.infer<typeof CompactMemoryResponseSchema>;
 export type MemoryStatusResponse = z.infer<typeof MemoryStatusResponseSchema>;
+export type UpdateKnowledgeEntityResponse = z.infer<typeof UpdateKnowledgeEntityResponseSchema>;
 export type ExportKnowledgeGraphResponse = z.infer<typeof ExportKnowledgeGraphResponseSchema>;
 export type WipeKnowledgeGraphResponse = z.infer<typeof WipeKnowledgeGraphResponseSchema>;

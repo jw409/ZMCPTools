@@ -1,6 +1,6 @@
 # ZMCPTools - Complete Tool Reference
 
-This document provides a comprehensive reference for all 62 MCP tools available in ZMCPTools. Tools are organized by category for easy navigation and understanding.
+This document provides a comprehensive reference for all 71 MCP tools available in ZMCPTools. Tools are organized by category for easy navigation and understanding.
 
 ## Table of Contents
 
@@ -10,7 +10,7 @@ This document provides a comprehensive reference for all 62 MCP tools available 
 - [Communication & Coordination (10 tools)](#communication--coordination)
 - [Documentation & Web Scraping (9 tools)](#documentation--web-scraping)
 - [Project Analysis & File Operations (7 tools)](#project-analysis--file-operations)
-- [Knowledge Graph & Memory (4 tools)](#knowledge-graph--memory)
+- [Knowledge Graph & Memory (13 tools)](#knowledge-graph--memory)
 - [Tree Summary System (5 tools)](#tree-summary-system)
 - [Progress Reporting (1 tool)](#progress-reporting)
 
@@ -129,14 +129,40 @@ This document provides a comprehensive reference for all 62 MCP tools available 
 
 ## Knowledge Graph & Memory
 
-**4 tools for knowledge management and semantic search**
+**13 tools for knowledge management and GPU-accelerated semantic search**
+
+### GPU-Accelerated Search (3 tools)
 
 | Tool Name | Description |
 |-----------|-------------|
-| `store_knowledge_memory` | Store a knowledge graph memory with entity creation |
+| `search_knowledge_graph_gpu` | GPU semantic search with Gemma3-768D embeddings (~10x faster). Requires embedding-service on port 8765. FAILS if GPU unavailable (no CPU fallback by design) |
+| `get_embedding_status` | GPU service diagnostics: health, active model, VRAM usage, project-local and global LanceDB collections |
+| `reindex_knowledge_base` | Bulk index files OR rebuild embeddings. Two modes: (1) Entity mode: rebuild from existing entities, (2) File mode: batch-index raw files for GitHub repos. NOT for incremental updates - use store_knowledge_memory for that |
+
+### Core Operations (4 tools)
+
+| Tool Name | Description |
+|-----------|-------------|
+| `store_knowledge_memory` | Store a knowledge graph memory with entity creation and immediate embedding |
 | `create_knowledge_relationship` | Create a relationship between two entities in the knowledge graph |
-| `search_knowledge_graph` | Search the knowledge graph using semantic or basic search |
+| `search_knowledge_graph` | CPU semantic search (fallback when GPU unavailable). Prefer search_knowledge_graph_gpu for 10x speedup |
 | `find_related_entities` | Find related entities through relationship traversal |
+
+### Management & Cleanup (3 tools)
+
+| Tool Name | Description |
+|-----------|-------------|
+| `update_knowledge_entity` | Update entity metadata or content with optional re-embedding. Auto re-embeds if description changes. Use for authority adjustment after conflict detection |
+| `prune_knowledge_memory` | Remove low-authority entities and flag potential conflicts for review. Returns conflict_candidates[] for LLM review (embeddings can't auto-detect contradictions) |
+| `compact_knowledge_memory` | Remove duplicate entities and optionally merge highly similar entities to reduce graph pollution |
+| `get_memory_status` | Analyze knowledge graph health: quality metrics, pollution indicators, cleanup recommendations |
+
+### Backup & Maintenance (2 tools)
+
+| Tool Name | Description |
+|-----------|-------------|
+| `export_knowledge_graph` | Export entire knowledge graph to JSON/JSONL/CSV with optional embeddings. Use before wipe for backup |
+| `wipe_knowledge_graph` | DESTRUCTIVE: Completely wipe all knowledge graph data. Requires explicit confirm=true. Auto-creates backup unless disabled |
 
 ---
 
@@ -172,11 +198,11 @@ This document provides a comprehensive reference for all 62 MCP tools available 
 - **Communication & Coordination**: 10 tools for agent collaboration
 - **Documentation & Web Scraping**: 9 tools for intelligent documentation collection
 - **Project Analysis & File Operations**: 7 tools for code analysis and file management
-- **Knowledge Graph & Memory**: 4 tools for semantic knowledge management
+- **Knowledge Graph & Memory**: 13 tools for GPU-accelerated semantic knowledge management
 - **Tree Summary System**: 5 tools for project structure caching
 - **Progress Reporting**: 1 tool for progress tracking
 
-**Total: 62 Professional MCP Tools**
+**Total: 71 Professional MCP Tools**
 
 ## Usage Notes
 
