@@ -47,7 +47,7 @@ This document provides a comprehensive reference for all 62 MCP tools available 
 | `create_browser_session` | Create a new browser session with intelligent auto-close and session management |
 | `navigate_and_scrape` | Navigate to a URL and optionally scrape content in one operation. Auto-creates session if needed |
 | `interact_with_page` | Perform multiple interactions with a page: click, type, hover, select, screenshot, wait, scroll |
-| `perform_dynamic_interaction` | **🚀 BREAKTHROUGH TOOL** - Perform intelligent, goal-oriented interactions with dynamic web pages using state-aware execution loop. Handles modern SPAs, React, Vue, Angular applications with automatic waiting, verification, and retry logic. **90%+ success rate vs 40% with traditional tools** |
+| `perform_dynamic_interaction` | Perform intelligent, goal-oriented interactions with dynamic web pages using state-aware execution loop. Handles modern SPAs, React, Vue, Angular applications with automatic waiting, verification, and retry logic. |
 | `manage_browser_sessions` | Manage browser sessions: list, close, cleanup idle sessions, get status |
 | `navigate_to_url` | [LEGACY] Navigate to a URL in an existing browser session. Use navigate_and_scrape instead |
 | `scrape_content` | [LEGACY] Scrape content from the current page. Use navigate_and_scrape instead |
