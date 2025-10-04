@@ -302,6 +302,12 @@ await service.promoteTalent('backend-boris-001', 'junior');
 
 **Implemented in Issue #27**: Filesystem-based talent profile system foundation
 
+### Email Communication
+
+Talents communicate via filesystem-based emails in `var/coordination/{talent-id}/inbox/`. Each email is an atomic JSON file enabling crash-safe, asynchronous coordination. Use `send_email()` and `check_inbox()` MCP tools for inter-talent communication.
+
+**Implemented in Issue #28**: Filesystem-based email system for inter-talent coordination
+
 ## 📜 License
 
 MIT License - see LICENSE file for details.
