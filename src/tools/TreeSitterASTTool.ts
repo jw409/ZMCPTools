@@ -458,65 +458,62 @@ export class TreeSitterASTTool {
   async extractSymbols(tree: any, language: string): Promise<Symbol[]> {
     const symbols: Symbol[] = [];
 
-    // Language-specific symbol extraction
+    // Python uses pre-extracted symbols from subprocess parser
+    if (language === 'python' && tree.symbols && tree.symbols.symbols) {
+      // Return symbols directly from Python AST parser
+      return tree.symbols.symbols.map((sym: any) => ({
+        name: sym.name,
+        kind: sym.kind || sym.type,
+        startPosition: { row: sym.line || 0, column: sym.col || 0 },
+        endPosition: { row: sym.line || 0, column: sym.col || 0 }
+      }));
+    }
+
+    // TypeScript/JavaScript - traverse tree cursor
     const cursor = tree.walk();
 
     const visitNode = () => {
       const node = cursor.currentNode;
 
-      // TypeScript/JavaScript symbols
+      // TypeScript/JavaScript symbols - look for name in children since childForFieldName isn't available
       if (language === 'typescript' || language === 'javascript') {
         if (node.type === 'function_declaration' || node.type === 'arrow_function') {
-          const nameNode = node.childForFieldName('name');
+          // Look for identifier in children
+          const nameNode = this.findNameInChildren(node);
           if (nameNode) {
             symbols.push({
-              name: nameNode.text,
+              name: nameNode,
               kind: 'function',
               startPosition: node.startPosition,
               endPosition: node.endPosition
             });
           }
         } else if (node.type === 'class_declaration') {
-          const nameNode = node.childForFieldName('name');
+          const nameNode = this.findNameInChildren(node);
           if (nameNode) {
             symbols.push({
-              name: nameNode.text,
+              name: nameNode,
               kind: 'class',
               startPosition: node.startPosition,
               endPosition: node.endPosition
             });
           }
         } else if (node.type === 'interface_declaration') {
-          const nameNode = node.childForFieldName('name');
+          const nameNode = this.findNameInChildren(node);
           if (nameNode) {
             symbols.push({
-              name: nameNode.text,
+              name: nameNode,
               kind: 'interface',
               startPosition: node.startPosition,
               endPosition: node.endPosition
             });
           }
-        }
-      }
-
-      // Python symbols
-      else if (language === 'python') {
-        if (node.type === 'function_definition') {
-          const nameNode = node.childForFieldName('name');
+        } else if (node.type === 'method_definition') {
+          const nameNode = this.findNameInChildren(node);
           if (nameNode) {
             symbols.push({
-              name: nameNode.text,
-              kind: 'function',
-              startPosition: node.startPosition,
-              endPosition: node.endPosition
-            });
-          }
-        } else if (node.type === 'class_definition') {
-          const nameNode = node.childForFieldName('name');
-          if (nameNode) {
-            symbols.push({
-              name: nameNode.text,
-              kind: 'class',
+              name: nameNode,
+              kind: 'method',
               startPosition: node.startPosition,
               endPosition: node.endPosition
             });
@@ -535,6 +532,21 @@ export class TreeSitterASTTool {
 
     visitNode();
     return symbols;
+  }
+
+  /**
+   * Helper to find name identifier in node children (for TypeScript AST nodes)
+   */
+  private findNameInChildren(node: any): string | null {
+    // Look for identifier nodes in immediate children
+    if (node.children && node.children.length > 0) {
+      for (const child of node.children) {
+        if (child.type === 'identifier') {
+          return child.text;
+        }
+      }
+    }
+    return null;
   }
 
   async extractImports(tree: any, language: string): Promise<string[]> {

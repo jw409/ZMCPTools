@@ -1036,16 +1036,15 @@ export class LanceDBService {
 
       // Map model names to TalentOS service model names
       const talentOSModelMap: { [key: string]: string } = {
-        'qwen3': 'qwen3_06b',
-        'talentos': 'qwen3_06b',
-        'qwen3_06b': 'qwen3_06b',
+        'qwen3': 'gemma_embed',
+        'talentos': 'gemma_embed',
+        'gemma_embed': 'gemma_embed',
         'qwen3_4b': 'qwen3_4b',
         'qwen3_8b': 'qwen3_8b',
-        'gemma_embed': 'gemma_embed',
         'minilm': 'minilm'
       };
 
-      const talentOSModel = talentOSModelMap[modelName] || 'qwen3_06b';
+      const talentOSModel = talentOSModelMap[modelName] || 'gemma_embed';
 
       // Use TalentOS embedding function
       this.embeddingFunction = new TalentOSEmbeddingFunction({

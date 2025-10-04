@@ -1231,8 +1231,8 @@ export class ResourceManager {
             },
             talentos_integration: talentosStatus,
             embedding_info: {
-              active_model: talentosStatus?.available ? 'qwen3_06b' : 'Xenova/all-MiniLM-L6-v2',
-              dimensions: talentosStatus?.available ? 1024 : 384,
+              active_model: talentosStatus?.available ? 'gemma_embed' : 'Xenova/all-MiniLM-L6-v2',
+              dimensions: talentosStatus?.available ? 768 : 384,
               acceleration: talentosStatus?.available ? 'GPU (16x faster)' : 'CPU baseline',
               endpoint: talentosStatus?.available ? 'http://localhost:8765' : 'local'
             },

@@ -83,11 +83,11 @@ export class EmbeddingClient {
       collection_suffix: 'gemma3'
     },
     qwen3: {
-      name: 'Qwen3-Embedding-0.6B',
-      dimensions: 1024,
+      name: 'EmbeddingGemma-300M',
+      dimensions: 768,
       requires_gpu: true,
-      api_model_name: 'qwen3_06b',
-      collection_suffix: 'qwen3'
+      api_model_name: 'gemma_embed',
+      collection_suffix: 'gemma3'
     },
     minilm: {
       name: 'MiniLM-L6-v2',

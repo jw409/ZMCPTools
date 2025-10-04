@@ -34,7 +34,7 @@ export class TalentOSEmbeddingFunction {
     this.embeddingClient = new EmbeddingClient();
 
     this.config = {
-      modelName: config.modelName || 'qwen3_06b', // Default to Qwen3 0.6B per user request
+      modelName: config.modelName || 'gemma_embed', // Default to EmbeddingGemma-300M (768D)
       endpoint: config.endpoint || 'http://localhost:8765',
       timeout: config.timeout || 30000,
       batchSize: config.batchSize || 50,
