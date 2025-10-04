@@ -8,7 +8,7 @@
  * 3. Data: Responses contain expected structure and data
  */
 
-import { describe, test, expect, beforeAll } from 'vitest';
+import { describe, test, expect, beforeAll, afterAll } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { join } from 'path';
@@ -176,6 +176,57 @@ describe('Knowledge Graph Resources (MCP Protocol)', () => {
 
       // Verify freshness strategy is documented
       expect(data.index_freshness.stale_check_method).toContain('mtime');
+    });
+
+    test('LLM can query knowledge://status with repository_path parameter', async () => {
+      // Test partition-specific status query (Issue #35 - multi-partition support)
+      const testRepoPath = '/home/jw/dev/game1/ZMCPTools';
+      const response = await client.readResource({
+        uri: `knowledge://status?repository_path=${encodeURIComponent(testRepoPath)}`,
+      });
+
+      const content = response.contents[0];
+      expect(content.mimeType).toBe('application/json');
+
+      const data = JSON.parse(content.text);
+      console.log('DEBUG: knowledge://status with repository_path:', JSON.stringify(data, null, 2));
+
+      // Verify partition information is included
+      expect(data).toHaveProperty('partition');
+      expect(data.partition).toHaveProperty('repository_path');
+      expect(data.partition).toHaveProperty('is_default');
+
+      // Verify the correct partition was queried
+      expect(data.partition.repository_path).toBe(testRepoPath);
+      expect(data.storage_info.repository_path).toBe(testRepoPath);
+
+      // Verify standard fields still present
+      expect(data).toHaveProperty('total_entities');
+      expect(data).toHaveProperty('total_relationships');
+      expect(data).toHaveProperty('quality_metrics');
+      expect(data).toHaveProperty('timestamp');
+    });
+
+    test('LLM can query knowledge://status for different partitions and see different stats', async () => {
+      // Query default partition
+      const defaultResponse = await client.readResource({
+        uri: 'knowledge://status',
+      });
+      const defaultData = JSON.parse(defaultResponse.contents[0].text);
+
+      // Query specific partition
+      const specificRepoPath = '/home/jw/dev/game1/ZMCPTools';
+      const specificResponse = await client.readResource({
+        uri: `knowledge://status?repository_path=${encodeURIComponent(specificRepoPath)}`,
+      });
+      const specificData = JSON.parse(specificResponse.contents[0].text);
+
+      // Verify they report different repository paths
+      expect(defaultData.partition.repository_path).not.toBe(specificData.partition.repository_path);
+
+      // Verify partition isolation works (different paths = potentially different entity counts)
+      console.log('Default partition:', defaultData.partition.repository_path, '- Entities:', defaultData.total_entities);
+      console.log('Specific partition:', specificData.partition.repository_path, '- Entities:', specificData.total_entities);
     });
   });
 

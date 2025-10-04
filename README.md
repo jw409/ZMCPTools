@@ -5,20 +5,20 @@
 [![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)](https://nodejs.org/)
 [![MCP Protocol](https://img.shields.io/badge/MCP-1.15.0-purple.svg)](https://modelcontextprotocol.io/)
 
-**MCP server for multi-agent orchestration with named talent personas, knowledge graphs, and TalentOS integration.**
+**MCP server providing knowledge graphs, browser automation, and code analysis tools for Claude Code.**
 
 ## What is this?
 
-ZMCPTools is a TypeScript MCP (Model Context Protocol) server that enables AI agents to coordinate as **talents** - named personas with memory, learning capabilities, and distinct specializations. Think "Backend Boris" instead of "agent_42".
+ZMCPTools is a TypeScript MCP (Model Context Protocol) server that provides professional development tools for Claude Code environments.
 
 **Core capabilities:**
-- **Talent Profile System**: Named AI personas with token-efficient, modular file structures
-- **Knowledge Graph**: Cross-agent memory and learning with vector search
-- **Multi-Agent Coordination**: Spawn, coordinate, and manage specialized agent teams
-- **Filesystem-First**: All state is observable files (crash-safe, human-readable)
-- **TalentOS Integration**: Designed for learning/scavenger/teacher systems
+- **Knowledge Graph**: Project memory and semantic search with GPU acceleration
+- **Browser Automation**: Web scraping and DOM interaction tools
+- **Code Analysis**: AST parsing, symbol extraction, project structure analysis
+- **Documentation Tools**: Intelligent doc scraping and indexing
+- **Vector Search**: LanceDB integration for semantic code search
 
-Built for developers creating AI agent systems where agents need to learn, remember, and work together effectively.
+Built for developers who want enhanced Claude Code capabilities without native agent orchestration overhead.
 
 ## 🔱 Fork Status
 
@@ -27,51 +27,47 @@ Built for developers creating AI agent systems where agents need to learn, remem
 ### What Changed from Upstream:
 
 **Added:**
-- **Talent Profile System** - Named personas (Backend Boris, Frontend Felix, etc.) with modular profiles
-- **Learning/Memory Architecture** - Foundation for cross-project talent knowledge accumulation
-- **Token-Efficient Design** - Load only needed context files to manage LLM token limits
+- **GPU-Accelerated Search** - Qwen3 embeddings, BM25 hybrid search, neural reranking
+- **MCP Resources** - Token-optimized read operations (97% reduction)
+- **Enhanced Browser Tools** - Dynamic interaction, AI DOM navigation
+- **Code Acquisition** - Auto-index external repositories
+- **AST Analysis** - Tree-sitter based code parsing
 
 **Removed:**
-- **Browser Automation** - Use external submodule ([playwright-mcp](https://github.com/jw409/playwright-mcp)) for cleaner separation
-- **Database Complexity** - Simplified schema focused on agent coordination, not web scraping
+- **Native Agent Orchestration** - Use claude-agent-sdk instead (native agents work better)
+- **Communication/Plan Tools** - Will be re-added via claude-agent-sdk
+- **Multi-agent coordination** - Native Claude agents don't need custom spawning
 
 **Why the Changes:**
-- Focus on agent orchestration, not general-purpose tooling
-- Modular architecture via MCP submodules (browser, docs, etc. as separate servers)
-- Prepare for TalentOS learning/scavenger/teacher integration
+- Native Claude agents (via SDK) are more reliable than custom spawning
+- Focus on tools that augment Claude, not replicate its capabilities
+- Reduce wasted sessions from broken agent orchestration attempts
 
 **Maintained from Upstream:**
-- Multi-agent orchestration core
 - Knowledge graph and shared memory
-- Task and execution plan management
-- Agent communication rooms
+- Browser automation foundations
 - MCP protocol implementation
 
 **Upstream**: https://github.com/ZachHandley/ZMCPTools | **This Fork**: https://github.com/jw409/ZMCPTools
 
-## 🏗️ Architecture: Dual MCP Server Design
+## 🏗️ Architecture
 
-ZMCPTools implements **two separate MCP server binaries** to prevent namespace pollution:
+ZMCPTools provides tools for Claude Code with focus on augmentation, not replication:
 
-### Dom0 (Global Orchestrator)
-- **Binary**: `dist/server/index.js`
-- **Purpose**: Main Claude instance orchestration tools
-- **Tools**: Agent spawning, knowledge graph, project analysis, file operations
-- **Used By**: Primary Claude Code instance
+### Core Philosophy
+- **Tools not Agents**: Provide capabilities Claude can use directly
+- **SDK for Orchestration**: Use claude-agent-sdk for multi-agent workflows
+- **Augment, Don't Replace**: Enhance Claude's abilities, don't simulate them
 
-### DomU (Talent Coordination)
-- **Binary**: `dist/talent-server/index.js`
-- **Purpose**: Talent-specific coordination tools ONLY
-- **Tools**: Email, meetings (inter-talent communication)
-- **Used By**: Individual spawned talent agents
+### Future: claude-agent-sdk Integration
 
-**Why Separate Servers?**
-- Prevents talent coordination tools from polluting global tool list
-- Reduces token usage in main Claude instance
-- Each talent gets isolated server instance with `--talent-id` parameter
-- "Never cross the streams" - strict layer boundary enforcement
+Agent orchestration will be re-added using [@anthropic-ai/claude-agent-sdk](https://github.com/anthropics/anthropic-sdk-typescript/tree/main/packages/agent):
 
-See [AGENT_TOOL_LIST.md](./AGENT_TOOL_LIST.md) for complete tool breakdown.
+- **Native Agents**: Use SDK's built-in agent capabilities
+- **Tool Access**: Agents can use ZMCPTools via MCP
+- **No Custom Spawning**: Rely on proven SDK patterns
+
+See [GitHub Issue #TBD] for integration roadmap.
 
 ## 🚀 Quick Start
 
@@ -95,8 +91,6 @@ npm run build
 
 ### Configure Claude Code
 
-#### Global Server (Dom0)
-
 Add to your Claude Code MCP settings:
 
 ```json
@@ -111,34 +105,14 @@ Add to your Claude Code MCP settings:
 }
 ```
 
-#### Talent Server (DomU)
-
-When spawning talents programmatically:
-
-```bash
-# Stdio transport (for MCP client)
-node dist/talent-server/index.js --talent-id backend-boris-001
-
-# HTTP transport (for testing)
-node dist/talent-server/index.js \
-  --talent-id frontend-felix-001 \
-  --transport http \
-  --port 4270
-
-# With explicit coordination root
-node dist/talent-server/index.js \
-  --talent-id testing-tina-001 \
-  --coordination-root /path/to/project
-```
 
 ## 📚 Documentation
 
 **Key Documentation Files:**
 
-- **[TOOL_LIST.md](./TOOL_LIST.md)** - Complete dom0 (global orchestrator) tool documentation
-- **[AGENT_TOOL_LIST.md](./AGENT_TOOL_LIST.md)** - Complete domU (talent coordination) tool documentation
-- **Talent System** - See "Talent Profile System" section below
+- **[TOOL_LIST.md](./TOOL_LIST.md)** - Complete tool reference (53 tools)
 - **Resources vs Tools** - See [GitHub Issue #35](https://github.com/jw409/ZMCPTools/issues/35) for migration details
+- **Agent SDK Integration** - See [GitHub Issue #TBD] for roadmap
 
 ## 🔍 MCP Resources (Token-Optimized)
 
@@ -300,18 +274,14 @@ await readResource('agents://list?status=active&type=backend&limit=20')
 await readResource('agents://agent-123/status')
 ```
 
-**Keep Using (Mutation Tools):**
-- `spawn_agent` - Create new agents
-- `terminate_agent` - Stop agents
-- `monitor_agents` - Set up real-time monitoring
-- `cleanup_stale_agents` - Remove dead agents
+**Note**: Agent orchestration tools removed - see [GitHub Issue #TBD] for claude-agent-sdk integration roadmap.
 
 ### Cleanup & Optimization (Phases 5-8 ✅)
 
 **Architectural cleanup and description improvements:**
 
-- **Phase 5**: Removed communication resources from dom0 (belong in domU talent server only)
-- **Phase 6**: Removed docs/scraping resources from dom0 completely
+- **Phase 5**: Removed communication resources (agent coordination focus shift)
+- **Phase 6**: Removed docs/scraping resources completely
 - **Phase 7**: Enhanced vector resource descriptions (collections/search/status) with actionable guidance
 - **Phase 8**: Enhanced logs resource descriptions (list/files/content) with emoji-prefixed use cases
 
@@ -431,7 +401,6 @@ Talents use **separate MCP server instances** with coordination-specific tools:
 - Ensures talents from different directories can communicate
 - 4-tier priority: CLI arg → env var → registry file → CWD
 
-See [AGENT_TOOL_LIST.md](./AGENT_TOOL_LIST.md) for complete domU tool documentation.
 
 ## 📜 License
 

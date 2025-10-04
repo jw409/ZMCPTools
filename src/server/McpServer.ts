@@ -42,14 +42,6 @@ import type {
 } from "@modelcontextprotocol/sdk/types.js";
 
 import { DatabaseManager } from "../database/index.js";
-import {
-  AgentOrchestrationTools,
-  OrchestrationResultSchema,
-  SpawnAgentOptionsSchema,
-  type OrchestrationResult,
-} from "../tools/AgentOrchestrationTools.js";
-import { CommunicationTools } from "../tools/CommunicationTools.js";
-import { PlanTools } from "../tools/PlanTools.js";
 import { WebScrapingMcpTools } from "../tools/WebScrapingMcpTools.js";
 import { AnalysisMcpTools } from "../tools/AnalysisMcpTools.js";
 import {
@@ -90,7 +82,6 @@ import { gpuKnowledgeTools } from "../tools/knowledgeGraphGPUTools.js";
 import { hybridSearchTools } from "../tools/hybridSearchTools.js";
 import { unifiedSearchTools } from "../tools/unifiedSearchTool.js";
 import { codeAcquisitionTools } from "../tools/codeAcquisitionTool.js";
-import { collaborativeOrchestrationTools } from "../tools/collaborativeOrchestrationTool.js";
 import type { McpTool, McpProgressContext } from "../schemas/tools/index.js";
 
 export interface McpServerOptions {
@@ -106,9 +97,6 @@ export interface McpServerOptions {
 export class McpToolsServer {
   private mcpServer: Server;
   private db: DatabaseManager;
-  private orchestrationTools: AgentOrchestrationTools;
-  private communicationTools: CommunicationTools;
-  private planTools: PlanTools;
   private browserTools: BrowserTools;
   private browserAIDOMTools: BrowserAIDOMTools;
   private webScrapingMcpTools: WebScrapingMcpTools;
@@ -346,21 +334,6 @@ export class McpToolsServer {
     this.treeSummaryService = new TreeSummaryService();
 
     // Initialize tools
-    this.orchestrationTools = new AgentOrchestrationTools(
-      this.db,
-      this.repositoryPath
-    );
-    
-    this.communicationTools = new CommunicationTools(
-      this.db,
-      this.repositoryPath
-    );
-    
-    this.planTools = new PlanTools(
-      this.db,
-      this.repositoryPath
-    );
-
     this.browserTools = new BrowserTools(
       knowledgeGraphService,
       this.repositoryPath,
@@ -602,8 +575,6 @@ export class McpToolsServer {
       ...this.browserTools.getTools(),
       // Browser AI DOM navigation tools
       ...this.browserAIDOMTools.getTools(),
-      // Web scraping tools
-      ...this.webScrapingMcpTools.getTools(),
       // Analysis and file operation tools
       ...this.analysisMcpTools.getTools(),
       // Knowledge graph tools (original)
@@ -616,20 +587,12 @@ export class McpToolsServer {
       ...unifiedSearchTools,
       // Code acquisition tools (clone and auto-index repositories)
       ...codeAcquisitionTools,
-      // Collaborative orchestration tools (three-agent teams)
-      ...collaborativeOrchestrationTools,
       // TreeSummary tools
       ...this.treeSummaryTools.getTools(),
-      // Communication tools
-      ...this.communicationTools.getTools(),
-      // Plan management tools
-      ...this.planTools.getTools(),
-      // Agent orchestration tools
-      ...this.orchestrationTools.getTools(),
       // Progress reporting tool
       ...this.reportProgressTool.getTools(),
-      // NOTE: Talent coordination tools (email, meetings) moved to TalentMcpServer
-      // to prevent dom0/domU namespace pollution
+      // NOTE: Agent orchestration, communication, plan management, and web scraping tools removed
+      // Agent tools will be re-added via claude-agent-sdk integration later
     ];
   }
 

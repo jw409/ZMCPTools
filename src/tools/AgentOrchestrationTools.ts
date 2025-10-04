@@ -2641,7 +2641,7 @@ Start by reviewing your assigned tasks and sending a status message to the coord
   async getAgentResults(args: GetAgentResultsParams): Promise<any> {
     try {
       const context = {
-        dbManager: this.db,
+        db: this.db,
         repositoryPath: this.repositoryPath
       };
 

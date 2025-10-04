@@ -94,7 +94,11 @@ export class IndexedKnowledgeSearch {
   private indexPath: string;
 
   constructor(repositoryPath: string) {
-    this.indexPath = path.join(repositoryPath, '../var/storage/indexed_knowledge.json');
+    // Use absolute path to indexed_knowledge.json in the game1 project root
+    // The MCP server cwd is unpredictable, so we use an absolute path
+    const projectRoot = '/home/jw/dev/game1';
+    this.indexPath = path.join(projectRoot, 'var/storage/indexed_knowledge.json');
+    logger.info(`IndexedKnowledgeSearch initialized with path: ${this.indexPath}`);
     this.embeddingClient = new EmbeddingClient();
   }
 
@@ -107,12 +111,13 @@ export class IndexedKnowledgeSearch {
     }
 
     try {
+      logger.info(`Loading indexed knowledge from: ${this.indexPath}`);
       const data = await fs.readFile(this.indexPath, 'utf-8');
       this.documents = JSON.parse(data);
       logger.info(`Loaded ${this.documents!.length} documents from indexed knowledge`);
       return this.documents!;
     } catch (error) {
-      logger.error('Failed to load indexed knowledge:', error.message);
+      logger.error(`Failed to load indexed knowledge from ${this.indexPath}:`, error);
       return [];
     }
   }

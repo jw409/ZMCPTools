@@ -14,11 +14,8 @@ See [GitHub Issue #35](https://github.com/jw409/ZMCPTools/issues/35) for migrati
 ## Table of Contents
 
 - [🔍 MCP Resources (Token-Optimized)](#mcp-resources-token-optimized)
-- [Multi-Agent Orchestration (13 tools)](#multi-agent-orchestration)
 - [Browser Automation (13 tools)](#browser-automation)
 - [Browser AI DOM Tools (5 tools)](#browser-ai-dom-tools)
-- [Communication & Coordination (10 tools)](#communication--coordination)
-- [Documentation & Web Scraping (9 tools)](#documentation--web-scraping)
 - [Project Analysis & File Operations (7 tools)](#project-analysis--file-operations)
 - [Knowledge Graph & Memory (13 tools)](#knowledge-graph--memory)
 - [Tree Summary System (5 tools)](#tree-summary-system)
@@ -189,28 +186,6 @@ All descriptions now follow pattern: 🎯 USE CASE + practical examples + when t
 
 ---
 
-## Multi-Agent Orchestration
-
-**13 tools for coordinating and managing AI agent teams**
-
-| Tool Name | Description |
-|-----------|-------------|
-| `orchestrate_objective` | Spawn architect agent to coordinate multi-agent objective completion |
-| `orchestrate_objective_structured` | Execute structured phased orchestration with intelligent model selection (Research → Plan → Execute → Monitor → Cleanup) |
-| `spawn_agent` | Spawn fully autonomous Claude agent with complete tool access |
-| `create_task` | Create and assign task to agents with enhanced capabilities |
-| `list_agents` | Get list of active agents with filtering and status information |
-| `terminate_agent` | Terminate one or more agents with cleanup |
-| `monitor_agents` | Monitor agents with real-time updates using EventBus system |
-| `continue_agent_session` | Continue an agent session using stored conversation session ID with additional instructions |
-| `cleanup_stale_agents` | Clean up stale agents with enhanced options and optional room cleanup |
-| `cleanup_stale_rooms` | Clean up stale rooms based on activity and participant criteria |
-| `run_comprehensive_cleanup` | Run comprehensive cleanup for both agents and rooms with detailed reporting |
-| `get_cleanup_configuration` | Get current cleanup configuration and settings for agents and rooms |
-| `create_execution_plan` | Create comprehensive execution plan using sequential thinking before spawning agents |
-
----
-
 ## Browser Automation
 
 **13 tools for advanced web automation and interaction**
@@ -244,43 +219,6 @@ All descriptions now follow pattern: 🎯 USE CASE + practical examples + when t
 | `search_dom_elements` | Search for DOM elements by type, content, keywords, or attributes. Returns matching elements with their paths for further navigation |
 | `get_page_screenshot` | Retrieve stored screenshot for a page. Returns file path or base64 encoded image data for AI visual analysis |
 | `analyze_screenshot` | AI-powered analysis of page screenshots with custom prompts. Can focus on specific regions and provide contextual insights |
-
----
-
-## Communication & Coordination
-
-**10 tools for agent communication and coordination**
-
-| Tool Name | Description |
-|-----------|-------------|
-| `join_room` | Join communication room for coordination |
-| `send_message` | Send message to coordination room |
-| `wait_for_messages` | Wait for messages in a room |
-| `close_room` | Close a communication room (soft delete - marks as closed but keeps data) |
-| `delete_room` | Permanently delete a communication room and all its messages |
-| `list_rooms` | List communication rooms with filtering and pagination |
-| `list_room_messages` | List messages from a specific room with pagination |
-| `create_delayed_room` | Create a delayed room for coordination when agents realize they need it |
-| `analyze_coordination_patterns` | Analyze coordination patterns and suggest improvements |
-| `broadcast_message_to_agents` | Broadcast a message to multiple agents with auto-resume functionality |
-
----
-
-## Documentation & Web Scraping
-
-**9 tools for intelligent documentation collection and management**
-
-| Tool Name | Description |
-|-----------|-------------|
-| `scrape_documentation` | Scrape documentation from a website using intelligent sub-agents. Jobs are queued and processed automatically by the background worker. Supports plain string selectors for content extraction |
-| `get_scraping_status` | Get status of active and recent scraping jobs (worker runs automatically) |
-| `cancel_scrape_job` | Cancel an active or pending scraping job |
-| `force_unlock_job` | Force unlock a stuck scraping job - useful for debugging and recovery |
-| `force_unlock_stuck_jobs` | Force unlock all stuck scraping jobs (jobs that haven't been updated recently) |
-| `list_documentation_sources` | List all configured documentation sources |
-| `delete_pages_by_pattern` | Delete website pages matching URL patterns (useful for cleaning up version URLs, static assets) |
-| `delete_pages_by_ids` | Delete specific pages by their IDs |
-| `delete_all_website_pages` | Delete all pages for a website (useful for clean slate before re-scraping) |
 
 ---
 
@@ -365,25 +303,22 @@ All descriptions now follow pattern: 🎯 USE CASE + practical examples + when t
 
 ## Tool Categories Summary
 
-- **Multi-Agent Orchestration**: 13 tools for coordinating AI agent teams
 - **Browser Automation**: 13 tools for web automation (8 legacy tools for backward compatibility)
 - **Browser AI DOM Tools**: 5 tools for intelligent DOM analysis
-- **Communication & Coordination**: 10 tools for agent collaboration
-- **Documentation & Web Scraping**: 9 tools for intelligent documentation collection
 - **Project Analysis & File Operations**: 7 tools for code analysis and file management
 - **Knowledge Graph & Memory**: 13 tools for GPU-accelerated semantic knowledge management
 - **Tree Summary System**: 5 tools for project structure caching
 - **Progress Reporting**: 1 tool for progress tracking
 
-**Total: 71 Professional MCP Tools**
+**Total: 44 Professional MCP Tools** (down from 71 - removed 23 orchestration + 9 web scraping tools)
+
+**Note**: Agent orchestration, communication, plan management, and documentation scraping tools removed. Agent tools will be re-added via claude-agent-sdk integration.
 
 ## Usage Notes
 
 ### Legacy Tool Support
 ZMCPTools maintains backward compatibility by keeping legacy browser tools available while recommending modern alternatives. Legacy tools are clearly marked with `[LEGACY]` in their descriptions.
 
-### Foundation Session Optimization
-Many orchestration tools support `foundation_session_id` parameters for 85-90% cost reduction through shared context management.
 
 ### Type Safety
 All tools are built with TypeScript and Zod schemas for runtime validation, ensuring reliable operation and clear error messages.

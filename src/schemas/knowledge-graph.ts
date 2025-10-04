@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { sqliteTable, text, real, integer } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, real, integer, index } from 'drizzle-orm/sqlite-core';
 import { relations, sql } from 'drizzle-orm';
 import { createInsertSchema, createSelectSchema, createUpdateSchema } from 'drizzle-zod';
 
@@ -130,7 +130,12 @@ export const knowledgeEntities = sqliteTable('knowledge_entities', {
   validated: integer('validated', { mode: 'boolean' }).notNull().default(false),
   validatedBy: text('validatedBy'), // Agent ID
   validatedAt: text('validatedAt'),
-});
+}, (table) => ({
+  // Index for repository-based queries (critical for performance)
+  repositoryPathIdx: index('knowledge_entities_repository_path_idx').on(table.repositoryPath),
+  // Composite index for common query pattern: get top entities by importance for a repository
+  repoScoreIdx: index('knowledge_entities_repo_score_idx').on(table.repositoryPath, table.importanceScore),
+}));
 
 export const knowledgeRelationships = sqliteTable('knowledge_relationships', {
   id: text('id').primaryKey(),
@@ -164,7 +169,10 @@ export const knowledgeRelationships = sqliteTable('knowledge_relationships', {
   validated: integer('validated', { mode: 'boolean' }).notNull().default(false),
   validatedBy: text('validatedBy'), // Agent ID
   validatedAt: text('validatedAt'),
-});
+}, (table) => ({
+  // Index for repository-based queries
+  repositoryPathIdx: index('knowledge_relationships_repository_path_idx').on(table.repositoryPath),
+}));
 
 // Knowledge graph insights - derived knowledge and patterns
 export const knowledgeInsights = sqliteTable('knowledge_insights', {
@@ -204,7 +212,12 @@ export const knowledgeInsights = sqliteTable('knowledge_insights', {
   applied: integer('applied', { mode: 'boolean' }).notNull().default(false),
   appliedBy: text('appliedBy'), // Agent ID
   appliedAt: text('appliedAt'),
-});
+}, (table) => ({
+  // Index for repository-based queries (CRITICAL - 5.2M rows!)
+  repositoryPathIdx: index('knowledge_insights_repository_path_idx').on(table.repositoryPath),
+  // Composite index for common query: recent insights for a repository
+  repoCreatedIdx: index('knowledge_insights_repo_created_idx').on(table.repositoryPath, table.createdAt),
+}));
 
 // Drizzle relations
 export const knowledgeEntitiesRelations = relations(knowledgeEntities, ({ many }) => ({

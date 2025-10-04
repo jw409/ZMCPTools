@@ -19,6 +19,7 @@ import { promisify } from 'util';
 // Note: For initial implementation, we'll use TypeScript's compiler API for TS/JS files
 // Tree-sitter native packages have version conflicts, so we'll add them progressively
 import * as ts from "typescript";
+import { getASTCache } from "../services/ASTCacheService.js";
 
 // Schema for AST operations
 const ASTOperationSchema = z.object({
@@ -86,9 +87,10 @@ interface QueryMatch {
 }
 
 export class TreeSitterASTTool {
+  private astCache = getASTCache();
 
   constructor() {
-    // No initialization needed for now
+    // Initialize cache (lazy initialization on first use)
   }
 
   private async parseTypeScript(filePath: string, content: string): Promise<any> {
@@ -104,7 +106,7 @@ export class TreeSitterASTTool {
   /**
    * Parse Python file using subprocess to call Python AST parser
    */
-  private async parsePythonViaSubprocess(filePath: string): Promise<ParseResult> {
+  private async parsePythonViaSubprocess(filePath: string, timeoutMs: number = 5000): Promise<ParseResult> {
     try {
       // Find the Python AST parser script relative to this file
       const __dirname = path.dirname(new URL(import.meta.url).pathname);
@@ -117,6 +119,33 @@ export class TreeSitterASTTool {
 
         let stdout = '';
         let stderr = '';
+        let timedOut = false;
+        let processKilled = false;
+
+        // Set timeout to kill the process if it takes too long
+        const timeout = setTimeout(() => {
+          timedOut = true;
+          processKilled = true;
+          process.kill('SIGTERM');
+
+          // Force kill after 1 second if SIGTERM doesn't work
+          setTimeout(() => {
+            if (!process.killed) {
+              process.kill('SIGKILL');
+            }
+          }, 1000);
+
+          resolve({
+            success: false,
+            language: 'python',
+            errors: [{
+              type: 'timeout_error',
+              message: `Python AST parser timed out after ${timeoutMs}ms. File may be too large or complex.`,
+              startPosition: { row: 0, column: 0 },
+              endPosition: { row: 0, column: 0 }
+            }]
+          });
+        }, timeoutMs);
 
         process.stdout.on('data', (data) => {
           stdout += data.toString();
@@ -127,6 +156,13 @@ export class TreeSitterASTTool {
         });
 
         process.on('close', (code) => {
+          clearTimeout(timeout);
+
+          // Don't process if we already timed out
+          if (timedOut) {
+            return;
+          }
+
           if (code !== 0) {
             resolve({
               success: false,
@@ -181,6 +217,13 @@ export class TreeSitterASTTool {
         });
 
         process.on('error', (error) => {
+          clearTimeout(timeout);
+
+          // Don't process if we already timed out
+          if (timedOut) {
+            return;
+          }
+
           resolve({
             success: false,
             language: 'python',
@@ -253,8 +296,11 @@ export class TreeSitterASTTool {
         const sourceFile = await this.parseTypeScript(filePath, content);
 
         // Convert TypeScript AST to our format
+        const rootNode = this.convertTsNodeToTreeSitterFormat(sourceFile);
         const tree = {
-          rootNode: this.convertTsNodeToTreeSitterFormat(sourceFile)
+          rootNode,
+          // Add tree-sitter compatible walk() method
+          walk: () => this.createTreeCursor(rootNode)
         };
 
         return {
@@ -347,6 +393,48 @@ export class TreeSitterASTTool {
       case ts.SyntaxKind.Identifier: return 'identifier';
       default: return ts.SyntaxKind[node.kind];
     }
+  }
+
+  /**
+   * Create a tree-sitter compatible cursor for tree traversal
+   */
+  private createTreeCursor(node: any): any {
+    let currentNode = node;
+    const nodeStack: any[] = [];
+
+    return {
+      get currentNode() {
+        return currentNode;
+      },
+
+      gotoFirstChild(): boolean {
+        if (currentNode.children && currentNode.children.length > 0) {
+          nodeStack.push(currentNode);
+          currentNode = currentNode.children[0];
+          return true;
+        }
+        return false;
+      },
+
+      gotoNextSibling(): boolean {
+        if (nodeStack.length === 0) return false;
+        const parent = nodeStack[nodeStack.length - 1];
+        const currentIndex = parent.children.indexOf(currentNode);
+        if (currentIndex >= 0 && currentIndex < parent.children.length - 1) {
+          currentNode = parent.children[currentIndex + 1];
+          return true;
+        }
+        return false;
+      },
+
+      gotoParent(): boolean {
+        if (nodeStack.length > 0) {
+          currentNode = nodeStack.pop();
+          return true;
+        }
+        return false;
+      }
+    };
   }
 
   async query(tree: any, queryString: string): Promise<QueryMatch[]> {
@@ -451,6 +539,20 @@ export class TreeSitterASTTool {
 
   async extractImports(tree: any, language: string): Promise<string[]> {
     const imports: string[] = [];
+
+    // Python uses a different tree format (from subprocess parser)
+    if (language === 'python') {
+      if (tree.symbols && tree.symbols.imports) {
+        // Python AST parser already extracted imports
+        return tree.symbols.imports.map((imp: any) => {
+          // Return the full module path
+          return imp.module || imp.from_module || imp.name || '';
+        }).filter((imp: string) => imp.length > 0);
+      }
+      return imports;
+    }
+
+    // TypeScript/JavaScript use tree cursor
     const cursor = tree.walk();
 
     const visitNode = () => {
@@ -459,21 +561,15 @@ export class TreeSitterASTTool {
       // TypeScript/JavaScript imports
       if (language === 'typescript' || language === 'javascript') {
         if (node.type === 'import_statement') {
-          const fromNode = node.childForFieldName('source');
-          if (fromNode) {
-            // Remove quotes from import path
-            const importPath = fromNode.text.replace(/['"]/g, '');
-            imports.push(importPath);
-          }
-        }
-      }
-
-      // Python imports
-      else if (language === 'python') {
-        if (node.type === 'import_statement' || node.type === 'import_from_statement') {
-          const moduleNode = node.childForFieldName('module_name');
-          if (moduleNode) {
-            imports.push(moduleNode.text);
+          // Find string literal in children (the import source)
+          for (let i = 0; i < node.childCount; i++) {
+            const child = node.children[i];
+            if (child && child.text && (child.text.startsWith('"') || child.text.startsWith("'"))) {
+              // Remove quotes from import path
+              const importPath = child.text.replace(/['"]/g, '');
+              imports.push(importPath);
+              break;
+            }
           }
         }
       }
@@ -495,21 +591,53 @@ export class TreeSitterASTTool {
     const exports: string[] = [];
     const cursor = tree.walk();
 
+    const findNameInChildren = (node: any): string | null => {
+      // Look for identifier nodes in children
+      if (node.type === 'identifier') {
+        return node.text;
+      }
+
+      // Search children
+      if (node.children) {
+        for (const child of node.children) {
+          const name = findNameInChildren(child);
+          if (name) return name;
+        }
+      }
+
+      return null;
+    };
+
     const visitNode = () => {
       const node = cursor.currentNode;
 
       // TypeScript/JavaScript exports
       if (language === 'typescript' || language === 'javascript') {
-        if (node.type === 'export_statement') {
-          // Find what's being exported
-          const declaration = node.firstChild;
-          if (declaration) {
-            if (declaration.type === 'lexical_declaration' ||
-                declaration.type === 'function_declaration' ||
-                declaration.type === 'class_declaration') {
-              const nameNode = declaration.childForFieldName('name');
-              if (nameNode) {
-                exports.push(nameNode.text);
+        if (node.type === 'export_statement' || node.type === 'ExportDeclaration') {
+          // For TypeScript compiler AST, look for declarations in children
+          if (node.children) {
+            for (const child of node.children) {
+              if (child.type === 'lexical_declaration' ||
+                  child.type === 'function_declaration' ||
+                  child.type === 'class_declaration' ||
+                  child.type === 'interface_declaration' ||
+                  child.type === 'type_alias_declaration' ||
+                  child.type === 'FunctionDeclaration' ||
+                  child.type === 'ClassDeclaration' ||
+                  child.type === 'InterfaceDeclaration' ||
+                  child.type === 'VariableStatement') {
+
+                // Find the name (identifier) in the declaration
+                const name = findNameInChildren(child);
+                if (name) {
+                  exports.push(name);
+                }
+              }
+
+              // Handle export { name1, name2 } syntax
+              if (child.type === 'ExportClause' || child.type === 'NamedExports') {
+                const names = findNameInChildren(child);
+                if (names) exports.push(names);
               }
             }
           }
@@ -520,13 +648,18 @@ export class TreeSitterASTTool {
       else if (language === 'python') {
         if (node.type === 'assignment' && node.text.includes('__all__')) {
           // Parse __all__ = [...] to get exported names
-          const rightNode = node.childForFieldName('right');
-          if (rightNode && rightNode.type === 'list') {
-            // Extract string literals from list
-            for (let i = 0; i < rightNode.childCount; i++) {
-              const child = rightNode.child(i);
-              if (child && child.type === 'string') {
-                exports.push(child.text.replace(/['"]/g, ''));
+          // For Python, look in children for list
+          if (node.children) {
+            for (const child of node.children) {
+              if (child.type === 'list') {
+                // Extract string literals from list children
+                if (child.children) {
+                  for (const item of child.children) {
+                    if (item.type === 'string') {
+                      exports.push(item.text.replace(/['"]/g, ''));
+                    }
+                  }
+                }
               }
             }
           }
@@ -618,19 +751,83 @@ export class TreeSitterASTTool {
   /**
    * Execute AST operation based on tool name or operation parameter
    * Supports both legacy tool names (ast_parse, ast_query, etc.) and new operation-based approach
+   * Uses SQLite cache with timestamp-based invalidation for performance
    */
   async executeByToolName(toolName: string, args: any): Promise<any> {
-    const parseResult = await this.parse(args.file_path, args.language);
-
-    if (!parseResult.success || !parseResult.tree) {
-      return {
-        success: false,
-        errors: parseResult.errors
-      };
-    }
-
-    // Support both new operation-based calls and legacy tool names
+    const startTime = Date.now();
     const operation = args.operation || toolName.replace('ast_', '');
+    let parseTimeMs = 0;
+    let result: any = null;
+    let cacheData: any = null; // Move outside try block for finally access
+    let parseResult: any = null;
+
+    try {
+      // Try cache first for cacheable operations
+      const cacheableOps = ['parse', 'extract_symbols', 'extract_imports', 'extract_exports', 'get_structure'];
+      if (cacheableOps.includes(operation)) {
+        const cached = await this.astCache.get(args.file_path);
+        if (cached) {
+          // Cache hit - return cached data for the requested operation
+          switch (operation) {
+            case 'parse':
+            case 'ast_parse':
+              return {
+                success: true,
+                language: cached.language,
+                ...cached.parseResult,
+                _cached: true
+              };
+            case 'extract_symbols':
+            case 'ast_extract_symbols':
+              return {
+                success: true,
+                language: cached.language,
+                symbols: cached.symbols || [],
+                _cached: true
+              };
+            case 'extract_imports':
+            case 'ast_extract_imports':
+              return {
+                success: true,
+                language: cached.language,
+                imports: cached.imports || [],
+                _cached: true
+              };
+            case 'extract_exports':
+            case 'ast_extract_exports':
+              return {
+                success: true,
+                language: cached.language,
+                exports: cached.exports || [],
+                _cached: true
+              };
+            case 'get_structure':
+            case 'ast_get_structure':
+              return {
+                success: true,
+                language: cached.language,
+                structure: cached.structure || '',
+                _cached: true
+              };
+          }
+        }
+      }
+
+      // Cache miss - parse the file
+      parseResult = await this.parse(args.file_path, args.language);
+      parseTimeMs = Date.now() - startTime;
+
+      if (!parseResult.success || !parseResult.tree) {
+        return {
+          success: false,
+          errors: parseResult.errors
+        };
+      }
+
+      // Prepare to collect data for caching
+      cacheData = {
+        language: parseResult.language
+      };
 
     switch (operation) {
       case "parse":
@@ -678,6 +875,7 @@ export class TreeSitterASTTool {
           result.ast = this.simplifyAST(parseResult.tree.rootNode);
         }
 
+        cacheData.parseResult = result;
         return result;
       }
 
@@ -694,34 +892,43 @@ export class TreeSitterASTTool {
         };
 
       case "extract_symbols":
-      case "ast_extract_symbols":
+      case "ast_extract_symbols": {
         const symbols = await this.extractSymbols(parseResult.tree, parseResult.language);
-        return {
+        const result = {
           success: true,
           language: parseResult.language,
           symbols,
           symbolCount: symbols.length
         };
+        cacheData.symbols = symbols;
+        return result;
+      }
 
       case "extract_imports":
-      case "ast_extract_imports":
+      case "ast_extract_imports": {
         const imports = await this.extractImports(parseResult.tree, parseResult.language);
-        return {
+        const result = {
           success: true,
           language: parseResult.language,
           imports,
           importCount: imports.length
         };
+        cacheData.imports = imports;
+        return result;
+      }
 
       case "extract_exports":
-      case "ast_extract_exports":
+      case "ast_extract_exports": {
         const exports = await this.extractExports(parseResult.tree, parseResult.language);
-        return {
+        const result = {
           success: true,
           language: parseResult.language,
           exports,
           exportCount: exports.length
         };
+        cacheData.exports = exports;
+        return result;
+      }
 
       case "find_pattern":
       case "ast_find_pattern":
@@ -737,14 +944,16 @@ export class TreeSitterASTTool {
 
       case "get_structure":
       case "ast_get_structure": {
+        const markdownStructure = this.getFileStructure(parseResult.tree, parseResult.language);
         const compactTree = this.createCompactTree(parseResult.tree.rootNode, parseResult.language);
-        const markdownStructure = this.getFileStructure(compactTree, parseResult.language);
-        return {
+        const result = {
           success: true,
           language: parseResult.language,
           structure: markdownStructure,
           statistics: this.gatherStatistics(compactTree)
         };
+        cacheData.structure = markdownStructure;
+        return result;
       }
 
       case "get_diagnostics":
@@ -760,6 +969,31 @@ export class TreeSitterASTTool {
           success: false,
           error: `Unknown operation: ${operation}`
         };
+    }
+    } finally {
+      // Write to cache if we have cached data and successfully parsed
+      if (cacheData && Object.keys(cacheData).length > 0 && args.file_path) {
+        try {
+          const stats = await fs.stat(args.file_path);
+          const content = await fs.readFile(args.file_path, 'utf-8');
+          const fileHash = require('crypto').createHash('sha256').update(content).digest('hex');
+
+          await this.astCache.set({
+            filePath: args.file_path,
+            fileHash,
+            lastModified: stats.mtime,
+            language: cacheData.language || args.language || 'unknown',
+            parseResult: cacheData.parseResult,
+            symbols: cacheData.symbols,
+            imports: cacheData.imports,
+            exports: cacheData.exports,
+            structure: cacheData.structure
+          }, parseTimeMs);
+        } catch (error: any) {
+          // Don't fail the operation if caching fails
+          // Logger already handles this in ASTCacheService
+        }
+      }
     }
   }
 

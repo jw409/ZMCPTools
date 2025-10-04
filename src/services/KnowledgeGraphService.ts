@@ -33,7 +33,7 @@ import {
   insertKnowledgeRelationshipSchema,
   insertKnowledgeInsightSchema
 } from '../schemas/knowledge-graph.js';
-import { eq, and, or, gte, lte, like, desc, asc, sql } from 'drizzle-orm';
+import { eq, and, or, gte, lte, like, desc, asc, sql, count } from 'drizzle-orm';
 
 export interface KnowledgeGraphConfig {
   embeddingModel?: string;
@@ -839,57 +839,123 @@ export class KnowledgeGraphService {
    */
   async getStats(repositoryPath: string): Promise<KnowledgeGraphStats> {
     try {
-      const entities = await this.db.drizzle
+      // Set a 2-second timeout to complete before MCP client timeout (~3s)
+      const statsPromise = this.getStatsInternal(repositoryPath);
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Stats query timeout')), 2000);
+      });
+
+      return await Promise.race([statsPromise, timeoutPromise]);
+    } catch (error) {
+      this.logger.error('Failed to get knowledge graph stats, returning fallback', error);
+
+      // Return fallback stats on timeout or error
+      return {
+        totalEntities: 0,
+        totalRelationships: 0,
+        totalInsights: 0,
+        entitiesByType: {} as Record<EntityType, number>,
+        relationshipsByType: {} as Record<RelationshipType, number>,
+        topEntitiesByImportance: [],
+        recentInsights: []
+      };
+    }
+  }
+
+  private async getStatsInternal(repositoryPath: string): Promise<KnowledgeGraphStats> {
+    // Use SQL aggregation instead of loading all rows into memory
+    // Execute all queries in parallel for better performance
+
+    const [
+      [entityCount],
+      [relationshipCount],
+      [insightCount],
+      entitiesByTypeRows,
+      relationshipsByTypeRows,
+      topEntitiesByImportance,
+      recentInsights
+    ] = await Promise.all([
+      // Count total entities
+      this.db.drizzle
+        .select({ count: count() })
+        .from(knowledgeEntities)
+        .where(eq(knowledgeEntities.repositoryPath, repositoryPath))
+        .execute(),
+
+      // Count total relationships
+      this.db.drizzle
+        .select({ count: count() })
+        .from(knowledgeRelationships)
+        .where(eq(knowledgeRelationships.repositoryPath, repositoryPath))
+        .execute(),
+
+      // Count total insights
+      this.db.drizzle
+        .select({ count: count() })
+        .from(knowledgeInsights)
+        .where(eq(knowledgeInsights.repositoryPath, repositoryPath))
+        .execute(),
+
+      // Group entities by type using SQL
+      this.db.drizzle
+        .select({
+          entityType: knowledgeEntities.entityType,
+          count: count()
+        })
+        .from(knowledgeEntities)
+        .where(eq(knowledgeEntities.repositoryPath, repositoryPath))
+        .groupBy(knowledgeEntities.entityType)
+        .execute(),
+
+      // Group relationships by type using SQL
+      this.db.drizzle
+        .select({
+          relationshipType: knowledgeRelationships.relationshipType,
+          count: count()
+        })
+        .from(knowledgeRelationships)
+        .where(eq(knowledgeRelationships.repositoryPath, repositoryPath))
+        .groupBy(knowledgeRelationships.relationshipType)
+        .execute(),
+
+      // Get top 10 entities by importance using SQL ORDER BY and LIMIT
+      this.db.drizzle
         .select()
         .from(knowledgeEntities)
         .where(eq(knowledgeEntities.repositoryPath, repositoryPath))
-        .execute();
+        .orderBy(desc(knowledgeEntities.importanceScore))
+        .limit(10)
+        .execute() as Promise<KnowledgeEntity[]>,
 
-      const relationships = await this.db.drizzle
-        .select()
-        .from(knowledgeRelationships)
-        .where(eq(knowledgeRelationships.repositoryPath, repositoryPath))
-        .execute();
-
-      const insights = await this.db.drizzle
+      // Get 10 most recent insights using SQL ORDER BY and LIMIT
+      this.db.drizzle
         .select()
         .from(knowledgeInsights)
         .where(eq(knowledgeInsights.repositoryPath, repositoryPath))
-        .execute();
+        .orderBy(desc(knowledgeInsights.createdAt))
+        .limit(10)
+        .execute() as Promise<KnowledgeInsight[]>
+    ]);
 
-      // Calculate statistics
-      const entitiesByType = {} as Record<EntityType, number>;
-      const relationshipsByType = {} as Record<RelationshipType, number>;
+    const entitiesByType = {} as Record<EntityType, number>;
+    entitiesByTypeRows.forEach(row => {
+      entitiesByType[row.entityType as EntityType] = row.count;
+    });
 
-      entities.forEach(entity => {
-        entitiesByType[entity.entityType as EntityType] = (entitiesByType[entity.entityType as EntityType] || 0) + 1;
-      });
+    const relationshipsByType = {} as Record<RelationshipType, number>;
+    relationshipsByTypeRows.forEach(row => {
+      relationshipsByType[row.relationshipType as RelationshipType] = row.count;
+    });
 
-      relationships.forEach(rel => {
-        relationshipsByType[rel.relationshipType as RelationshipType] = (relationshipsByType[rel.relationshipType as RelationshipType] || 0) + 1;
-      });
-
-      const topEntitiesByImportance = entities
-        .sort((a, b) => b.importanceScore - a.importanceScore)
-        .slice(0, 10) as KnowledgeEntity[];
-
-      const recentInsights = insights
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-        .slice(0, 10) as KnowledgeInsight[];
-
-      return {
-        totalEntities: entities.length,
-        totalRelationships: relationships.length,
-        totalInsights: insights.length,
-        entitiesByType,
-        relationshipsByType,
-        topEntitiesByImportance,
-        recentInsights
-      };
-    } catch (error) {
-      this.logger.error('Failed to get knowledge graph stats', error);
-      throw error;
-    }
+    return {
+      totalEntities: entityCount.count,
+      totalRelationships: relationshipCount.count,
+      totalInsights: insightCount.count,
+      entitiesByType,
+      relationshipsByType,
+      topEntitiesByImportance,
+      recentInsights
+    };
   }
 
   // Wrapper methods for tool compatibility

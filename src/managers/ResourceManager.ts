@@ -204,14 +204,15 @@ export class ResourceManager {
         uriTemplate: "project://*/summary",
         name: "Project Summary",
         description:
-          "Get AI-optimized project overview with README, package info, git status (use project://{path}/summary?include_readme=true&include_git=true)",
+          "Get AI-optimized project overview with README, package info, git status (use project://{path}/summary?include_readme=true&include_git=true&timeout_ms=3000)",
         mimeType: "application/json",
         _meta: {
           "params": {
             "path": "project path (. for current directory)",
             "include_readme": "include README.md content (default: true)",
             "include_package_info": "include package.json/setup.py info (default: true)",
-            "include_git_info": "include git branch/status (default: true)"
+            "include_git_info": "include git branch/status (default: true)",
+            "timeout_ms": "timeout in milliseconds for file operations (default: 3000, max: 10000)"
           }
         }
       },
@@ -417,7 +418,7 @@ export class ResourceManager {
         return await this.getKnowledgeSearch(searchParams);
 
       case "knowledge://status":
-        return await this.getKnowledgeStatus();
+        return await this.getKnowledgeStatus(searchParams);
 
       case "logs://list":
         return await this.getLogsList();
@@ -1531,8 +1532,10 @@ export class ResourceManager {
     try {
       // Use IndexedKnowledgeSearch for direct search of indexed_knowledge.json
       const { IndexedKnowledgeSearch } = await import('../services/IndexedKnowledgeSearch.js');
+      console.log('[ResourceManager] Creating IndexedKnowledgeSearch with path:', this.repositoryPath);
       const searchService = new IndexedKnowledgeSearch(this.repositoryPath);
 
+      console.log('[ResourceManager] Calling search with query:', query, 'options:', { limit, useBm25, useEmbeddings });
       const results = await searchService.search(query, {
         limit,
         useBm25,
@@ -1541,6 +1544,7 @@ export class ResourceManager {
         semanticWeight,
         minScoreThreshold: threshold
       });
+      console.log('[ResourceManager] Search returned', results.length, 'results');
 
       // Format results for knowledge:// resource
       const formattedResults = results.map(r => ({
@@ -1663,10 +1667,13 @@ export class ResourceManager {
     }
   }
 
-  private async getKnowledgeStatus(): Promise<TextResourceContents> {
+  private async getKnowledgeStatus(searchParams?: URLSearchParams): Promise<TextResourceContents> {
     try {
+      // Support optional repository_path parameter for partition-specific stats
+      const repositoryPath = searchParams?.get("repository_path") || this.repositoryPath;
+
       const stats = await this.knowledgeGraphService.getStats(
-        this.repositoryPath
+        repositoryPath
       );
 
       // Calculate quality metrics from entities
@@ -1679,10 +1686,14 @@ export class ResourceManager {
         : 0;
 
       return {
-        uri: "knowledge://status",
+        uri: `knowledge://status${repositoryPath !== this.repositoryPath ? `?repository_path=${encodeURIComponent(repositoryPath)}` : ''}`,
         mimeType: "application/json",
         text: JSON.stringify(
           {
+            partition: {
+              repository_path: repositoryPath,
+              is_default: repositoryPath === this.repositoryPath
+            },
             total_entities: stats.totalEntities,
             total_relationships: stats.totalRelationships,
             entity_types: stats.entitiesByType,
@@ -1692,7 +1703,7 @@ export class ResourceManager {
               low_quality_count: stats.topEntitiesByImportance.filter(e => (e.importanceScore || 0) < 0.3).length,
             },
             storage_info: {
-              repository_path: this.repositoryPath,
+              repository_path: repositoryPath,
               database_size: "unknown",
             },
             index_freshness: {
@@ -1783,9 +1794,12 @@ export class ResourceManager {
       };
     }
 
+    // Resolve file path relative to repository path
+    const resolvedFilePath = resolve(this.repositoryPath, filePath);
+
     // Build args from query parameters with defaults
     const args: any = {
-      file_path: filePath,
+      file_path: resolvedFilePath,
       operation,
     };
 
@@ -1814,15 +1828,22 @@ export class ResourceManager {
       const mimeType =
         aspect === "structure" ? "text/markdown" : "application/json";
 
+      // Extract text based on aspect
+      let text: string;
+      if (aspect === "structure") {
+        // For structure, extract the markdown string from result.structure
+        text = typeof result.structure === "string"
+          ? result.structure
+          : JSON.stringify(result, null, 2);
+      } else {
+        // For other aspects, return JSON
+        text = JSON.stringify(result, null, 2);
+      }
+
       return {
         uri: `file://${path}`,
         mimeType,
-        text:
-          mimeType === "application/json"
-            ? JSON.stringify(result, null, 2)
-            : typeof result === "string"
-            ? result
-            : JSON.stringify(result, null, 2),
+        text,
       };
     } catch (error) {
       return {
@@ -1878,6 +1899,10 @@ export class ResourceManager {
           { maxDepth, excludePatterns }
         );
 
+        // Calculate stats from the structure
+        const totalFiles = this.countFiles(structure);
+        const totalDirectories = this.countDirectories(structure);
+
         return {
           uri: `project://${path}`,
           mimeType: "application/json",
@@ -1887,8 +1912,8 @@ export class ResourceManager {
               max_depth: maxDepth,
               exclude_patterns: excludePatterns,
               structure,
-              total_files: this.countFiles(structure),
-              total_directories: this.countDirectories(structure),
+              total_files: totalFiles,
+              total_directories: totalDirectories,
               timestamp: new Date().toISOString()
             },
             null,
@@ -1919,13 +1944,23 @@ export class ResourceManager {
         searchParams.get("include_package_info") !== "false";
       const includeGitInfo = searchParams.get("include_git_info") !== "false";
 
+      // Parse timeout with max limit of 10 seconds
+      let timeoutMs = parseInt(searchParams.get("timeout_ms") || "3000");
+      if (timeoutMs > 10000) {
+        timeoutMs = 10000;
+      }
+      if (timeoutMs < 100) {
+        timeoutMs = 100;
+      }
+
       try {
         const summary = await this.treeSummaryService.generateProjectSummary(
           resolvedPath,
           {
             includeReadme,
             includePackageInfo,
-            includeGitInfo
+            includeGitInfo,
+            timeoutMs
           }
         );
 

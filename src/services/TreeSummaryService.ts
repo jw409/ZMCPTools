@@ -222,6 +222,290 @@ export class TreeSummaryService {
   }
 
   /**
+   * Analyze directory structure with explicit exclude patterns
+   * No hidden config files - everything is explicit via parameters
+   */
+  async analyzeDirectory(
+    projectPath: string,
+    options: {
+      maxDepth?: number;
+      excludePatterns?: string[];
+    } = {}
+  ): Promise<DirectoryNode> {
+    const { maxDepth = 5, excludePatterns = [] } = options;
+
+    // Check if directory exists
+    try {
+      const stats = await fs.stat(projectPath);
+      if (!stats.isDirectory()) {
+        throw new Error(`Path is not a directory: ${projectPath}`);
+      }
+    } catch (error) {
+      if ((error as any).code === 'ENOENT') {
+        throw new Error(`Directory not found: ${projectPath}`);
+      }
+      throw error;
+    }
+
+    // Only use explicit patterns - no hidden config files
+    const allExcludePatterns = [
+      ...this.defaultIgnorePatterns,
+      ...excludePatterns
+    ];
+
+    return await this.scanDirectory(projectPath, projectPath, allExcludePatterns, maxDepth, 0);
+  }
+
+  /**
+   * Helper function to wrap promises with timeout
+   */
+  private async withTimeout<T>(
+    promise: Promise<T>,
+    timeoutMs: number,
+    operation: string
+  ): Promise<T | null> {
+    const timeoutPromise = new Promise<null>((resolve) => {
+      setTimeout(() => {
+        this.logger.warn(`Operation timed out after ${timeoutMs}ms: ${operation}`);
+        resolve(null);
+      }, timeoutMs);
+    });
+
+    return Promise.race([promise, timeoutPromise]);
+  }
+
+  /**
+   * Generate comprehensive project summary with timeout protection
+   */
+  async generateProjectSummary(
+    projectPath: string,
+    options: {
+      includeReadme?: boolean;
+      includePackageInfo?: boolean;
+      includeGitInfo?: boolean;
+      timeoutMs?: number;
+    } = {}
+  ): Promise<{
+    projectPath: string;
+    name?: string;
+    description?: string;
+    version?: string;
+    readme?: string;
+    packageInfo?: any;
+    gitInfo?: any;
+    structure?: DirectoryNode;
+    _timeouts?: string[];
+  }> {
+    const {
+      includeReadme = true,
+      includePackageInfo = true,
+      includeGitInfo = true,
+      timeoutMs = 3000 // 3 second timeout for file operations
+    } = options;
+
+    const summary: any = {
+      projectPath
+    };
+
+    const timeouts: string[] = [];
+
+    // Try to load package.json with timeout
+    if (includePackageInfo) {
+      try {
+        const packagePath = path.join(projectPath, 'package.json');
+        const readOperation = fs.readFile(packagePath, 'utf-8');
+        const packageContent = await this.withTimeout(
+          readOperation,
+          timeoutMs,
+          `read package.json at ${packagePath}`
+        );
+
+        if (packageContent) {
+          const packageJson = JSON.parse(packageContent);
+          summary.name = packageJson.name;
+          summary.version = packageJson.version;
+          summary.description = packageJson.description;
+          summary.packageInfo = packageJson;
+        } else {
+          timeouts.push('package.json');
+        }
+      } catch (error) {
+        // package.json not found or invalid
+        this.logger.debug(`Failed to read package.json: ${error}`);
+      }
+    }
+
+    // Try to load README with timeout
+    if (includeReadme) {
+      const readmeFiles = ['README.md', 'readme.md', 'README.txt', 'readme.txt'];
+      let readmeFound = false;
+
+      for (const readmeFile of readmeFiles) {
+        if (readmeFound) break;
+
+        try {
+          const readmePath = path.join(projectPath, readmeFile);
+          const readOperation = fs.readFile(readmePath, 'utf-8');
+          const readmeContent = await this.withTimeout(
+            readOperation,
+            timeoutMs,
+            `read ${readmeFile} at ${readmePath}`
+          );
+
+          if (readmeContent) {
+            summary.readme = readmeContent;
+            readmeFound = true;
+          } else {
+            timeouts.push(readmeFile);
+          }
+        } catch (error) {
+          // Continue to next README variant
+          this.logger.debug(`Failed to read ${readmeFile}: ${error}`);
+        }
+      }
+    }
+
+    // Try to get git info with timeout
+    if (includeGitInfo) {
+      try {
+        const gitPath = path.join(projectPath, '.git');
+        const accessOperation = fs.access(gitPath);
+        const accessResult = await this.withTimeout(
+          accessOperation,
+          timeoutMs,
+          `access .git at ${gitPath}`
+        );
+
+        if (accessResult !== null) {
+          summary.gitInfo = {
+            isGitRepository: true,
+            gitPath
+          };
+        } else {
+          timeouts.push('.git');
+          summary.gitInfo = {
+            isGitRepository: false,
+            reason: 'timeout'
+          };
+        }
+      } catch (error) {
+        summary.gitInfo = {
+          isGitRepository: false,
+          reason: 'not found or inaccessible'
+        };
+        this.logger.debug(`Failed to access .git: ${error}`);
+      }
+    }
+
+    // Include timeout information if any occurred
+    if (timeouts.length > 0) {
+      summary._timeouts = timeouts;
+      this.logger.warn(`Project summary completed with timeouts: ${timeouts.join(', ')}`);
+    }
+
+    return summary;
+  }
+
+
+  /**
+   * Recursively scan directory with exclude patterns
+   */
+  private async scanDirectory(
+    basePath: string,
+    currentPath: string,
+    excludePatterns: string[],
+    maxDepth: number,
+    currentDepth: number
+  ): Promise<DirectoryNode> {
+    const { minimatch } = await import('minimatch');
+    const name = path.basename(currentPath);
+    const relativePath = path.relative(basePath, currentPath);
+
+    const node: DirectoryNode = {
+      name,
+      type: 'directory',
+      path: currentPath,
+      children: []
+    };
+
+    // Check max depth
+    if (maxDepth > 0 && currentDepth >= maxDepth) {
+      return node;
+    }
+
+    try {
+      const entries = await fs.readdir(currentPath, { withFileTypes: true });
+
+      for (const entry of entries) {
+        const entryPath = path.join(currentPath, entry.name);
+        const entryRelativePath = path.relative(basePath, entryPath);
+
+        // Check if entry should be excluded
+        const shouldExclude = excludePatterns.some(pattern => {
+          // Handle both glob patterns and exact matches
+          // Match against relative path for directory patterns like "coverage/"
+          // Match against name for simple patterns like "*.log"
+          const patternWithoutSlash = pattern.replace(/\/$/, '');
+          return minimatch(entryRelativePath, pattern, { dot: true }) ||
+                 minimatch(entry.name, pattern, { dot: true }) ||
+                 entryRelativePath === patternWithoutSlash ||
+                 entry.name === patternWithoutSlash;
+        });
+
+        if (shouldExclude) {
+          continue;
+        }
+
+        if (entry.isDirectory()) {
+          // Skip symbolic links to avoid infinite loops
+          try {
+            const stats = await fs.lstat(entryPath);
+            if (stats.isSymbolicLink()) {
+              continue;
+            }
+          } catch (error) {
+            continue;
+          }
+
+          const childNode = await this.scanDirectory(
+            basePath,
+            entryPath,
+            excludePatterns,
+            maxDepth,
+            currentDepth + 1
+          );
+          node.children!.push(childNode);
+        } else if (entry.isFile()) {
+          // Skip symbolic links
+          try {
+            const stats = await fs.lstat(entryPath);
+            if (stats.isSymbolicLink()) {
+              continue;
+            }
+
+            const fileNode: DirectoryNode = {
+              name: entry.name,
+              type: 'file',
+              path: entryPath,
+              size: stats.size,
+              lastModified: stats.mtime
+            };
+            node.children!.push(fileNode);
+          } catch (error) {
+            // Skip files we can't access
+            continue;
+          }
+        }
+      }
+    } catch (error) {
+      // Directory read error (permission denied, etc.)
+      this.logger.warn(`Failed to read directory: ${currentPath}`, error);
+    }
+
+    return node;
+  }
+
+  /**
    * Shutdown the service and close database connections
    */
   async shutdown(): Promise<void> {
