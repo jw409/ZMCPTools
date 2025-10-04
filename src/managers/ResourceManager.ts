@@ -215,6 +215,48 @@ export class ResourceManager {
           }
         }
       },
+      // Knowledge Graph Resources (replaces 3 tools - saves 570 tokens)
+      {
+        uriTemplate: "knowledge://search",
+        name: "Knowledge Graph Search",
+        description:
+          "Hybrid BM25 + semantic search across knowledge graph (use knowledge://search?query=text&limit=10&threshold=0.7)",
+        mimeType: "application/json",
+        _meta: {
+          "params": {
+            "query": "search query text",
+            "limit": 10,
+            "threshold": 0.7,
+            "use_bm25": "enable BM25 keyword search (default: true)",
+            "use_embeddings": "enable semantic search (default: true)",
+            "use_reranker": "apply reranker (default: false)"
+          }
+        }
+      },
+      {
+        uriTemplate: "knowledge://entity/*/related",
+        name: "Related Knowledge Entities",
+        description:
+          "Find entities related to specific entity (use knowledge://entity/{id}/related?limit=10&min_strength=0.5)",
+        mimeType: "application/json",
+        _meta: {
+          "params": {
+            "id": "entity ID to find relations for (in URI path)",
+            "limit": 10,
+            "min_strength": "minimum relationship strength (default: 0.5)"
+          }
+        }
+      },
+      {
+        uriTemplate: "knowledge://status",
+        name: "Knowledge Graph Status",
+        description:
+          "Knowledge graph statistics, index freshness, quality metrics",
+        mimeType: "application/json",
+        _meta: {
+          "params": {}
+        }
+      },
       {
         uriTemplate: "agents://list",
         name: "Agent List",

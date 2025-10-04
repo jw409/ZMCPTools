@@ -106,14 +106,37 @@ resource://project/./summary?include_readme=true&include_git_info=true
 
 **Savings**: 400 tokens (2 tools × 200) + eliminated 2 redundant tools
 
-### Coming Soon (In Progress)
+### Phase 3: Knowledge Graph Resources ✅
 
-**Phase 3**: Knowledge Graph Resources (~570 tokens saved)
+**3 knowledge operations now use resources instead of tools:**
+
+| Resource URI | Use Case | Query Parameters |
+|-------------|----------|------------------|
+| `knowledge://search` | Hybrid BM25 + semantic search | `query`, `limit=10`, `threshold=0.7`, `use_bm25=true`, `use_embeddings=true` |
+| `knowledge://entity/{id}/related` | Find related entities | `limit=10`, `min_strength=0.5` |
+| `knowledge://status` | Graph health & statistics | - |
+
+**Usage Examples:**
 ```typescript
-resource://knowledge/search?query=authentication  // Search knowledge
-resource://knowledge/entity/{id}/related          // Related entities
-resource://knowledge/status                       // Memory status
+// Semantic + keyword search
+await readResource('knowledge://search?query=authentication&limit=10')
+
+// Find related entities
+await readResource('knowledge://entity/auth-123/related?limit=5')
+
+// Check graph health
+await readResource('knowledge://status')
 ```
+
+**Mutation tools (keep using these):**
+- `store_knowledge_memory` - Create entities
+- `create_knowledge_relationship` - Link entities
+- `update_knowledge_entity`, `prune_knowledge_memory`, `compact_knowledge_memory`
+- `export_knowledge_graph`, `wipe_knowledge_graph`
+
+**Savings**: 570 tokens (3 search tools eliminated, use resources instead)
+
+### Coming Soon (In Progress)
 
 **Phase 4**: Agent Status Resources (~370 tokens saved)
 ```typescript
@@ -121,7 +144,7 @@ resource://agent/all?status=active   // Active agents
 resource://agent/{id}/status         // Specific agent status
 ```
 
-**Total Savings So Far**: 1,570 tokens (Phase 1: 1,170 + Phase 2: 400)
+**Total Savings So Far**: 2,140 tokens (Phase 1: 1,170 + Phase 2: 400 + Phase 3: 570)
 **Projected Total**: 13,000+ tokens across all phases
 
 ---

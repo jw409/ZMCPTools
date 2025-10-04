@@ -203,10 +203,41 @@ resource://project/./summary?include_readme=true&include_git_info=true
 - `list_files` → use Glob tool instead (more efficient)
 - `analyze_file_symbols` → use `file://{path}/symbols` from Phase 1
 
+### Knowledge Graph Resources (Phase 3 ✅)
+
+**Search and navigate knowledge efficiently with 3 resource URIs:**
+
+| Resource URI | Use Case | Key Parameters |
+|-------------|----------|----------------|
+| `knowledge://search` | Hybrid BM25 + semantic search | `query`, `limit=10`, `threshold=0.7`, `use_bm25=true`, `use_embeddings=true` |
+| `knowledge://entity/{id}/related` | Find related entities | `limit=10`, `min_strength=0.5` |
+| `knowledge://status` | Graph health & statistics | - |
+
+**Usage Examples:**
+
+```typescript
+// Semantic + keyword search
+await readResource('knowledge://search?query=authentication&limit=10&threshold=0.7')
+
+// Find what's related to an entity
+await readResource('knowledge://entity/auth-123/related?limit=5&min_strength=0.6')
+
+// Check graph health
+await readResource('knowledge://status')
+```
+
+**Keep Using (Mutation Tools):**
+- `store_knowledge_memory` - Create entities
+- `create_knowledge_relationship` - Link entities
+- `update_knowledge_entity` - Modify entities
+- `prune_knowledge_memory` - Remove low-quality data
+- `compact_knowledge_memory` - Deduplicate
+- `export_knowledge_graph` - Backup data
+- `wipe_knowledge_graph` - Clear all (destructive)
+
 ### Coming Soon
 
 Additional resource types being migrated (see [Issue #35](https://github.com/jw409/ZMCPTools/issues/35)):
-- `knowledge://{query}` - Knowledge graph searches (Phase 3)
 - `agent://{id}` - Agent status and monitoring (Phase 4)
 
 ## 🎭 Talent Profile System
