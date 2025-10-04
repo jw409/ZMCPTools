@@ -80,7 +80,7 @@ export class KnowledgeGraphService {
     this.logger = new Logger('knowledge-graph-service');
     this.vectorService = vectorService;
     this.config = {
-      embeddingModel: 'Xenova/all-MiniLM-L6-v2',
+      embeddingModel: 'gemma_embed', // Use TalentOS GPU embedding service (768D)
       semanticSearchThreshold: 0.7,
       insightDetectionInterval: 300000, // 5 minutes
       autoDetectInsights: true,

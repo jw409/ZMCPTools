@@ -1031,17 +1031,30 @@ export class LanceDBService {
     const modelName = this.getModelName();
 
     // Check if this is a TalentOS model request
-    if (modelName === 'qwen3' || modelName === 'talentos' || modelName.startsWith('qwen3_')) {
+    if (modelName === 'qwen3' || modelName === 'talentos' || modelName.startsWith('qwen3_') || modelName === 'gemma_embed' || modelName === 'minilm') {
       this.logger.info('Initializing TalentOS embedding function', { model: modelName });
 
-      // Use TalentOS embedding function with Qwen3 0.6B
+      // Map model names to TalentOS service model names
+      const talentOSModelMap: { [key: string]: string } = {
+        'qwen3': 'qwen3_06b',
+        'talentos': 'qwen3_06b',
+        'qwen3_06b': 'qwen3_06b',
+        'qwen3_4b': 'qwen3_4b',
+        'qwen3_8b': 'qwen3_8b',
+        'gemma_embed': 'gemma_embed',
+        'minilm': 'minilm'
+      };
+
+      const talentOSModel = talentOSModelMap[modelName] || 'qwen3_06b';
+
+      // Use TalentOS embedding function
       this.embeddingFunction = new TalentOSEmbeddingFunction({
-        modelName: 'qwen3_06b', // Always use Qwen3 0.6B per user request
+        modelName: talentOSModel,
         endpoint: 'http://localhost:8765'
       });
 
       this.usingTalentOS = true;
-      this.config.vectorDimension = 1024; // Qwen3 0.6B dimensions
+      this.config.vectorDimension = this.embeddingFunction.getDimension();
 
     } else {
       this.logger.info('Initializing HuggingFace embedding function', { model: modelName });

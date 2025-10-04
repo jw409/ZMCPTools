@@ -1555,8 +1555,10 @@ export class ResourceManager {
         mimeType: "application/json",
         text: JSON.stringify({
           error: "Query parameter is required for knowledge graph search",
+          query: "",
           results: [],
           total: 0,
+          search_params: { useBm25, useEmbeddings, useReranker, threshold },
           timestamp: new Date().toISOString(),
         }),
       };
@@ -1628,6 +1630,7 @@ export class ResourceManager {
             query,
             results: [],
             total: 0,
+            search_params: { useBm25, useEmbeddings, useReranker, threshold },
             timestamp: new Date().toISOString(),
           },
           null,

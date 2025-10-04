@@ -75,8 +75,8 @@ export class VectorSearchService {
     this.embeddingClient = new EmbeddingClient();
 
     this.config = {
-      // TalentOS embedding model selection - will use Qwen3 0.6B when available
-      embeddingModel: 'qwen3',
+      // TalentOS embedding model selection - use gemma_embed (768D) for compatibility
+      embeddingModel: 'gemma_embed',
       chunkSize: 512,
       chunkOverlap: 50,
       temperature: 0.1,
