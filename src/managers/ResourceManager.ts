@@ -220,16 +220,16 @@ export class ResourceManager {
         uriTemplate: "knowledge://search",
         name: "Knowledge Graph Search",
         description:
-          "Hybrid BM25 + semantic search across knowledge graph (use knowledge://search?query=text&limit=10&threshold=0.7)",
+          "🔍 SEARCH BEFORE IMPLEMENTING: Search GitHub issues, architecture docs, implementation patterns, and prior solutions. Contains: ZMCPTools issues, TalentOS architecture (CLAUDE.md, etc/*.md, docs/*.md), design decisions, and known solutions. Use for: finding prior work, understanding architecture, discovering existing solutions, checking if feature exists. GPU-accelerated semantic + BM25 hybrid search. Example: knowledge://search?query=resource+migration+MCP&limit=5",
         mimeType: "application/json",
         _meta: {
           "params": {
-            "query": "search query text",
-            "limit": 10,
-            "threshold": 0.7,
-            "use_bm25": "enable BM25 keyword search (default: true)",
-            "use_embeddings": "enable semantic search (default: true)",
-            "use_reranker": "apply reranker (default: false)"
+            "query": "what to search for (e.g., 'authentication pattern', 'embedding service')",
+            "limit": "max results (default: 10, try 5-20)",
+            "threshold": "similarity threshold 0-1 (default: 0.7, lower = more results)",
+            "use_bm25": "keyword search (default: true, good for exact terms)",
+            "use_embeddings": "semantic search (default: true, good for concepts)",
+            "use_reranker": "apply reranker (default: false, slower but better)"
           }
         }
       },
@@ -237,13 +237,13 @@ export class ResourceManager {
         uriTemplate: "knowledge://entity/*/related",
         name: "Related Knowledge Entities",
         description:
-          "Find entities related to specific entity (use knowledge://entity/{id}/related?limit=10&min_strength=0.5)",
+          "📊 DISCOVER CONNECTIONS: Find entities related to a specific entity via graph traversal. Use after finding an entity via search to discover: related issues, connected docs, dependency chains, implementation patterns, similar solutions. Example: knowledge://entity/issue-35/related?limit=5&min_strength=0.6 finds docs/issues related to issue #35",
         mimeType: "application/json",
         _meta: {
           "params": {
-            "id": "entity ID to find relations for (in URI path)",
-            "limit": 10,
-            "min_strength": "minimum relationship strength (default: 0.5)"
+            "id": "entity ID from search results (in URI path like /entity/ID/related)",
+            "limit": "max related entities (default: 10)",
+            "min_strength": "minimum relationship strength 0-1 (default: 0.5, higher = stronger connections)"
           }
         }
       },
@@ -251,7 +251,7 @@ export class ResourceManager {
         uriTemplate: "knowledge://status",
         name: "Knowledge Graph Status",
         description:
-          "Knowledge graph statistics, index freshness, quality metrics",
+          "📈 KNOWLEDGE GRAPH HEALTH: Get statistics about indexed content - total entities, relationships, quality metrics, entity types, index freshness. Use to: verify indexing completed, check what's searchable, understand graph size, debug empty search results. Quick health check before searching",
         mimeType: "application/json",
         _meta: {
           "params": {}
@@ -1706,7 +1706,7 @@ export class ResourceManager {
         text: JSON.stringify(
           {
             entityId,
-            related: results.entities.slice(0, limit).map((entity: any) => ({
+            related: results.slice(0, limit).map((entity: any) => ({
               id: entity.id,
               type: entity.entity_type,
               name: entity.name,
@@ -1716,7 +1716,7 @@ export class ResourceManager {
               relationshipType: entity.relationship_type,
               strength: entity.strength || 0.7,
             })),
-            total: results.entities.length,
+            total: results.length,
             params: { limit, minStrength },
             timestamp: new Date().toISOString(),
           },
