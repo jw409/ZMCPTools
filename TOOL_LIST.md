@@ -16,7 +16,7 @@ See [GitHub Issue #35](https://github.com/jw409/ZMCPTools/issues/35) for migrati
 - [🔍 MCP Resources (Token-Optimized)](#mcp-resources-token-optimized)
 - [Browser Automation (13 tools)](#browser-automation)
 - [Browser AI DOM Tools (5 tools)](#browser-ai-dom-tools)
-- [Project Analysis & File Operations (7 tools)](#project-analysis--file-operations)
+- [~~Project Analysis & File Operations (0 tools - ALL DEPRECATED)~~](#project-analysis--file-operations)
 - [Knowledge Graph & Memory (13 tools)](#knowledge-graph--memory)
 - [Tree Summary System (5 tools)](#tree-summary-system)
 - [Progress Reporting (1 tool)](#progress-reporting)
@@ -92,16 +92,19 @@ resource://project/./structure?max_depth=3&exclude=node_modules,dist,.git
 resource://project/./summary?include_readme=true&include_git_info=true
 ```
 
-**Deprecated Tools (use resources or Claude Code built-ins instead):**
+**Deprecated Tools (ALL REMOVED - use resources or Claude Code built-ins instead):**
 
 | Deprecated Tool | Use This Instead | Reason |
 |----------------|------------------|---------|
 | `analyze_project_structure` | `project://{path}/structure` | Now a resource (30 tokens vs 200) |
 | `generate_project_summary` | `project://{path}/summary` | Now a resource (30 tokens vs 200) |
+| `analyze_file_symbols` | `file://{path}/symbols` | Now a resource (30 tokens vs 200) |
 | `list_files` | Glob tool (Claude Code built-in) | Redundant - Glob is more efficient |
-| `analyze_file_symbols` | `file://{path}/symbols` (Phase 1) | Redundant - use file resource |
+| `find_files` | Glob tool (Claude Code built-in) | Redundant - Glob supports patterns |
+| `easy_replace` | Edit tool (Claude Code built-in) | Redundant - Edit has Read context for fuzzy matching |
+| `cleanup_orphaned_projects` | Manual bash (rm -rf) | Infrequent operation, not worth MCP overhead |
 
-**Savings**: 400 tokens (2 tools × 200) + eliminated 2 redundant tools
+**Savings**: 1,320 tokens (13 tools eliminated, 0 remain)
 
 ### Phase 3: Knowledge Graph Resources ✅
 
@@ -222,19 +225,30 @@ All descriptions now follow pattern: 🎯 USE CASE + practical examples + when t
 
 ---
 
-## Project Analysis & File Operations
+## ~~Project Analysis & File Operations~~ (ALL DEPRECATED ✅)
 
-**7 tools for code analysis and smart file operations**
+**0 tools - Use MCP Resources + Native Claude Code tools instead**
 
-| Tool Name | Description |
-|-----------|-------------|
-| `analyze_project_structure` | Analyze project structure and generate a comprehensive overview |
-| `generate_project_summary` | Generate AI-optimized project overview and analysis |
-| `analyze_file_symbols` | Extract and analyze symbols (functions, classes, etc.) from code files |
-| `list_files` | List files in a directory with smart ignore patterns |
-| `find_files` | Search for files by pattern with optional content matching |
-| `easy_replace` | Fuzzy string replacement in files with smart matching |
-| `cleanup_orphaned_projects` | Clean up orphaned or unused project directories |
+All 13 analysis tools have been deprecated in favor of:
+- **MCP Resources**: `file://{path}/symbols`, `project://{path}/structure`, `knowledge://search`
+- **Native Tools**: Glob (file search), Edit (file modifications), Read (file content)
+
+### Migration Guide
+
+| Old Tool | New Approach |
+|----------|-------------|
+| `analyze_project_structure` | `project://{path}/structure` resource |
+| `generate_project_summary` | `project://{path}/summary` resource |
+| `analyze_file_symbols` | `file://{path}/symbols` resource |
+| `list_files` | Glob tool (native) |
+| `find_files` | Glob tool with patterns (native) |
+| `easy_replace` | Edit tool with Read context (native) |
+| `cleanup_orphaned_projects` | Manual bash: `rm -rf path/` |
+
+**Rationale**:
+- Resources: 97% token reduction (30 vs 200 tokens)
+- Native: Zero MCP overhead, better integration
+- Architecture: Resources + Native > Custom MCP tools
 
 ---
 
