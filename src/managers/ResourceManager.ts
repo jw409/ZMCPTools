@@ -14,6 +14,7 @@ import { MemoryService } from "../services/MemoryService.js";
 import { WebsiteRepository } from "../repositories/WebsiteRepository.js";
 import { WebsitePagesRepository } from "../repositories/WebsitePagesRepository.js";
 import { PathUtils } from "../utils/pathUtils.js";
+import { TreeSitterASTTool } from "../tools/TreeSitterASTTool.js";
 import { readdir, stat, readFile } from "fs/promises";
 import { join } from "path";
 import { homedir } from "os";
@@ -72,6 +73,7 @@ export class ResourceManager {
   private memoryService: MemoryService;
   private websiteRepository: WebsiteRepository;
   private websitePagesRepository: WebsitePagesRepository;
+  private treeSitterASTTool: TreeSitterASTTool;
 
   constructor(private db: DatabaseManager, repositoryPath: string) {
     // Resolve repository path to absolute path
@@ -93,6 +95,7 @@ export class ResourceManager {
     this.vectorSearchService = new VectorSearchService(this.db);
     this.websiteRepository = new WebsiteRepository(this.db);
     this.websitePagesRepository = new WebsitePagesRepository(this.db);
+    this.treeSitterASTTool = new TreeSitterASTTool();
   }
 
   /**
@@ -100,6 +103,85 @@ export class ResourceManager {
    */
   listResources(): ResourceTemplate[] {
     const resources: ResourceTemplate[] = [
+      // File Analysis Resources (replaces 6 AST tools - saves 1,170 tokens)
+      {
+        uriTemplate: "file://*/ast",
+        name: "File AST",
+        description:
+          "Parse source file to Abstract Syntax Tree with token optimization (use file://{path}/ast?compact=true&use_symbol_table=true&max_depth=3&include_semantic_hash=false&omit_redundant_text=true)",
+        mimeType: "application/json",
+        _meta: {
+          "params": {
+            "path": "relative path to source file (in URI path)",
+            "compact": "return compact tree filtering syntactic noise (default: false)",
+            "use_symbol_table": "use symbolic representation for 30-50% token reduction (default: true)",
+            "max_depth": "maximum tree depth for quick overview (optional)",
+            "include_semantic_hash": "add hash for duplicate detection (default: false)",
+            "omit_redundant_text": "omit text from simple nodes to save tokens (default: true)"
+          }
+        }
+      },
+      {
+        uriTemplate: "file://*/symbols",
+        name: "File Symbols",
+        description:
+          "Extract symbols (functions, classes, methods, interfaces) from source file (use file://{path}/symbols?include_positions=true)",
+        mimeType: "application/json",
+        _meta: {
+          "params": {
+            "path": "relative path to source file (in URI path)",
+            "include_positions": "include line/column positions (default: true)"
+          }
+        }
+      },
+      {
+        uriTemplate: "file://*/imports",
+        name: "File Imports",
+        description:
+          "Extract all import statements from source file (use file://{path}/imports)",
+        mimeType: "application/json",
+        _meta: {
+          "params": {
+            "path": "relative path to source file (in URI path)"
+          }
+        }
+      },
+      {
+        uriTemplate: "file://*/exports",
+        name: "File Exports",
+        description:
+          "Extract all export statements from source file (use file://{path}/exports)",
+        mimeType: "application/json",
+        _meta: {
+          "params": {
+            "path": "relative path to source file (in URI path)"
+          }
+        }
+      },
+      {
+        uriTemplate: "file://*/structure",
+        name: "File Structure",
+        description:
+          "Get Markdown-formatted code structure outline (use file://{path}/structure)",
+        mimeType: "text/markdown",
+        _meta: {
+          "params": {
+            "path": "relative path to source file (in URI path)"
+          }
+        }
+      },
+      {
+        uriTemplate: "file://*/diagnostics",
+        name: "File Diagnostics",
+        description:
+          "Get syntax errors and parse diagnostics (use file://{path}/diagnostics)",
+        mimeType: "application/json",
+        _meta: {
+          "params": {
+            "path": "relative path to source file (in URI path)"
+          }
+        }
+      },
       {
         uriTemplate: "agents://list",
         name: "Agent List",
@@ -268,6 +350,47 @@ export class ResourceManager {
         }
       },
       {
+        uriTemplate: "knowledge://search",
+        name: "Knowledge Graph Search",
+        description:
+          "Search knowledge graph with hybrid BM25 + semantic search (use ?query=text&limit=10&threshold=0.7&use_bm25=true&use_embeddings=true&use_reranker=false)",
+        mimeType: "application/json",
+        _meta: {
+          "params": {
+            "query": "text to search for in knowledge graph",
+            "limit": 10,
+            "threshold": 0.7,
+            "use_bm25": "enable BM25 keyword search (default: true)",
+            "use_embeddings": "enable semantic embeddings search (default: true)",
+            "use_reranker": "apply reranker for final pass (default: false)"
+          }
+        }
+      },
+      {
+        uriTemplate: "knowledge://entity/*/related",
+        name: "Related Entities",
+        description:
+          "Find entities related to a specific entity (use knowledge://entity/{id}/related?limit=10&min_strength=0.5)",
+        mimeType: "application/json",
+        _meta: {
+          "params": {
+            "id": "entity ID to find relations for (in URI path)",
+            "limit": 10,
+            "min_strength": "minimum relationship strength (default: 0.5)"
+          }
+        }
+      },
+      {
+        uriTemplate: "knowledge://status",
+        name: "Knowledge Graph Status",
+        description:
+          "Knowledge graph statistics, index freshness, and system health",
+        mimeType: "application/json",
+        _meta: {
+          "params": {}
+        }
+      },
+      {
         uriTemplate: "logs://list",
         name: "Logs Directory",
         description: "List directories and files in ~/.mcptools/logs/",
@@ -314,6 +437,11 @@ export class ResourceManager {
     const [scheme, rest] = uri.split("://", 2);
     const [path, queryString] = rest ? rest.split("?", 2) : ["", ""];
     const searchParams = new URLSearchParams(queryString || "");
+
+    // Handle file:// resources with dynamic paths (AST operations)
+    if (scheme === "file") {
+      return await this.getFileResource(path, searchParams);
+    }
 
     const resourceKey = `${scheme}://${path}`;
 
@@ -367,6 +495,12 @@ export class ResourceManager {
       case "vector://status":
         return await this.getVectorStatus();
 
+      case "knowledge://search":
+        return await this.getKnowledgeSearch(searchParams);
+
+      case "knowledge://status":
+        return await this.getKnowledgeStatus();
+
       case "logs://list":
         return await this.getLogsList();
 
@@ -392,6 +526,14 @@ export class ResourceManager {
           const dirname = path.replace("/content", "");
           if (dirname) {
             return await this.getLogContent(dirname, searchParams);
+          }
+        }
+
+        // Handle knowledge://entity/{id}/related pattern
+        if (scheme === "knowledge" && path.includes("/entity/") && path.endsWith("/related")) {
+          const entityId = path.replace("/entity/", "").replace("/related", "");
+          if (entityId) {
+            return await this.getRelatedEntities(entityId, searchParams);
           }
         }
 
@@ -1355,6 +1497,325 @@ export class ResourceManager {
           total: 0,
           timestamp: new Date().toISOString(),
         }, null, 2),
+      };
+    }
+  }
+
+  private async getKnowledgeSearch(
+    searchParams: URLSearchParams
+  ): Promise<TextResourceContents> {
+    const query = searchParams.get("query");
+    const limit = parseInt(searchParams.get("limit") || "10");
+    const threshold = parseFloat(searchParams.get("threshold") || "0.7");
+    const useBm25 = searchParams.get("use_bm25") !== "false"; // default true
+    const useEmbeddings = searchParams.get("use_embeddings") !== "false"; // default true
+    const useReranker = searchParams.get("use_reranker") === "true"; // default false
+
+    if (!query) {
+      return {
+        uri: "knowledge://search",
+        mimeType: "application/json",
+        text: JSON.stringify({
+          error: "Query parameter is required for knowledge graph search",
+          results: [],
+          total: 0,
+          timestamp: new Date().toISOString(),
+        }),
+      };
+    }
+
+    try {
+      // Use the knowledge graph service's search method
+      const results = await this.knowledgeGraphService.searchKnowledgeGraph(
+        this.repositoryPath,
+        query,
+        {
+          limit,
+          threshold,
+          use_semantic_search: useEmbeddings,
+          entity_types: undefined,
+          include_relationships: true,
+        }
+      );
+
+      return {
+        uri: `knowledge://search?query=${encodeURIComponent(query)}&limit=${limit}`,
+        mimeType: "application/json",
+        text: JSON.stringify(
+          {
+            query,
+            results: results.entities.map((entity: any) => ({
+              id: entity.id,
+              type: entity.entity_type,
+              name: entity.name,
+              description: entity.description?.substring(0, 200),
+              importance: entity.importance_score,
+              confidence: entity.confidence_score,
+              relationships: entity.relationships || [],
+            })),
+            total: results.entities.length,
+            search_params: { useBm25, useEmbeddings, useReranker, threshold },
+            timestamp: new Date().toISOString(),
+          },
+          null,
+          2
+        ),
+      };
+    } catch (error) {
+      return {
+        uri: `knowledge://search?query=${encodeURIComponent(query)}`,
+        mimeType: "application/json",
+        text: JSON.stringify(
+          {
+            error:
+              error instanceof Error
+                ? error.message
+                : "Knowledge graph search failed",
+            query,
+            results: [],
+            total: 0,
+            timestamp: new Date().toISOString(),
+          },
+          null,
+          2
+        ),
+      };
+    }
+  }
+
+  private async getRelatedEntities(
+    entityId: string,
+    searchParams: URLSearchParams
+  ): Promise<TextResourceContents> {
+    const limit = parseInt(searchParams.get("limit") || "10");
+    const minStrength = parseFloat(searchParams.get("min_strength") || "0.5");
+
+    try {
+      const results = await this.knowledgeGraphService.findRelatedEntities(
+        this.repositoryPath,
+        entityId,
+        {
+          max_distance: 2,
+          min_strength: minStrength,
+          relationship_types: undefined,
+        }
+      );
+
+      return {
+        uri: `knowledge://entity/${entityId}/related?limit=${limit}&min_strength=${minStrength}`,
+        mimeType: "application/json",
+        text: JSON.stringify(
+          {
+            entityId,
+            related: results.entities.slice(0, limit).map((entity: any) => ({
+              id: entity.id,
+              type: entity.entity_type,
+              name: entity.name,
+              description: entity.description?.substring(0, 200),
+              importance: entity.importance_score,
+              distance: entity.distance || 1,
+              relationshipType: entity.relationship_type,
+              strength: entity.strength || 0.7,
+            })),
+            total: results.entities.length,
+            params: { limit, minStrength },
+            timestamp: new Date().toISOString(),
+          },
+          null,
+          2
+        ),
+      };
+    } catch (error) {
+      return {
+        uri: `knowledge://entity/${entityId}/related`,
+        mimeType: "application/json",
+        text: JSON.stringify(
+          {
+            error:
+              error instanceof Error
+                ? error.message
+                : "Failed to find related entities",
+            entityId,
+            related: [],
+            total: 0,
+            timestamp: new Date().toISOString(),
+          },
+          null,
+          2
+        ),
+      };
+    }
+  }
+
+  private async getKnowledgeStatus(): Promise<TextResourceContents> {
+    try {
+      const status = await this.knowledgeGraphService.getMemoryStatus(
+        this.repositoryPath
+      );
+
+      return {
+        uri: "knowledge://status",
+        mimeType: "application/json",
+        text: JSON.stringify(
+          {
+            total_entities: status.total_entities,
+            total_relationships: status.total_relationships,
+            entity_types: status.entity_type_distribution,
+            quality_metrics: {
+              avg_importance: status.quality_metrics?.avg_importance || 0,
+              avg_confidence: status.quality_metrics?.avg_confidence || 0,
+              low_quality_count: status.quality_metrics?.low_quality_count || 0,
+            },
+            storage_info: {
+              repository_path: this.repositoryPath,
+              database_size: status.database_size || "unknown",
+            },
+            index_freshness: {
+              last_updated: status.last_updated || new Date().toISOString(),
+              stale_check_method: "mtime-based (~5ms overhead)",
+            },
+            timestamp: new Date().toISOString(),
+          },
+          null,
+          2
+        ),
+      };
+    } catch (error) {
+      return {
+        uri: "knowledge://status",
+        mimeType: "application/json",
+        text: JSON.stringify(
+          {
+            error:
+              error instanceof Error
+                ? error.message
+                : "Failed to get knowledge graph status",
+            total_entities: 0,
+            total_relationships: 0,
+            timestamp: new Date().toISOString(),
+          },
+          null,
+          2
+        ),
+      };
+    }
+  }
+
+  /**
+   * Handle file:// resource URIs for AST operations
+   * URI format: file://{path}/{aspect}?params
+   * Example: file://src/index.ts/symbols?compact=true
+   */
+  private async getFileResource(
+    path: string,
+    searchParams: URLSearchParams
+  ): Promise<TextResourceContents> {
+    // Extract aspect from path (e.g., "src/index.ts/symbols" → aspect="symbols", filePath="src/index.ts")
+    const pathParts = path.split("/");
+    const aspect = pathParts[pathParts.length - 1];
+    const filePath = pathParts.slice(0, -1).join("/");
+
+    if (!filePath) {
+      return {
+        uri: `file://${path}`,
+        mimeType: "application/json",
+        text: JSON.stringify(
+          {
+            error: "File path is required",
+            usage: "file://{path}/{aspect} where aspect is: ast, symbols, imports, exports, structure, diagnostics",
+          },
+          null,
+          2
+        ),
+      };
+    }
+
+    // Map aspect to TreeSitterASTTool operation
+    const operationMap: Record<string, string> = {
+      ast: "parse",
+      symbols: "extract_symbols",
+      imports: "extract_imports",
+      exports: "extract_exports",
+      structure: "get_structure",
+      diagnostics: "get_diagnostics",
+    };
+
+    const operation = operationMap[aspect];
+
+    if (!operation) {
+      return {
+        uri: `file://${path}`,
+        mimeType: "application/json",
+        text: JSON.stringify(
+          {
+            error: `Unknown file aspect: ${aspect}`,
+            valid_aspects: Object.keys(operationMap),
+            usage: "file://{path}/{aspect}?params",
+          },
+          null,
+          2
+        ),
+      };
+    }
+
+    // Build args from query parameters with defaults
+    const args: any = {
+      file_path: filePath,
+      operation,
+    };
+
+    // Parse query parameters
+    if (searchParams.has("compact"))
+      args.compact = searchParams.get("compact") === "true";
+    if (searchParams.has("use_symbol_table"))
+      args.use_symbol_table = searchParams.get("use_symbol_table") === "true";
+    if (searchParams.has("max_depth"))
+      args.max_depth = parseInt(searchParams.get("max_depth") || "0");
+    if (searchParams.has("include_semantic_hash"))
+      args.include_semantic_hash =
+        searchParams.get("include_semantic_hash") === "true";
+    if (searchParams.has("omit_redundant_text"))
+      args.omit_redundant_text =
+        searchParams.get("omit_redundant_text") === "true";
+    if (searchParams.has("query")) args.query = searchParams.get("query");
+
+    try {
+      const result = await this.treeSitterASTTool.executeByToolName(
+        "ast_analyze",
+        args
+      );
+
+      // Determine MIME type based on aspect
+      const mimeType =
+        aspect === "structure" ? "text/markdown" : "application/json";
+
+      return {
+        uri: `file://${path}`,
+        mimeType,
+        text:
+          mimeType === "application/json"
+            ? JSON.stringify(result, null, 2)
+            : typeof result === "string"
+            ? result
+            : JSON.stringify(result, null, 2),
+      };
+    } catch (error) {
+      return {
+        uri: `file://${path}`,
+        mimeType: "application/json",
+        text: JSON.stringify(
+          {
+            error:
+              error instanceof Error
+                ? error.message
+                : `Failed to process file resource: ${aspect}`,
+            file_path: filePath,
+            aspect,
+            operation,
+          },
+          null,
+          2
+        ),
       };
     }
   }

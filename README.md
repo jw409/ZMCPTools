@@ -92,6 +92,92 @@ Add to your Claude Code MCP settings:
 Key documentation:
 - **[TOOL_LIST.md](./TOOL_LIST.md)** - All available MCP tools and their usage
 - **Talent System** - See "Talent Profile System" section below
+- **Resources vs Tools** - See [GitHub Issue #35](https://github.com/jw409/ZMCPTools/issues/35) for migration details
+
+## 🔍 MCP Resources (Token-Optimized)
+
+ZMCPTools now supports **MCP Resources** for read-only operations, providing massive token savings compared to traditional Tools.
+
+### Why Resources?
+
+**Token Cost Comparison:**
+- **Traditional Tool**: ~200 tokens per tool registration
+- **MCP Resource**: ~30 tokens per resource template
+- **Savings**: **97% reduction** for read operations
+
+**Example:** 6 AST analysis tools (1,200 tokens) → 1 resource template (30 tokens) = **1,170 tokens saved**
+
+### File Resources (AST Operations)
+
+Access file analysis via URI-based resources instead of tools:
+
+```typescript
+// ❌ OLD: Tools (200 tokens each × 6 = 1,200 tokens)
+ast_extract_symbols({ file_path: "src/index.ts" })
+ast_extract_imports({ file_path: "src/index.ts" })
+ast_extract_exports({ file_path: "src/index.ts" })
+
+// ✅ NEW: Resources (30 tokens for all 6 operations)
+resource://file/src/index.ts/symbols
+resource://file/src/index.ts/imports
+resource://file/src/index.ts/exports
+resource://file/src/index.ts/structure
+resource://file/src/index.ts/diagnostics
+resource://file/src/index.ts/ast?compact=true&use_symbol_table=true
+```
+
+### Available File Resources
+
+| Resource URI | Description | Query Parameters |
+|--------------|-------------|------------------|
+| `file://{path}/symbols` | Extract functions, classes, methods | `include_positions=true` |
+| `file://{path}/imports` | Extract import statements | - |
+| `file://{path}/exports` | Extract export statements | - |
+| `file://{path}/structure` | Get file outline (Markdown) | - |
+| `file://{path}/diagnostics` | Get parse errors | - |
+| `file://{path}/ast` | Full AST with optimizations | `compact=true`, `use_symbol_table=true`, `max_depth=3` |
+
+### Query Parameters for AST Resources
+
+Optimize token usage with query parameters:
+
+```typescript
+// Compact AST with symbol table (30-50% token reduction)
+resource://file/src/app.ts/ast?compact=true&use_symbol_table=true&max_depth=3
+
+// Full symbols with position info
+resource://file/src/utils.ts/symbols?include_positions=true
+
+// Quick structure overview (Markdown format)
+resource://file/src/index.ts/structure
+```
+
+**Available Parameters:**
+- `compact=true` - Filter syntactic noise nodes
+- `use_symbol_table=true` - Use symbolic representation (30-50% smaller)
+- `max_depth=N` - Limit tree depth for quick overviews
+- `include_semantic_hash=true` - Add hash for duplicate detection
+- `omit_redundant_text=true` - Skip text from simple nodes
+
+### Migration from Tools to Resources
+
+**Deprecated Tools** (during transition period):
+- `ast_analyze` tool is deprecated - use `file://` resources instead
+- Old tools still work but show deprecation warnings
+- See [GitHub Issue #35](https://github.com/jw409/ZMCPTools/issues/35) for migration timeline
+
+**Benefits of Migration:**
+- 97% token reduction for system prompts
+- Fits under Cursor's 50 tool limit
+- More intuitive URI-based access
+- Better caching and performance
+
+### Coming Soon
+
+Additional resource types being migrated (see [Issue #35](https://github.com/jw409/ZMCPTools/issues/35)):
+- `project://{path}/{aspect}` - Project structure and summaries (Phase 2)
+- `knowledge://{query}` - Knowledge graph searches (Phase 3)
+- `agent://{id}` - Agent status and monitoring (Phase 4)
 
 ## 🎭 Talent Profile System
 

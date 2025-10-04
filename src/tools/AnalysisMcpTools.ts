@@ -12,7 +12,7 @@ import * as path from 'path';
 import { promisify } from 'util';
 import { createHash } from 'crypto';
 import type { KnowledgeGraphService } from '../services/KnowledgeGraphService.js';
-import { LezerParserService } from '../services/LezerParserService.js';
+import { TreeSitterASTTool } from './TreeSitterASTTool.js';
 import { FileOperationsService, type ListFilesOptions, type FindFilesOptions, type ReplaceOptions } from '../services/FileOperationsService.js';
 import { FoundationCacheService } from '../services/FoundationCacheService.js';
 import { TreeSummaryService, type DirectoryNode } from '../services/TreeSummaryService.js';
@@ -66,7 +66,7 @@ const access = promisify(fs.access);
 export class AnalysisMcpTools {
   private fileOpsService: FileOperationsService;
   private treeSummaryService: TreeSummaryService;
-  private lezerParserService: LezerParserService;
+  private treeSitterASTTool: TreeSitterASTTool;
 
   constructor(
     private knowledgeGraphService: KnowledgeGraphService,
@@ -75,14 +75,37 @@ export class AnalysisMcpTools {
   ) {
     this.fileOpsService = new FileOperationsService();
     this.treeSummaryService = new TreeSummaryService(foundationCache);
-    this.lezerParserService = new LezerParserService();
+    this.treeSitterASTTool = new TreeSitterASTTool();
   }
 
   /**
    * Get all analysis-related MCP tools
    */
   getTools(): McpTool[] {
+    // ⚠️ DEPRECATED: AST tools are now available as Resources (file://{path}/{aspect})
+    // Keeping tools as deprecated wrappers during transition period
+    // Resources save 1,170 tokens (6 tools × 200 tokens → 1 resource template × 30 tokens)
+    // Migration: Use file://path/to/file.ts/symbols instead of ast_analyze tool
+    // See: https://github.com/jw409/ZMCPTools/issues/35
+    const astTools = this.treeSitterASTTool.getTools().map(tool => ({
+      name: tool.name,
+      description: `⚠️ DEPRECATED: Use file://{path}/{aspect} resources instead. ${tool.description}`,
+      inputSchema: tool.inputSchema,
+      outputSchema: tool.outputSchema || {
+        type: 'object',
+        properties: {
+          success: { type: 'boolean' },
+          error: { type: 'string' }
+        }
+      },
+      handler: async (args: any) => {
+        // Pass the entire args object which includes the 'operation' parameter
+        return await this.treeSitterASTTool.executeByToolName('ast_analyze', args);
+      }
+    }));
+
     return [
+      ...astTools,
       {
         name: 'analyze_project_structure',
         description: 'Analyze project structure and generate a comprehensive overview',
@@ -199,9 +222,9 @@ export class AnalysisMcpTools {
     }
     
     if (params.generate_summary) {
-      // Use TreeSummaryService for better integration
-      await this.treeSummaryService.updateProjectMetadata(projectPath);
-      
+      // TreeSummaryService.updateProjectMetadata removed in refactoring
+      // Metadata now handled via SQLite storage in updateFileAnalysis
+
       // Write tree summary inside the .treesummary directory structure
       const summaryPath = path.join(projectPath, '.treesummary', 'structure.txt');
       const summaryContent = this.generateTreeSummary(structure);
@@ -272,17 +295,12 @@ export class AnalysisMcpTools {
     }
     
     const projectName = path.basename(projectPath);
-    
-    // Use TreeSummaryService for enhanced analysis
-    const overview = await this.treeSummaryService.getProjectOverview(projectPath);
-    
-    // Build basic structure if not available from overview
-    let structure: DirectoryNode | ProjectStructureInfo = overview.structure;
-    if (!structure) {
-      const defaultExcludePatterns = ['node_modules/**', '.git/**'];
-      const combinedExcludePatterns = await this.getCombinedExcludePatterns(projectPath, defaultExcludePatterns);
-      structure = await this.buildProjectStructure(projectPath, 5, combinedExcludePatterns);
-    }
+
+    // TreeSummaryService.getProjectOverview removed in refactoring
+    // Build structure directly using existing methods
+    const defaultExcludePatterns = ['node_modules/**', '.git/**'];
+    const combinedExcludePatterns = await this.getCombinedExcludePatterns(projectPath, defaultExcludePatterns);
+    const structure: DirectoryNode | ProjectStructureInfo = await this.buildProjectStructure(projectPath, 5, combinedExcludePatterns);
     
     // Calculate stats
     const stats = this.calculateProjectStats(structure);
@@ -366,18 +384,20 @@ export class AnalysisMcpTools {
     });
     
     const filePath = path.resolve(params.file_path);
-    
-    // Use LezerParserService for robust symbol extraction
-    const content = await readFile(filePath, 'utf8');
-    const parseResult = await this.lezerParserService.parseFile(filePath, content);
-    
-    if (!parseResult.parseSuccess) {
+
+    // Use TreeSitterASTTool for robust symbol extraction
+    const parseResult = await this.treeSitterASTTool.executeByToolName('ast_extract_symbols', {
+      file_path: filePath,
+      language: 'auto'
+    });
+
+    if (!parseResult.success) {
       // Fallback to regex-based parsing for unsupported files
       const content = await readFile(filePath, 'utf8');
       const symbols = this.extractSymbolsFallback(content, params.symbol_types);
-      
+
       const executionTime = Date.now() - startTime;
-      
+
       return createSuccessResponse(
         `Successfully analyzed symbols in ${filePath} (fallback parsing)`,
         {
@@ -390,26 +410,30 @@ export class AnalysisMcpTools {
       ) as AnalyzeFileSymbolsResponse;
     }
 
+    // parseResult from ast_extract_symbols returns {success, language, symbols}
+    const allSymbols = parseResult.symbols || [];
+    const language = parseResult.language || 'unknown';
+
     // Filter symbols by requested types
     const requestedTypes = new Set(params.symbol_types);
     const typeMapping: Record<string, string> = {
       'function': 'functions',
-      'class': 'classes', 
+      'class': 'classes',
       'interface': 'interfaces',
       'type': 'types',
       'variable': 'variables',
       'method': 'functions' // Treat methods as functions
     };
-    
-    const filteredSymbols = parseResult.symbols.filter(symbol => {
-      const mappedType = typeMapping[symbol.type] || symbol.type;
+
+    const filteredSymbols = allSymbols.filter((symbol: any) => {
+      const mappedType = typeMapping[symbol.kind] || symbol.kind;
       return requestedTypes.has(mappedType as any);
     });
 
     const executionTime = Date.now() - startTime;
-    
+
     return createSuccessResponse(
-      `Successfully analyzed symbols in ${filePath} using Tree-sitter (${parseResult.language})`,
+      `Successfully analyzed symbols in ${filePath} using Tree-sitter (${language})`,
       {
         symbols: {
           file_path: filePath,
@@ -424,8 +448,10 @@ export class AnalysisMcpTools {
    * Generate file analyses for all source files in a project structure
    */
   private async generateFileAnalyses(projectPath: string, structure: DirectoryNode): Promise<void> {
-    // Get supported extensions from LezerParserService
-    const supportedExtensions = new Set(this.lezerParserService.getSupportedExtensions());
+    // TreeSitterASTTool supports TypeScript/JavaScript files
+    const supportedExtensions = new Set([
+      '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'
+    ]);
     
     const processNode = async (node: DirectoryNode, currentPath: string): Promise<void> => {
       for (const child of node.children || []) {
@@ -435,10 +461,35 @@ export class AnalysisMcpTools {
           const ext = path.extname(child.name).toLowerCase();
           if (supportedExtensions.has(ext)) {
             try {
-              // Use LezerParserService for comprehensive analysis
-              const analysis = await this.lezerParserService.analyzeFile(childPath);
-              
-              if (analysis) {
+              // Use TreeSitterASTTool for comprehensive analysis
+              const parseResult = await this.treeSitterASTTool.executeByToolName('ast_extract_symbols', {
+                file_path: childPath,
+                language: 'auto'
+              });
+
+              if (parseResult.success) {
+                // Build FileAnalysis object from parseResult
+                const content = await readFile(childPath, 'utf8');
+                const stats = await stat(childPath);
+                const hash = createHash('sha256').update(content).digest('hex');
+
+                const analysis = {
+                  filePath: childPath,
+                  hash,
+                  lastModified: stats.mtime.toISOString(),
+                  symbols: (parseResult.symbols || []).map((sym: any) => ({
+                    name: sym.name,
+                    type: sym.kind || 'unknown',
+                    line: sym.startPosition?.row || 0,
+                    column: sym.startPosition?.column || 0,
+                    isExported: false
+                  })),
+                  imports: parseResult.imports || [],
+                  exports: parseResult.exports || [],
+                  size: stats.size,
+                  language: parseResult.language || 'unknown'
+                };
+
                 // Store the analysis using TreeSummaryService
                 await this.treeSummaryService.updateFileAnalysis(childPath, analysis);
               } else {

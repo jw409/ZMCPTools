@@ -1,9 +1,19 @@
 # ZMCPTools - Complete Tool Reference
 
-This document provides a comprehensive reference for all 71 MCP tools available in ZMCPTools. Tools are organized by category for easy navigation and understanding.
+This document provides a comprehensive reference for all MCP tools and resources available in ZMCPTools.
+
+## ⚡ Token Optimization Notice
+
+**ZMCPTools now uses MCP Resources for read-only operations** - saving ~13,000+ tokens in system prompts!
+
+- **Resources** (~30 tokens): URI-based read operations (file analysis, searches, status)
+- **Tools** (~200 tokens): Action-based mutations and complex workflows
+
+See [GitHub Issue #35](https://github.com/jw409/ZMCPTools/issues/35) for migration details.
 
 ## Table of Contents
 
+- [🔍 MCP Resources (Token-Optimized)](#mcp-resources-token-optimized)
 - [Multi-Agent Orchestration (13 tools)](#multi-agent-orchestration)
 - [Browser Automation (13 tools)](#browser-automation)
 - [Browser AI DOM Tools (5 tools)](#browser-ai-dom-tools)
@@ -13,6 +23,83 @@ This document provides a comprehensive reference for all 71 MCP tools available 
 - [Knowledge Graph & Memory (13 tools)](#knowledge-graph--memory)
 - [Tree Summary System (5 tools)](#tree-summary-system)
 - [Progress Reporting (1 tool)](#progress-reporting)
+
+---
+
+## 🔍 MCP Resources (Token-Optimized)
+
+**New in v0.5.0**: Read-only operations are now available as **MCP Resources** instead of Tools, providing 97% token reduction.
+
+### File Analysis Resources (Phase 1 ✅)
+
+**6 AST operations now cost 30 tokens instead of 1,200 tokens!**
+
+| Resource URI Template | Description | Query Parameters |
+|----------------------|-------------|------------------|
+| `file://{path}/symbols` | Extract functions, classes, methods, interfaces | `include_positions=true` |
+| `file://{path}/imports` | Extract all import statements | - |
+| `file://{path}/exports` | Extract all export statements | - |
+| `file://{path}/structure` | Get file structure outline (Markdown) | - |
+| `file://{path}/diagnostics` | Get syntax errors and parse diagnostics | - |
+| `file://{path}/ast` | Full Abstract Syntax Tree with optimizations | `compact`, `use_symbol_table`, `max_depth`, `include_semantic_hash` |
+
+**Example Usage:**
+```typescript
+// Extract symbols from TypeScript file
+resource://file/src/services/AuthService.ts/symbols
+
+// Get imports with compact AST
+resource://file/src/index.ts/imports
+
+// Full AST with token optimizations (30-50% smaller)
+resource://file/src/app.ts/ast?compact=true&use_symbol_table=true&max_depth=3
+```
+
+**Query Parameters for AST:**
+- `compact=true` - Filter syntactic noise nodes
+- `use_symbol_table=true` - Use symbolic representation (30-50% token reduction)
+- `max_depth=N` - Limit tree depth for quick overviews
+- `include_semantic_hash=true` - Add hash for duplicate detection across files
+- `omit_redundant_text=true` - Skip text content from simple nodes
+
+### Deprecated Tools (Transition Period)
+
+⚠️ **AST tools are now deprecated** - use `file://` resources instead:
+
+| Deprecated Tool | Use This Resource Instead |
+|----------------|---------------------------|
+| `ast_analyze` with `operation: extract_symbols` | `file://{path}/symbols` |
+| `ast_analyze` with `operation: extract_imports` | `file://{path}/imports` |
+| `ast_analyze` with `operation: extract_exports` | `file://{path}/exports` |
+| `ast_analyze` with `operation: get_structure` | `file://{path}/structure` |
+| `ast_analyze` with `operation: get_diagnostics` | `file://{path}/diagnostics` |
+| `ast_analyze` with `operation: parse` | `file://{path}/ast?compact=true` |
+
+Old tools still work but show deprecation warnings. See [migration timeline](https://github.com/jw409/ZMCPTools/issues/35).
+
+### Coming Soon (In Progress)
+
+**Phase 2**: Project Analysis Resources (~770 tokens saved)
+```typescript
+resource://project/{path}/structure  // Project tree
+resource://project/{path}/summary    // AI-optimized overview
+resource://project/{path}/files?pattern=*.ts  // Filtered file list
+```
+
+**Phase 3**: Knowledge Graph Resources (~570 tokens saved)
+```typescript
+resource://knowledge/search?query=authentication  // Search knowledge
+resource://knowledge/entity/{id}/related          // Related entities
+resource://knowledge/status                       // Memory status
+```
+
+**Phase 4**: Agent Status Resources (~370 tokens saved)
+```typescript
+resource://agent/all?status=active   // Active agents
+resource://agent/{id}/status         // Specific agent status
+```
+
+**Total Projected Savings**: 13,000+ tokens across all phases
 
 ---
 
