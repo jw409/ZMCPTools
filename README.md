@@ -306,6 +306,17 @@ await readResource('agents://agent-123/status')
 - `monitor_agents` - Set up real-time monitoring
 - `cleanup_stale_agents` - Remove dead agents
 
+### Cleanup & Optimization (Phases 5-8 ✅)
+
+**Architectural cleanup and description improvements:**
+
+- **Phase 5**: Removed communication resources from dom0 (belong in domU talent server only)
+- **Phase 6**: Removed docs/scraping resources from dom0 completely
+- **Phase 7**: Enhanced vector resource descriptions (collections/search/status) with actionable guidance
+- **Phase 8**: Enhanced logs resource descriptions (list/files/content) with emoji-prefixed use cases
+
+All resource descriptions now follow consistent pattern: 🔍 USE CASE + practical examples + when to use
+
 ## 🎭 Talent Profile System
 
 ZMCPTools implements a **token-efficient, modular talent profile system** for creating AI agent personas.

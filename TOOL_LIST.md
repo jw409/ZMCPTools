@@ -162,8 +162,30 @@ await readResource('agents://agent-123/status')
 
 **Savings**: 170 tokens (list_agents tool eliminated)
 
-**Total Savings**: 2,310 tokens (Phase 1: 1,170 + Phase 2: 400 + Phase 3: 570 + Phase 4: 170)
-**Projected Total**: 13,000+ tokens across all phases
+### Phase 5: Communication Resources (Architectural Cleanup)
+
+Removed communication resources from dom0 (they belong in domU talent server only):
+- Removed `communication://rooms` resource template
+- Removed `communication://messages` resource template
+- Clean separation: orchestration tools in dom0, coordination tools in domU
+
+### Phase 6: Docs/Scraping Resources (Complete Removal)
+
+Removed all documentation/scraping resources from dom0:
+- Removed `scraping://jobs`, `docs://sources`, `docs://websites`, `docs://*/pages`, `docs://search`
+- ~108 lines of code eliminated
+- Cleaner dom0 surface area
+
+### Phases 7-8: Resource Description Improvements
+
+Enhanced all resource descriptions with actionable, emoji-prefixed guidance:
+- **Phase 7**: Vector resources (📚 📊 🔍) - collections, search, status
+- **Phase 8**: Logs resources (📂 📄 📖) - list, files, content
+
+All descriptions now follow pattern: 🎯 USE CASE + practical examples + when to use
+
+**Total Savings**: 2,310+ tokens (Phase 1: 1,170 + Phase 2: 400 + Phase 3: 570 + Phase 4: 170)
+**Quality Improvements**: Phases 5-8 (architectural cleanup + better UX)
 
 ---
 
