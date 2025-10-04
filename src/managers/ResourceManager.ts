@@ -285,33 +285,6 @@ export class ResourceManager {
         }
       },
       {
-        uriTemplate: "communication://rooms",
-        name: "Communication Rooms",
-        description:
-          "List of all active communication rooms (use ?limit=50&cursor=token&search=text)",
-        mimeType: "application/json",
-        _meta: {
-          "params": {
-            "limit": 50,
-            "cursor": "optional cursor token from previous response",
-            "search": "text to search room names and descriptions, if provided"
-          }
-        }
-      },
-      {
-        uriTemplate: "communication://messages",
-        name: "Room Messages",
-        description:
-          "Recent messages from communication rooms (use ?room=name&limit=50)",
-        mimeType: "application/json",
-        _meta: {
-          "params": {
-            "room": "name of the room to fetch messages from",
-            "limit": 50
-          }
-        }
-      },
-      {
         uriTemplate: "agents://insights",
         name: "Agent Insights",
         description:
@@ -468,12 +441,6 @@ export class ResourceManager {
     switch (resourceKey) {
       case "agents://list":
         return await this.getAgentsList(searchParams);
-
-      case "communication://rooms":
-        return await this.getCommunicationRooms(searchParams);
-
-      case "communication://messages":
-        return await this.getRoomMessages(searchParams);
 
       case "agents://insights":
         return await this.getAgentInsights(searchParams);
