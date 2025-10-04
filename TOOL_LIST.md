@@ -77,14 +77,36 @@ resource://file/src/app.ts/ast?compact=true&use_symbol_table=true&max_depth=3
 
 Old tools still work but show deprecation warnings. See [migration timeline](https://github.com/jw409/ZMCPTools/issues/35).
 
-### Coming Soon (In Progress)
+### Project Analysis Resources (Phase 2 ✅)
 
-**Phase 2**: Project Analysis Resources (~770 tokens saved)
+**2 project operations now cost 30 tokens instead of 400 tokens!**
+
+| Resource URI Template | Description | Query Parameters |
+|----------------------|-------------|------------------|
+| `project://{path}/structure` | Project directory tree with smart ignore patterns | `max_depth=5`, `exclude=node_modules,dist` |
+| `project://{path}/summary` | AI-optimized project overview with README, package, git | `include_readme=true`, `include_package_info=true`, `include_git_info=true` |
+
+**Example Usage:**
 ```typescript
-resource://project/{path}/structure  // Project tree
-resource://project/{path}/summary    // AI-optimized overview
-resource://project/{path}/files?pattern=*.ts  // Filtered file list
+// Get project structure
+resource://project/./structure?max_depth=3&exclude=node_modules,dist,.git
+
+// Full project summary
+resource://project/./summary?include_readme=true&include_git_info=true
 ```
+
+**Deprecated Tools (use resources or Claude Code built-ins instead):**
+
+| Deprecated Tool | Use This Instead | Reason |
+|----------------|------------------|---------|
+| `analyze_project_structure` | `project://{path}/structure` | Now a resource (30 tokens vs 200) |
+| `generate_project_summary` | `project://{path}/summary` | Now a resource (30 tokens vs 200) |
+| `list_files` | Glob tool (Claude Code built-in) | Redundant - Glob is more efficient |
+| `analyze_file_symbols` | `file://{path}/symbols` (Phase 1) | Redundant - use file resource |
+
+**Savings**: 400 tokens (2 tools × 200) + eliminated 2 redundant tools
+
+### Coming Soon (In Progress)
 
 **Phase 3**: Knowledge Graph Resources (~570 tokens saved)
 ```typescript
@@ -99,7 +121,8 @@ resource://agent/all?status=active   // Active agents
 resource://agent/{id}/status         // Specific agent status
 ```
 
-**Total Projected Savings**: 13,000+ tokens across all phases
+**Total Savings So Far**: 1,570 tokens (Phase 1: 1,170 + Phase 2: 400)
+**Projected Total**: 13,000+ tokens across all phases
 
 ---
 

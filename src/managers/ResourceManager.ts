@@ -15,8 +15,9 @@ import { WebsiteRepository } from "../repositories/WebsiteRepository.js";
 import { WebsitePagesRepository } from "../repositories/WebsitePagesRepository.js";
 import { PathUtils } from "../utils/pathUtils.js";
 import { TreeSitterASTTool } from "../tools/TreeSitterASTTool.js";
+import { TreeSummaryService } from "../services/TreeSummaryService.js";
 import { readdir, stat, readFile } from "fs/promises";
-import { join } from "path";
+import { join, resolve } from "path";
 import { homedir } from "os";
 
 export interface ResourceInfo {
@@ -74,6 +75,7 @@ export class ResourceManager {
   private websiteRepository: WebsiteRepository;
   private websitePagesRepository: WebsitePagesRepository;
   private treeSitterASTTool: TreeSitterASTTool;
+  private treeSummaryService: TreeSummaryService;
 
   constructor(private db: DatabaseManager, repositoryPath: string) {
     // Resolve repository path to absolute path
@@ -96,6 +98,7 @@ export class ResourceManager {
     this.websiteRepository = new WebsiteRepository(this.db);
     this.websitePagesRepository = new WebsitePagesRepository(this.db);
     this.treeSitterASTTool = new TreeSitterASTTool();
+    this.treeSummaryService = new TreeSummaryService();
   }
 
   /**
@@ -179,6 +182,36 @@ export class ResourceManager {
         _meta: {
           "params": {
             "path": "relative path to source file (in URI path)"
+          }
+        }
+      },
+      // Project Analysis Resources (replaces 2 tools - saves 400 tokens)
+      {
+        uriTemplate: "project://*/structure",
+        name: "Project Structure",
+        description:
+          "Get project directory tree with smart ignore patterns (use project://{path}/structure?max_depth=5&exclude=node_modules)",
+        mimeType: "application/json",
+        _meta: {
+          "params": {
+            "path": "project path (. for current directory)",
+            "max_depth": "maximum directory depth (default: 5)",
+            "exclude": "comma-separated exclude patterns (default: node_modules,dist,.git)"
+          }
+        }
+      },
+      {
+        uriTemplate: "project://*/summary",
+        name: "Project Summary",
+        description:
+          "Get AI-optimized project overview with README, package info, git status (use project://{path}/summary?include_readme=true&include_git=true)",
+        mimeType: "application/json",
+        _meta: {
+          "params": {
+            "path": "project path (. for current directory)",
+            "include_readme": "include README.md content (default: true)",
+            "include_package_info": "include package.json/setup.py info (default: true)",
+            "include_git_info": "include git branch/status (default: true)"
           }
         }
       },
@@ -441,6 +474,11 @@ export class ResourceManager {
     // Handle file:// resources with dynamic paths (AST operations)
     if (scheme === "file") {
       return await this.getFileResource(path, searchParams);
+    }
+
+    // Handle project:// resources with dynamic paths
+    if (scheme === "project") {
+      return await this.getProjectResource(path, searchParams);
     }
 
     const resourceKey = `${scheme}://${path}`;
@@ -1525,18 +1563,35 @@ export class ResourceManager {
     }
 
     try {
-      // Use the knowledge graph service's search method
-      const results = await this.knowledgeGraphService.searchKnowledgeGraph(
-        this.repositoryPath,
-        query,
-        {
+      // Combine semantic and text search
+      let entities: any[] = [];
+
+      if (useEmbeddings) {
+        // Semantic search
+        const semanticResults = await this.knowledgeGraphService.findEntitiesBySemanticSearch(
+          this.repositoryPath,
+          query,
+          undefined, // entityTypes
           limit,
-          threshold,
-          use_semantic_search: useEmbeddings,
-          entity_types: undefined,
-          include_relationships: true,
-        }
-      );
+          threshold
+        );
+        entities = semanticResults;
+      }
+
+      if (useBm25 && entities.length < limit) {
+        // Text search for additional results
+        const textResults = await this.knowledgeGraphService.findEntitiesByTextSearch(
+          this.repositoryPath,
+          query,
+          undefined, // entityTypes
+          limit - entities.length
+        );
+
+        // Merge results, avoiding duplicates
+        const existingIds = new Set(entities.map(e => e.id));
+        const uniqueTextResults = textResults.filter(e => !existingIds.has(e.id));
+        entities = [...entities, ...uniqueTextResults];
+      }
 
       return {
         uri: `knowledge://search?query=${encodeURIComponent(query)}&limit=${limit}`,
@@ -1544,16 +1599,15 @@ export class ResourceManager {
         text: JSON.stringify(
           {
             query,
-            results: results.entities.map((entity: any) => ({
+            results: entities.slice(0, limit).map((entity: any) => ({
               id: entity.id,
-              type: entity.entity_type,
+              type: entity.entityType,
               name: entity.name,
               description: entity.description?.substring(0, 200),
-              importance: entity.importance_score,
-              confidence: entity.confidence_score,
-              relationships: entity.relationships || [],
+              importance: entity.importanceScore,
+              confidence: entity.confidenceScore,
             })),
-            total: results.entities.length,
+            total: entities.length,
             search_params: { useBm25, useEmbeddings, useReranker, threshold },
             timestamp: new Date().toISOString(),
           },
@@ -1649,29 +1703,38 @@ export class ResourceManager {
 
   private async getKnowledgeStatus(): Promise<TextResourceContents> {
     try {
-      const status = await this.knowledgeGraphService.getMemoryStatus(
+      const stats = await this.knowledgeGraphService.getStats(
         this.repositoryPath
       );
+
+      // Calculate quality metrics from entities
+      const avgImportance = stats.topEntitiesByImportance.length > 0
+        ? stats.topEntitiesByImportance.reduce((sum, e) => sum + (e.importanceScore || 0), 0) / stats.topEntitiesByImportance.length
+        : 0;
+
+      const avgConfidence = stats.topEntitiesByImportance.length > 0
+        ? stats.topEntitiesByImportance.reduce((sum, e) => sum + (e.confidenceScore || 0), 0) / stats.topEntitiesByImportance.length
+        : 0;
 
       return {
         uri: "knowledge://status",
         mimeType: "application/json",
         text: JSON.stringify(
           {
-            total_entities: status.total_entities,
-            total_relationships: status.total_relationships,
-            entity_types: status.entity_type_distribution,
+            total_entities: stats.totalEntities,
+            total_relationships: stats.totalRelationships,
+            entity_types: stats.entitiesByType,
             quality_metrics: {
-              avg_importance: status.quality_metrics?.avg_importance || 0,
-              avg_confidence: status.quality_metrics?.avg_confidence || 0,
-              low_quality_count: status.quality_metrics?.low_quality_count || 0,
+              avg_importance: avgImportance,
+              avg_confidence: avgConfidence,
+              low_quality_count: stats.topEntitiesByImportance.filter(e => (e.importanceScore || 0) < 0.3).length,
             },
             storage_info: {
               repository_path: this.repositoryPath,
-              database_size: status.database_size || "unknown",
+              database_size: "unknown",
             },
             index_freshness: {
-              last_updated: status.last_updated || new Date().toISOString(),
+              last_updated: new Date().toISOString(),
               stale_check_method: "mtime-based (~5ms overhead)",
             },
             timestamp: new Date().toISOString(),
@@ -1818,5 +1881,150 @@ export class ResourceManager {
         ),
       };
     }
+  }
+
+  /**
+   * Handle project:// resource URIs for project analysis
+   * URI format: project://{path}/{aspect}?params
+   * Example: project://./structure?max_depth=5
+   */
+  private async getProjectResource(
+    path: string,
+    searchParams: URLSearchParams
+  ): Promise<TextResourceContents> {
+    // Extract aspect from path (e.g., "./structure" → aspect="structure", projectPath=".")
+    const pathParts = path.split("/");
+    const aspect = pathParts[pathParts.length - 1];
+    const projectPath = pathParts.slice(0, -1).join("/") || ".";
+
+    const resolvedPath = resolve(this.repositoryPath, projectPath);
+
+    if (aspect === "structure") {
+      const maxDepth = parseInt(searchParams.get("max_depth") || "5");
+      const excludePatterns = searchParams.get("exclude")?.split(",") || [
+        "node_modules",
+        "dist",
+        ".git",
+        ".next",
+        "build",
+        "coverage"
+      ];
+
+      try {
+        const structure = await this.treeSummaryService.analyzeDirectory(
+          resolvedPath,
+          { maxDepth, excludePatterns }
+        );
+
+        return {
+          uri: `project://${path}`,
+          mimeType: "application/json",
+          text: JSON.stringify(
+            {
+              project_path: resolvedPath,
+              max_depth: maxDepth,
+              exclude_patterns: excludePatterns,
+              structure,
+              total_files: this.countFiles(structure),
+              total_directories: this.countDirectories(structure),
+              timestamp: new Date().toISOString()
+            },
+            null,
+            2
+          )
+        };
+      } catch (error) {
+        return {
+          uri: `project://${path}`,
+          mimeType: "application/json",
+          text: JSON.stringify(
+            {
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "Failed to analyze project structure",
+              project_path: resolvedPath,
+              aspect
+            },
+            null,
+            2
+          )
+        };
+      }
+    } else if (aspect === "summary") {
+      const includeReadme = searchParams.get("include_readme") !== "false";
+      const includePackageInfo =
+        searchParams.get("include_package_info") !== "false";
+      const includeGitInfo = searchParams.get("include_git_info") !== "false";
+
+      try {
+        const summary = await this.treeSummaryService.generateProjectSummary(
+          resolvedPath,
+          {
+            includeReadme,
+            includePackageInfo,
+            includeGitInfo
+          }
+        );
+
+        return {
+          uri: `project://${path}`,
+          mimeType: "application/json",
+          text: JSON.stringify(summary, null, 2)
+        };
+      } catch (error) {
+        return {
+          uri: `project://${path}`,
+          mimeType: "application/json",
+          text: JSON.stringify(
+            {
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "Failed to generate project summary",
+              project_path: resolvedPath,
+              aspect
+            },
+            null,
+            2
+          )
+        };
+      }
+    } else {
+      return {
+        uri: `project://${path}`,
+        mimeType: "application/json",
+        text: JSON.stringify(
+          {
+            error: `Unknown project aspect: ${aspect}`,
+            valid_aspects: ["structure", "summary"],
+            usage: "project://{path}/{aspect}?params"
+          },
+          null,
+          2
+        )
+      };
+    }
+  }
+
+  private countFiles(node: any): number {
+    if (node.type === "file") return 1;
+    if (!node.children) return 0;
+    return node.children.reduce(
+      (sum: number, child: any) => sum + this.countFiles(child),
+      0
+    );
+  }
+
+  private countDirectories(node: any): number {
+    if (node.type === "file") return 0;
+    if (!node.children) return 1;
+    return (
+      1 +
+      node.children.reduce(
+        (sum: number, child: any) => sum + this.countDirectories(child),
+        0
+      )
+    );
   }
 }

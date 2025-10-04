@@ -172,10 +172,40 @@ resource://file/src/index.ts/structure
 - More intuitive URI-based access
 - Better caching and performance
 
+### Project Resources (Phase 2 ✅)
+
+**2 project analysis operations now cost 30 tokens instead of 400 tokens!**
+
+| Resource URI Template | Description | Query Parameters |
+|----------------------|-------------|------------------|
+| `project://{path}/structure` | Get directory tree with smart ignore patterns | `max_depth`, `exclude` |
+| `project://{path}/summary` | AI-optimized project overview | `include_readme`, `include_package_info`, `include_git_info` |
+
+**Example Usage:**
+```typescript
+// Get project structure with custom depth
+resource://project/./structure?max_depth=3&exclude=node_modules,dist
+
+// Get full project summary
+resource://project/./summary?include_readme=true&include_git_info=true
+```
+
+**Query Parameters:**
+- `max_depth=N` - Maximum directory depth (default: 5)
+- `exclude=pattern1,pattern2` - Comma-separated ignore patterns
+- `include_readme=true|false` - Include README.md content
+- `include_package_info=true|false` - Include package.json/setup.py
+- `include_git_info=true|false` - Include git branch/status
+
+**Deprecated Tools:**
+- `analyze_project_structure` → use `project://{path}/structure`
+- `generate_project_summary` → use `project://{path}/summary`
+- `list_files` → use Glob tool instead (more efficient)
+- `analyze_file_symbols` → use `file://{path}/symbols` from Phase 1
+
 ### Coming Soon
 
 Additional resource types being migrated (see [Issue #35](https://github.com/jw409/ZMCPTools/issues/35)):
-- `project://{path}/{aspect}` - Project structure and summaries (Phase 2)
 - `knowledge://{query}` - Knowledge graph searches (Phase 3)
 - `agent://{id}` - Agent status and monitoring (Phase 4)
 

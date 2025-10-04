@@ -108,51 +108,51 @@ export class AnalysisMcpTools {
       ...astTools,
       {
         name: 'analyze_project_structure',
-        description: 'Analyze project structure and generate a comprehensive overview',
-        inputSchema: zodToJsonSchema(AnalyzeProjectStructureSchema),
-        outputSchema: zodToJsonSchema(AnalyzeProjectStructureResponseSchema),
+        description: '⚠️ DEPRECATED: Use project://{path}/structure resource instead. Analyze project structure and generate a comprehensive overview',
+        inputSchema: zodToJsonSchema(AnalyzeProjectStructureSchema) as any as any,
+        outputSchema: zodToJsonSchema(AnalyzeProjectStructureResponseSchema) as any as any,
         handler: this.analyzeProjectStructure.bind(this)
       },
       {
         name: 'generate_project_summary',
-        description: 'Generate AI-optimized project overview and analysis',
-        inputSchema: zodToJsonSchema(GenerateProjectSummarySchema),
-        outputSchema: zodToJsonSchema(GenerateProjectSummaryResponseSchema),
+        description: '⚠️ DEPRECATED: Use project://{path}/summary resource instead. Generate AI-optimized project overview and analysis',
+        inputSchema: zodToJsonSchema(GenerateProjectSummarySchema) as any as any,
+        outputSchema: zodToJsonSchema(GenerateProjectSummaryResponseSchema) as any as any,
         handler: this.generateProjectSummary.bind(this)
       },
       {
         name: 'analyze_file_symbols',
-        description: 'Extract and analyze symbols (functions, classes, etc.) from code files',
-        inputSchema: zodToJsonSchema(AnalyzeFileSymbolsSchema),
-        outputSchema: zodToJsonSchema(AnalyzeFileSymbolsResponseSchema),
+        description: '⚠️ DEPRECATED: Use file://{path}/symbols resource instead. Extract and analyze symbols (functions, classes, etc.) from code files',
+        inputSchema: zodToJsonSchema(AnalyzeFileSymbolsSchema) as any as any,
+        outputSchema: zodToJsonSchema(AnalyzeFileSymbolsResponseSchema) as any as any,
         handler: this.analyzeFileSymbols.bind(this)
       },
       {
         name: 'list_files',
-        description: 'List files in a directory with smart ignore patterns',
-        inputSchema: zodToJsonSchema(ListFilesSchema),
-        outputSchema: zodToJsonSchema(ListFilesResponseSchema),
+        description: '⚠️ DEPRECATED: Use Glob tool instead (more efficient). List files in a directory with smart ignore patterns',
+        inputSchema: zodToJsonSchema(ListFilesSchema) as any as any,
+        outputSchema: zodToJsonSchema(ListFilesResponseSchema) as any as any,
         handler: this.listFiles.bind(this)
       },
       {
         name: 'find_files',
         description: 'Search for files by pattern with optional content matching',
-        inputSchema: zodToJsonSchema(FindFilesSchema),
-        outputSchema: zodToJsonSchema(FindFilesResponseSchema),
+        inputSchema: zodToJsonSchema(FindFilesSchema) as any,
+        outputSchema: zodToJsonSchema(FindFilesResponseSchema) as any,
         handler: this.findFiles.bind(this)
       },
       {
         name: 'easy_replace',
         description: 'Fuzzy string replacement in files with smart matching',
-        inputSchema: zodToJsonSchema(EasyReplaceSchema),
-        outputSchema: zodToJsonSchema(EasyReplaceResponseSchema),
+        inputSchema: zodToJsonSchema(EasyReplaceSchema) as any,
+        outputSchema: zodToJsonSchema(EasyReplaceResponseSchema) as any,
         handler: this.easyReplace.bind(this)
       },
       {
         name: 'cleanup_orphaned_projects',
         description: 'Clean up orphaned or unused project directories',
-        inputSchema: zodToJsonSchema(CleanupOrphanedProjectsSchema),
-        outputSchema: zodToJsonSchema(CleanupOrphanedProjectsResponseSchema),
+        inputSchema: zodToJsonSchema(CleanupOrphanedProjectsSchema) as any,
+        outputSchema: zodToJsonSchema(CleanupOrphanedProjectsResponseSchema) as any,
         handler: this.cleanupOrphanedProjects.bind(this)
       }
     ];
