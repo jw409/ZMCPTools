@@ -8,8 +8,10 @@
   "bin": {
     "zetta-mcp-tools": "dist/cli/index.js",
     "zetta-mcp-server": "dist/server/index.js",
+    "zetta-mcp-talent-server": "dist/talent-server/index.js",
     "zetta-mcp-cli": "dist/cli/index.js",
-    "zmcp-tools": "dist/cli/index.js"
+    "zmcp-tools": "dist/cli/index.js",
+    "zmcp-talent-server": "dist/talent-server/index.js"
   },
   "exports": {
     ".": {
@@ -32,11 +34,13 @@
   "preferGlobal": true,
   "scripts": {
     "build": "tsup",
-    "postbuild": "chmod +x dist/server/index.js dist/cli/index.js || true",
+    "postbuild": "chmod +x dist/server/index.js dist/cli/index.js dist/talent-server/index.js || true",
     "dev": "tsx src/index.ts",
     "dev:cli": "tsx src/cli/index.ts",
+    "dev:talent": "tsx src/talent-server/index.ts --talent-id dev-talent-001",
     "start": "node dist/server/index.js",
     "start:cli": "node dist/cli/index.js",
+    "start:talent": "node dist/talent-server/index.js",
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:run": "vitest run",

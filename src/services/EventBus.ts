@@ -45,7 +45,15 @@ export interface EventTypes {
     repositoryPath: string;
     sessionId?: string;
   };
-  
+
+  agent_error: {
+    agentId: string;
+    error: Error | string;
+    context?: string;
+    timestamp: Date;
+    repositoryPath: string;
+  };
+
   // Task events  
   task_update: {
     taskId: string;
@@ -71,7 +79,15 @@ export interface EventTypes {
     timestamp: Date;
     repositoryPath: string;
   };
-  
+
+  task_failed: {
+    taskId: string;
+    failedBy?: string;
+    error?: string;
+    timestamp: Date;
+    repositoryPath: string;
+  };
+
   // Communication events
   room_message: {
     roomId: string;
@@ -147,7 +163,15 @@ export interface EventTypes {
     timestamp: Date;
     repositoryPath?: string;
   };
-  
+
+  team_coordination_needed: {
+    orchestrationId?: string;
+    agentIds?: string[];
+    reason: string;
+    timestamp: Date;
+    repositoryPath: string;
+  };
+
   // Progress events
   progress_update: {
     contextId: string;

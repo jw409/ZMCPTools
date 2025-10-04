@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig([
-  // Server build (with shebang for npx usage, excludes native deps)
+  // Global MCP Server build (dom0 - orchestration only)
   {
     entry: ['src/index.ts'],
     outDir: 'dist/server',
@@ -98,6 +98,39 @@ export default defineConfig([
         console.log('✅ Made CLI binary executable');
       } catch (error) {
         console.warn('⚠️  Failed to make CLI binary executable:', error);
+      }
+    }
+  },
+  // Talent MCP Server build (domU - coordination tools only)
+  {
+    entry: ['src/talent-server/index.ts'],
+    outDir: 'dist/talent-server',
+    format: ['esm'],
+    dts: true,
+    clean: true,
+    splitting: false,
+    sourcemap: true,
+    minify: false,
+    target: 'node18',
+    platform: 'node',
+    bundle: true,
+    external: ['@lancedb/lancedb', 'better-sqlite3'],
+    publicDir: false,
+    treeshake: true,
+    skipNodeModulesBundle: true,
+    tsconfig: 'tsconfig.json',
+    shims: false,
+    cjsInterop: false,
+    banner: {
+      js: '#!/usr/bin/env node'
+    },
+    onSuccess: async () => {
+      const { execSync } = await import('child_process');
+      try {
+        execSync('chmod +x dist/talent-server/index.js', { stdio: 'ignore' });
+        console.log('✅ Made talent server binary executable');
+      } catch (error) {
+        console.warn('⚠️  Failed to make talent server binary executable:', error);
       }
     }
   }

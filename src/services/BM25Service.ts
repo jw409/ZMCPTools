@@ -362,6 +362,34 @@ export class BM25Service {
   }
 
   /**
+   * Get BM25 index statistics
+   */
+  async getIndexStats(): Promise<{
+    totalDocuments: number;
+    totalTerms: number;
+    avgDocLength: number;
+  }> {
+    try {
+      const totalDocs = this.db.prepare('SELECT COUNT(*) as count FROM documents').get() as { count: number };
+      const totalTerms = this.db.prepare('SELECT COUNT(DISTINCT term) as count FROM terms').get() as { count: number };
+      const avgLength = this.db.prepare('SELECT AVG(length) as avg FROM documents').get() as { avg: number };
+
+      return {
+        totalDocuments: totalDocs?.count || 0,
+        totalTerms: totalTerms?.count || 0,
+        avgDocLength: avgLength?.avg || 0
+      };
+    } catch (error) {
+      this.logger.error('Failed to get index stats', error);
+      return {
+        totalDocuments: 0,
+        totalTerms: 0,
+        avgDocLength: 0
+      };
+    }
+  }
+
+  /**
    * Close database connection
    */
   close(): void {

@@ -65,43 +65,43 @@ export class PlanTools {
       {
         name: 'create_execution_plan',
         description: 'Create a high-level execution plan that generates coordinated Tasks for implementation',
-        inputSchema: zodToJsonSchema(GeneratePlanFromObjectiveSchema),
-        outputSchema: zodToJsonSchema(GeneratePlanFromObjectiveResponseSchema),
+        inputSchema: zodToJsonSchema(GeneratePlanFromObjectiveSchema) as any,
+        outputSchema: zodToJsonSchema(GeneratePlanFromObjectiveResponseSchema) as any,
         handler: this.generatePlanFromObjective.bind(this)
       },
       {
         name: 'get_execution_plan',
         description: 'Get an execution plan with progress derived from linked Tasks',
-        inputSchema: zodToJsonSchema(GetPlanSchema),
-        outputSchema: zodToJsonSchema(GetPlanResponseSchema),
+        inputSchema: zodToJsonSchema(GetPlanSchema) as any,
+        outputSchema: zodToJsonSchema(GetPlanResponseSchema) as any,
         handler: this.getPlan.bind(this)
       },
       {
         name: 'execute_with_plan',
         description: 'Execute a plan by creating Tasks and spawning coordinated agents',
-        inputSchema: zodToJsonSchema(GetPlanSchema),
-        outputSchema: zodToJsonSchema(CreatePlanResponseSchema),
+        inputSchema: zodToJsonSchema(GetPlanSchema) as any,
+        outputSchema: zodToJsonSchema(CreatePlanResponseSchema) as any,
         handler: this.executeWithPlan.bind(this)
       },
       {
         name: 'list_execution_plans',
         description: 'List execution plans for discovery and monitoring',
-        inputSchema: zodToJsonSchema(ListPlansSchema),
-        outputSchema: zodToJsonSchema(ListPlansResponseSchema),
+        inputSchema: zodToJsonSchema(ListPlansSchema) as any,
+        outputSchema: zodToJsonSchema(ListPlansResponseSchema) as any,
         handler: this.listPlans.bind(this)
       },
       {
         name: 'delete_execution_plan',
         description: 'Delete an execution plan by ID',
-        inputSchema: zodToJsonSchema(DeletePlanSchema),
-        outputSchema: zodToJsonSchema(DeletePlanResponseSchema),
+        inputSchema: zodToJsonSchema(DeletePlanSchema) as any,
+        outputSchema: zodToJsonSchema(DeletePlanResponseSchema) as any,
         handler: this.deletePlan.bind(this)
       },
       {
         name: 'update_execution_plan',
         description: 'Update an execution plan\'s status, priority, title, description, objectives, acceptanceCriteria, constraints, sections array, or metadata',
-        inputSchema: zodToJsonSchema(UpdatePlanSchema),
-        outputSchema: zodToJsonSchema(UpdatePlanResponseSchema),
+        inputSchema: zodToJsonSchema(UpdatePlanSchema) as any,
+        outputSchema: zodToJsonSchema(UpdatePlanResponseSchema) as any,
         handler: this.updatePlan.bind(this)
       }
     ];

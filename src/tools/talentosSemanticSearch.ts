@@ -5,6 +5,7 @@
 
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 import { KnowledgeGraphService } from '../services/KnowledgeGraphService.js';
 import { EmbeddingClient } from '../services/EmbeddingClient.js';
 import { HybridSearchService } from '../services/HybridSearchService.js';
@@ -54,7 +55,7 @@ export const talentosSemanticSearch: Tool = {
 - Performance metrics and routing decisions
 
 Returns enhanced results with detailed performance analytics and routing explanations.`,
-  inputSchema: TalentOSSemanticSearchSchema,
+  inputSchema: zodToJsonSchema(TalentOSSemanticSearchSchema) as any,
 
   async handler({
     repository_path,
@@ -128,7 +129,7 @@ Returns enhanced results with detailed performance analytics and routing explana
           break;
 
         case 'keyword':
-          results = await performKeywordSearch(knowledgeGraph, query, limit);
+          results = await performKeywordSearch(knowledgeGraph, repository_path, query, limit);
           searchStats = { search_type: 'keyword', gpu_accelerated: false };
           break;
 
@@ -265,13 +266,15 @@ async function performHybridSearch(
 /**
  * Perform keyword search (BM25 only)
  */
-async function performKeywordSearch(knowledgeGraph: KnowledgeGraphService, query: string, limit: number) {
+async function performKeywordSearch(knowledgeGraph: KnowledgeGraphService, repositoryPath: string, query: string, limit: number) {
   // For pure keyword search, use very low threshold to get more results for BM25 ranking
-  return await knowledgeGraph.searchEntities(query, {
+  return await knowledgeGraph.findEntitiesBySemanticSearch(
+    repositoryPath,
+    query,
+    undefined, // entityTypes
     limit,
-    threshold: 0.1,
-    include_relationships: false
-  });
+    0.1 // threshold
+  );
 }
 
 // Export the new tool

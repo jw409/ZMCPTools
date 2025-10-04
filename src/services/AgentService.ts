@@ -831,19 +831,29 @@ CRITICAL: You are an autonomous architect with advanced sequential thinking capa
   /**
    * Report task completion for progress velocity calculation
    */
-  async reportTaskProgress(agentId: string, action: 'completed' | 'failed'): Promise<void> {
+  async reportTaskProgress(agentId: string, taskId: string, action: 'completed' | 'failed', repositoryPath: string): Promise<void> {
     // Emit task progress event for fair share scheduler
-    await eventBus.emit(action === 'completed' ? 'task_completed' : 'task_failed', {
-      agentId,
-      timestamp: new Date(),
-      action
-    });
+    if (action === 'completed') {
+      await eventBus.emit('task_completed', {
+        taskId,
+        completedBy: agentId,
+        timestamp: new Date(),
+        repositoryPath
+      });
+    } else {
+      await eventBus.emit('task_failed', {
+        taskId,
+        failedBy: agentId,
+        timestamp: new Date(),
+        repositoryPath
+      });
+    }
   }
 
   /**
    * Report agent blocker for priority boost
    */
-  async reportAgentBlocker(agentId: string, blocker: string): Promise<void> {
+  async reportAgentBlocker(agentId: string, blocker: string, repositoryPath: string): Promise<void> {
     // Update work state to blocked
     this.updateAgentWorkState(agentId, 'blocked');
 
@@ -851,8 +861,9 @@ CRITICAL: You are an autonomous architect with advanced sequential thinking capa
     await eventBus.emit('agent_error', {
       agentId,
       error: blocker,
+      context: 'blocker',
       timestamp: new Date(),
-      errorType: 'blocker'
+      repositoryPath
     });
   }
 

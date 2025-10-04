@@ -37,11 +37,6 @@ export {
   type UpdateOptions
 } from './TreeSummaryService.js';
 export { 
-  LezerParserService,
-  type ParsedSymbol,
-  type ParseResult
-} from './LezerParserService.js';
-export { 
   FoundationCacheService, 
   type CacheEntry, 
   type FoundationSession, 

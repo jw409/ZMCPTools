@@ -891,4 +891,147 @@ export class KnowledgeGraphService {
       throw error;
     }
   }
+
+  // Wrapper methods for tool compatibility
+
+  async searchEntities(
+    query: string,
+    options: {
+      limit?: number;
+      threshold?: number;
+      entity_types?: EntityType[];
+      include_relationships?: boolean;
+      repositoryPath?: string;
+    } = {}
+  ): Promise<EntityWithRelationships[]> {
+    if (!options.repositoryPath) {
+      throw new Error('repositoryPath is required for searchEntities');
+    }
+
+    // Call findEntitiesBySemanticSearch with correct parameters
+    const entities = await this.findEntitiesBySemanticSearch(
+      options.repositoryPath,
+      query,
+      options.entity_types,
+      options.limit || 20,
+      options.threshold ?? 0.7
+    );
+
+    // Convert to EntityWithRelationships format
+    if (options.include_relationships !== false) {
+      // Get relationships for each entity
+      const results: EntityWithRelationships[] = await Promise.all(
+        entities.map(async (entity) => {
+          const relationships = await this.getEntityRelationships(entity.id);
+          return {
+            ...entity,
+            relationships: relationships || [],
+            relatedEntities: []
+          };
+        })
+      );
+      return results;
+    } else {
+      // Return without relationships
+      return entities.map(entity => ({
+        ...entity,
+        relationships: [],
+        relatedEntities: []
+      }));
+    }
+  }
+
+  async getEntity(id: string): Promise<KnowledgeEntity | null> {
+    return this.getEntityById(id);
+  }
+
+  async getAllEntities(repositoryPath?: string): Promise<KnowledgeEntity[]> {
+    try {
+      let query = this.db.drizzle
+        .select()
+        .from(knowledgeEntities);
+
+      if (repositoryPath) {
+        query = query.where(eq(knowledgeEntities.repositoryPath, repositoryPath)) as any;
+      }
+
+      const result = await query.all();
+      return result as KnowledgeEntity[];
+    } catch (error) {
+      this.logger.error('Failed to get all entities', error);
+      throw error;
+    }
+  }
+
+  async getAllRelationships(repositoryPath?: string): Promise<KnowledgeRelationship[]> {
+    try {
+      let query = this.db.drizzle
+        .select()
+        .from(knowledgeRelationships);
+
+      if (repositoryPath) {
+        query = query.where(eq(knowledgeRelationships.repositoryPath, repositoryPath)) as any;
+      }
+
+      const result = await query.all();
+      return result as KnowledgeRelationship[];
+    } catch (error) {
+      this.logger.error('Failed to get all relationships', error);
+      throw error;
+    }
+  }
+
+  async wipeAllData(repositoryPath: string): Promise<void> {
+    try {
+      // Delete in order: insights, relationships, entities
+      await this.db.drizzle
+        .delete(knowledgeInsights)
+        .where(eq(knowledgeInsights.repositoryPath, repositoryPath))
+        .execute();
+
+      await this.db.drizzle
+        .delete(knowledgeRelationships)
+        .where(eq(knowledgeRelationships.repositoryPath, repositoryPath))
+        .execute();
+
+      await this.db.drizzle
+        .delete(knowledgeEntities)
+        .where(eq(knowledgeEntities.repositoryPath, repositoryPath))
+        .execute();
+
+      this.logger.info(`Wiped all knowledge graph data for ${repositoryPath}`);
+    } catch (error) {
+      this.logger.error('Failed to wipe knowledge graph data', error);
+      throw error;
+    }
+  }
+
+  async initialize(): Promise<void> {
+    return this.initializeService();
+  }
+
+  async getCollectionStats(repositoryPath?: string): Promise<{
+    totalEntities: number;
+    totalRelationships: number;
+    entitiesByType: Record<string, number>;
+  }> {
+    try {
+      const entities = await this.getAllEntities(repositoryPath);
+      const relationships = await this.getAllRelationships(repositoryPath);
+
+      const entitiesByType: Record<string, number> = {};
+      for (const entity of entities) {
+        entitiesByType[entity.entityType] = (entitiesByType[entity.entityType] || 0) + 1;
+      }
+
+      return {
+        totalEntities: entities.length,
+        totalRelationships: relationships.length,
+        entitiesByType
+      };
+    } catch (error) {
+      this.logger.error('Failed to get collection stats', error);
+      throw error;
+    }
+  }
 }

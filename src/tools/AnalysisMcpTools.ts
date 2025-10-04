@@ -109,29 +109,29 @@ export class AnalysisMcpTools {
       {
         name: 'analyze_project_structure',
         description: '⚠️ DEPRECATED: Use project://{path}/structure resource instead. Analyze project structure and generate a comprehensive overview',
-        inputSchema: zodToJsonSchema(AnalyzeProjectStructureSchema) as any as any,
-        outputSchema: zodToJsonSchema(AnalyzeProjectStructureResponseSchema) as any as any,
+        inputSchema: zodToJsonSchema(AnalyzeProjectStructureSchema) as any,
+        outputSchema: zodToJsonSchema(AnalyzeProjectStructureResponseSchema) as any,
         handler: this.analyzeProjectStructure.bind(this)
       },
       {
         name: 'generate_project_summary',
         description: '⚠️ DEPRECATED: Use project://{path}/summary resource instead. Generate AI-optimized project overview and analysis',
-        inputSchema: zodToJsonSchema(GenerateProjectSummarySchema) as any as any,
-        outputSchema: zodToJsonSchema(GenerateProjectSummaryResponseSchema) as any as any,
+        inputSchema: zodToJsonSchema(GenerateProjectSummarySchema) as any,
+        outputSchema: zodToJsonSchema(GenerateProjectSummaryResponseSchema) as any,
         handler: this.generateProjectSummary.bind(this)
       },
       {
         name: 'analyze_file_symbols',
         description: '⚠️ DEPRECATED: Use file://{path}/symbols resource instead. Extract and analyze symbols (functions, classes, etc.) from code files',
-        inputSchema: zodToJsonSchema(AnalyzeFileSymbolsSchema) as any as any,
-        outputSchema: zodToJsonSchema(AnalyzeFileSymbolsResponseSchema) as any as any,
+        inputSchema: zodToJsonSchema(AnalyzeFileSymbolsSchema) as any,
+        outputSchema: zodToJsonSchema(AnalyzeFileSymbolsResponseSchema) as any,
         handler: this.analyzeFileSymbols.bind(this)
       },
       {
         name: 'list_files',
         description: '⚠️ DEPRECATED: Use Glob tool instead (more efficient). List files in a directory with smart ignore patterns',
-        inputSchema: zodToJsonSchema(ListFilesSchema) as any as any,
-        outputSchema: zodToJsonSchema(ListFilesResponseSchema) as any as any,
+        inputSchema: zodToJsonSchema(ListFilesSchema) as any,
+        outputSchema: zodToJsonSchema(ListFilesResponseSchema) as any,
         handler: this.listFiles.bind(this)
       },
       {

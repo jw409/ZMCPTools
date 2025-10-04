@@ -3,8 +3,9 @@
  * Provides high-performance vector search using GPU embeddings with fallback
  */
 
-import { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 import { KnowledgeGraphService } from '../services/KnowledgeGraphService.js';
 import { EmbeddingClient } from '../services/EmbeddingClient.js';
 import { Logger } from '../utils/logger.js';
@@ -42,7 +43,7 @@ export const searchKnowledgeGraphGPU: Tool = {
 **Params**: use_bm25 (default false, experimental), model (reserved for future - currently fixed gemma3), use_reranker (deferred).
 
 **Returns**: Entity results + metadata (model_used: 'gemma3', dimensions: 768).`,
-  inputSchema: SearchKnowledgeGraphGPUSchema,
+  inputSchema: zodToJsonSchema(SearchKnowledgeGraphGPUSchema) as any,
 
   async handler({ repository_path, query, limit, threshold, entity_types, include_relationships }) {
     try {
@@ -100,7 +101,7 @@ export const getEmbeddingStatus: Tool = {
   description: `GPU service diagnostics at configured endpoint (default localhost:8765).
 
 **Returns**: service health, active model, VRAM usage, **project-local LanceDB collection status** (which collections exist at repository_path/var/storage/lancedb/, vector counts, model compatibility). Use to verify GPU before operations or debug collection issues.`,
-  inputSchema: GetEmbeddingStatusSchema,
+  inputSchema: zodToJsonSchema(GetEmbeddingStatusSchema) as any,
 
   async handler({ repository_path }) {
     try {
@@ -198,7 +199,7 @@ export const switchEmbeddingMode: Tool = {
 - Use minilm when GPU unavailable or for basic searches
 
 Note: Switching models may require re-indexing existing collections for consistency.`,
-  inputSchema: SwitchEmbeddingModeSchema,
+  inputSchema: zodToJsonSchema(SwitchEmbeddingModeSchema) as any,
 
   async handler({ repository_path, model }) {
     try {

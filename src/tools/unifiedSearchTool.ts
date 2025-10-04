@@ -141,7 +141,7 @@ Automatically indexes all code files in the repository for fast search. Supports
 
 Returns real file paths, content snippets, and extracted code symbols (functions, classes, etc.).`,
 
-  inputSchema: zodToJsonSchema(UnifiedSearchSchema),
+  inputSchema: zodToJsonSchema(UnifiedSearchSchema) as any,
 
   async handler({
     repository_path,

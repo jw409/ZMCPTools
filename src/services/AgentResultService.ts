@@ -42,7 +42,10 @@ export class AgentResultService {
       try {
         await this.agentRepository.update(agentId, {
           results: results.results,
-          artifacts: results.artifacts,
+          artifacts: results.artifacts ? {
+            created: results.artifacts.created || [],
+            modified: results.artifacts.modified || []
+          } : undefined,
           completionMessage: results.completionMessage,
           errorDetails: results.errorDetails,
           resultPath: relativePath,

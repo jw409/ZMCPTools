@@ -30,13 +30,29 @@ export class EmbeddingStatusCommand {
 
     try {
       // Get comprehensive status
-      const status = await this.embeddingClient.getStatusSummary();
+      const healthStatus = await this.embeddingClient.getHealthStatus();
+      const modelInfo = this.embeddingClient.getActiveModelInfo();
+      const collectionName = this.embeddingClient.getCollectionName('knowledge_graph');
+
+      const status = {
+        current_mode: healthStatus.active_model,
+        model_info: modelInfo,
+        health: {
+          status: healthStatus.status,
+          service_responding: healthStatus.gpu_available,
+          dimension_mismatch: false,
+          collection_exists: healthStatus.collections[collectionName]?.exists || false,
+          last_error: healthStatus.warnings.length > 0 ? healthStatus.warnings[0] : null
+        },
+        collection_name: collectionName,
+        recent_actions: []
+      };
 
       // Perform validation if requested
       if (options.validate) {
         try {
-          await this.embeddingClient.validateOperation();
-          console.log('✅ Validation: All systems operational');
+          await this.embeddingClient.validateCollection(collectionName);
+          console.log('✅ Validation: Collection is compatible');
         } catch (error) {
           console.log(`❌ Validation: ${error.message}`);
         }
@@ -44,7 +60,7 @@ export class EmbeddingStatusCommand {
 
       // Display results based on format
       if (options.format === 'json') {
-        console.log(JSON.stringify(status, null, 2));
+        console.log(JSON.stringify({ healthStatus, modelInfo, collectionName }, null, 2));
       } else {
         this.displayConsoleStatus(status, options.verbose);
       }

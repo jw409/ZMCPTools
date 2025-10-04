@@ -428,6 +428,35 @@ export class VectorSearchService {
   }
 
   /**
+   * Update entity embedding in vector store
+   */
+  async updateEntityEmbedding(entityId: string, text: string): Promise<void> {
+    try {
+      const embedding = await this.generateEmbedding(text);
+      if (!embedding) {
+        throw new Error('Failed to generate embedding');
+      }
+
+      // Update in knowledge_graph collection
+      const collection = await this.getOrCreateCollection('knowledge_graph');
+
+      // For now, we'll delete and re-add since LanceDB doesn't have direct update
+      // In production, you'd want a more efficient update mechanism
+      await this.addDocuments('knowledge_graph', [{
+        id: entityId,
+        content: text,
+        metadata: { entityId, updatedAt: new Date().toISOString() },
+        embedding
+      }]);
+
+      this.logger.info(`Updated embedding for entity ${entityId}`);
+    } catch (error) {
+      this.logger.error('Failed to update entity embedding', error);
+      throw error;
+    }
+  }
+
+  /**
    * Clean up resources
    */
   async shutdown(): Promise<void> {

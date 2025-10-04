@@ -796,31 +796,31 @@ export class BrowserAIDOMTools {
       {
         name: "analyze_dom_structure",
         description: "AI-guided exploration and analysis of DOM structure using goal-oriented patterns. Analyzes stored DOM JSON to identify interactive elements, content areas, and navigation patterns.",
-        inputSchema: zodToJsonSchema(AnalyzeDOMStructureSchema),
+        inputSchema: zodToJsonSchema(AnalyzeDOMStructureSchema) as any,
         handler: this.analyzeDOMStructure.bind(this)
       },
       {
         name: "navigate_dom_path", 
         description: "Navigate to specific elements in DOM JSON using dot notation paths (e.g., 'body.main.article[0].paragraphs[2]'). Extracts content and provides element information.",
-        inputSchema: zodToJsonSchema(NavigateDOMPathSchema),
+        inputSchema: zodToJsonSchema(NavigateDOMPathSchema) as any,
         handler: this.navigateDOMPath.bind(this)
       },
       {
         name: "search_dom_elements",
         description: "Search for DOM elements by type, content, keywords, or attributes. Returns matching elements with their paths for further navigation.",
-        inputSchema: zodToJsonSchema(SearchDOMElementsSchema),
+        inputSchema: zodToJsonSchema(SearchDOMElementsSchema) as any,
         handler: this.searchDOMElements.bind(this)
       },
       {
         name: "get_page_screenshot",
         description: "Retrieve stored screenshot for a page. Always saves to file and returns file path to avoid token limits. Use Read tool to access the image.",
-        inputSchema: zodToJsonSchema(GetPageScreenshotSchema),
+        inputSchema: zodToJsonSchema(GetPageScreenshotSchema) as any,
         handler: this.getPageScreenshot.bind(this)
       },
       {
         name: "analyze_screenshot", 
         description: "AI-powered analysis of page screenshots with custom prompts. Can focus on specific regions and provide contextual insights.",
-        inputSchema: zodToJsonSchema(AnalyzeScreenshotSchema),
+        inputSchema: zodToJsonSchema(AnalyzeScreenshotSchema) as any,
         handler: this.analyzeScreenshot.bind(this)
       }
     ];

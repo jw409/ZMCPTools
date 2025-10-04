@@ -87,71 +87,71 @@ export class CommunicationTools {
       {
         name: 'join_room',
         description: 'Join communication room for coordination',
-        inputSchema: zodToJsonSchema(JoinRoomSchema),
-        outputSchema: zodToJsonSchema(JoinRoomResponseSchema),
+        inputSchema: zodToJsonSchema(JoinRoomSchema) as any,
+        outputSchema: zodToJsonSchema(JoinRoomResponseSchema) as any,
         handler: this.joinRoom.bind(this)
       },
       {
         name: 'send_message',
         description: 'Send message to coordination room',
-        inputSchema: zodToJsonSchema(SendMessageSchema),
-        outputSchema: zodToJsonSchema(SendMessageResponseSchema),
+        inputSchema: zodToJsonSchema(SendMessageSchema) as any,
+        outputSchema: zodToJsonSchema(SendMessageResponseSchema) as any,
         handler: this.sendMessage.bind(this)
       },
       {
         name: 'wait_for_messages',
         description: 'Wait for messages in a room',
-        inputSchema: zodToJsonSchema(WaitForMessagesSchema),
-        outputSchema: zodToJsonSchema(WaitForMessagesResponseSchema),
+        inputSchema: zodToJsonSchema(WaitForMessagesSchema) as any,
+        outputSchema: zodToJsonSchema(WaitForMessagesResponseSchema) as any,
         handler: this.waitForMessages.bind(this)
       },
       {
         name: 'close_room',
         description: 'Close a communication room (soft delete - marks as closed but keeps data)',
-        inputSchema: zodToJsonSchema(CloseRoomSchema),
-        outputSchema: zodToJsonSchema(CloseRoomResponseSchema),
+        inputSchema: zodToJsonSchema(CloseRoomSchema) as any,
+        outputSchema: zodToJsonSchema(CloseRoomResponseSchema) as any,
         handler: this.closeRoom.bind(this)
       },
       {
         name: 'delete_room',
         description: 'Permanently delete a communication room and all its messages',
-        inputSchema: zodToJsonSchema(DeleteRoomSchema),
-        outputSchema: zodToJsonSchema(DeleteRoomResponseSchema),
+        inputSchema: zodToJsonSchema(DeleteRoomSchema) as any,
+        outputSchema: zodToJsonSchema(DeleteRoomResponseSchema) as any,
         handler: this.deleteRoom.bind(this)
       },
       {
         name: 'list_rooms',
         description: 'List communication rooms with filtering and pagination',
-        inputSchema: zodToJsonSchema(ListRoomsSchema),
-        outputSchema: zodToJsonSchema(ListRoomsResponseSchema),
+        inputSchema: zodToJsonSchema(ListRoomsSchema) as any,
+        outputSchema: zodToJsonSchema(ListRoomsResponseSchema) as any,
         handler: this.listRooms.bind(this)
       },
       {
         name: 'list_room_messages',
         description: 'List messages from a specific room with pagination',
-        inputSchema: zodToJsonSchema(ListRoomMessagesSchema),
-        outputSchema: zodToJsonSchema(ListRoomMessagesResponseSchema),
+        inputSchema: zodToJsonSchema(ListRoomMessagesSchema) as any,
+        outputSchema: zodToJsonSchema(ListRoomMessagesResponseSchema) as any,
         handler: this.listRoomMessages.bind(this)
       },
       {
         name: 'create_delayed_room',
         description: 'Create a delayed room for coordination when agents realize they need it',
-        inputSchema: zodToJsonSchema(CreateDelayedRoomSchema),
-        outputSchema: zodToJsonSchema(CreateDelayedRoomResponseSchema),
+        inputSchema: zodToJsonSchema(CreateDelayedRoomSchema) as any,
+        outputSchema: zodToJsonSchema(CreateDelayedRoomResponseSchema) as any,
         handler: this.createDelayedRoom.bind(this)
       },
       {
         name: 'analyze_coordination_patterns',
         description: 'Analyze coordination patterns and suggest improvements',
-        inputSchema: zodToJsonSchema(AnalyzeCoordinationPatternsSchema),
-        outputSchema: zodToJsonSchema(AnalyzeCoordinationPatternsResponseSchema),
+        inputSchema: zodToJsonSchema(AnalyzeCoordinationPatternsSchema) as any,
+        outputSchema: zodToJsonSchema(AnalyzeCoordinationPatternsResponseSchema) as any,
         handler: this.analyzeCoordinationPatterns.bind(this)
       },
       {
         name: 'broadcast_message_to_agents',
         description: 'Broadcast a message to multiple agents with auto-resume functionality',
-        inputSchema: zodToJsonSchema(BroadcastMessageToAgentsSchema),
-        outputSchema: zodToJsonSchema(BroadcastMessageToAgentsResponseSchema),
+        inputSchema: zodToJsonSchema(BroadcastMessageToAgentsSchema) as any,
+        outputSchema: zodToJsonSchema(BroadcastMessageToAgentsResponseSchema) as any,
         handler: this.broadcastMessageToAgents.bind(this)
       }
     ];

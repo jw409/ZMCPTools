@@ -4,7 +4,7 @@
  * Uses TreeParser for symbol extraction and real content for BM25
  */
 
-import { LezerParserService as TreeParser, ParsedSymbol } from './LezerParserService.js';
+import { TreeSitterASTTool } from '../tools/TreeSitterASTTool.js';
 import { EmbeddingClient } from './EmbeddingClient.js';
 import { BM25Service } from './BM25Service.js';
 import { KnowledgeGraphService } from './KnowledgeGraphService.js';
@@ -14,6 +14,16 @@ import * as path from 'path';
 import { glob } from 'glob';
 
 const logger = new Logger('real-file-indexing');
+
+// Legacy type for backward compatibility with previous LezerParserService
+export interface ParsedSymbol {
+  name: string;
+  type: string;
+  startLine: number;
+  endLine: number;
+  signature?: string;
+  isExported?: boolean;
+}
 
 export interface IndexedFile {
   filePath: string;
@@ -47,7 +57,7 @@ export interface IndexingStats {
  * Service for indexing and searching real project files
  */
 export class RealFileIndexingService {
-  private treeParser: TreeParser;
+  private treeParser: TreeSitterASTTool;
   private embeddingClient: EmbeddingClient;
   private bm25Service: BM25Service;
   private indexedFiles: Map<string, IndexedFile> = new Map();
@@ -84,7 +94,7 @@ export class RealFileIndexingService {
   ]);
 
   constructor() {
-    this.treeParser = new TreeParser();
+    this.treeParser = new TreeSitterASTTool();
     this.embeddingClient = new EmbeddingClient();
     this.bm25Service = new BM25Service();
   }
@@ -195,29 +205,49 @@ export class RealFileIndexingService {
       const content = await fs.readFile(filePath, 'utf-8');
       const fileStats = await fs.stat(filePath);
 
-      // Parse the file to extract symbols
-      const parseResult = await this.treeParser.parseFile(filePath, content);
+      // Parse the file to extract symbols using TreeSitterASTTool
+      const parseResult = await this.treeParser.executeByToolName('ast_extract_symbols', {
+        file_path: filePath,
+        language: 'auto'
+      });
+
+      if (!parseResult.success) {
+        throw new Error(parseResult.error || 'Failed to parse file');
+      }
+
+      const language = parseResult.language || 'unknown';
+      const symbols = parseResult.symbols || [];
 
       // Track language statistics
-      if (!stats.languages[parseResult.language]) {
-        stats.languages[parseResult.language] = 0;
+      if (!stats.languages[language]) {
+        stats.languages[language] = 0;
       }
-      stats.languages[parseResult.language]++;
+      stats.languages[language]++;
 
-      // Track symbol statistics
-      for (const symbol of parseResult.symbols) {
-        if (!stats.symbols[symbol.type]) {
-          stats.symbols[symbol.type] = 0;
+      // Convert symbols to ParsedSymbol format and track statistics
+      const parsedSymbols: ParsedSymbol[] = symbols.map((sym: any) => {
+        const symbolType = sym.kind || 'unknown';
+        if (!stats.symbols[symbolType]) {
+          stats.symbols[symbolType] = 0;
         }
-        stats.symbols[symbol.type]++;
-      }
+        stats.symbols[symbolType]++;
+
+        return {
+          name: sym.name,
+          type: symbolType,
+          startLine: sym.startPosition?.row || 0,
+          endLine: sym.endPosition?.row || 0,
+          signature: sym.text,
+          isExported: false
+        };
+      });
 
       // Create indexed file record
       const indexedFile: IndexedFile = {
         filePath: path.relative(process.cwd(), filePath),
         content,
-        symbols: parseResult.symbols,
-        language: parseResult.language,
+        symbols: parsedSymbols,
+        language,
         size: fileStats.size,
         lastModified: fileStats.mtime
       };
@@ -225,7 +255,7 @@ export class RealFileIndexingService {
       this.indexedFiles.set(filePath, indexedFile);
       stats.indexedFiles++;
 
-    } catch (error) {
+    } catch (error: any) {
       stats.errors.push(`Failed to index ${filePath}: ${error.message}`);
       stats.skippedFiles++;
     }
@@ -260,8 +290,8 @@ export class RealFileIndexingService {
       const embeddingPromises = Array.from(this.indexedFiles.values()).map(async file => {
         try {
           const searchableText = this.createSearchableText(file);
-          const embedding = await this.embeddingClient.generateEmbedding(searchableText);
-          file.embedding = embedding;
+          const result = await this.embeddingClient.generateEmbeddings([searchableText]);
+          file.embedding = result.embeddings[0];
         } catch (error) {
           logger.warn(`Failed to generate embedding for ${file.filePath}:`, error.message);
         }
@@ -302,9 +332,9 @@ export class RealFileIndexingService {
    * Search for files using BM25 keyword search
    */
   async searchKeyword(query: string, limit: number = 10): Promise<SearchResult[]> {
-    const bm25Results = await this.bm25Service.search(query, { limit });
+    const bm25Results = await this.bm25Service.search(query, limit);
 
-    return bm25Results.documents.map(doc => {
+    return bm25Results.map(doc => {
       const file = this.indexedFiles.get(doc.id);
       return {
         filePath: doc.id,
@@ -325,7 +355,8 @@ export class RealFileIndexingService {
     }
 
     try {
-      const queryEmbedding = await this.embeddingClient.generateEmbedding(query);
+      const result = await this.embeddingClient.generateEmbeddings([query]);
+      const queryEmbedding = result.embeddings[0];
       const similarities: Array<{filePath: string, score: number}> = [];
 
       // Calculate cosine similarity with all file embeddings

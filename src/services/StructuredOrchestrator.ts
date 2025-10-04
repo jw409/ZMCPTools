@@ -535,7 +535,7 @@ ${agentList}
         try {
           const messages = await this.communicationService.getMessages(
             teamComposition.coordinationRoom,
-            { limit: 100 }
+            100
           );
           results.coordination_summary = {
             room: teamComposition.coordinationRoom,

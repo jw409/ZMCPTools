@@ -46,38 +46,38 @@ export class TreeSummaryTools {
         name: "update_file_analysis",
         description:
           "Update or create analysis data for a specific file in the TreeSummary system",
-        inputSchema: zodToJsonSchema(UpdateFileAnalysisSchema),
-        outputSchema: zodToJsonSchema(UpdateFileAnalysisResponseSchema),
+        inputSchema: zodToJsonSchema(UpdateFileAnalysisSchema) as any,
+        outputSchema: zodToJsonSchema(UpdateFileAnalysisResponseSchema) as any,
         handler: this.updateFileAnalysis.bind(this),
       },
       {
         name: "remove_file_analysis",
         description:
           "Remove analysis data for a deleted file from the TreeSummary system",
-        inputSchema: zodToJsonSchema(RemoveFileAnalysisSchema),
-        outputSchema: zodToJsonSchema(RemoveFileAnalysisResponseSchema),
+        inputSchema: zodToJsonSchema(RemoveFileAnalysisSchema) as any,
+        outputSchema: zodToJsonSchema(RemoveFileAnalysisResponseSchema) as any,
         handler: this.removeFileAnalysis.bind(this),
       },
       {
         name: "update_project_metadata",
         description: "Update project metadata in the TreeSummary system",
-        inputSchema: zodToJsonSchema(UpdateProjectMetadataSchema),
-        outputSchema: zodToJsonSchema(UpdateProjectMetadataResponseSchema),
+        inputSchema: zodToJsonSchema(UpdateProjectMetadataSchema) as any,
+        outputSchema: zodToJsonSchema(UpdateProjectMetadataResponseSchema) as any,
         handler: this.updateProjectMetadata.bind(this),
       },
       {
         name: "get_project_overview",
         description:
           "Get comprehensive project overview from TreeSummary analysis",
-        inputSchema: zodToJsonSchema(GetProjectOverviewSchema),
-        outputSchema: zodToJsonSchema(GetProjectOverviewResponseSchema),
+        inputSchema: zodToJsonSchema(GetProjectOverviewSchema) as any,
+        outputSchema: zodToJsonSchema(GetProjectOverviewResponseSchema) as any,
         handler: this.getProjectOverview.bind(this),
       },
       {
         name: "cleanup_stale_analyses",
         description: "Clean up stale analysis files older than specified days",
-        inputSchema: zodToJsonSchema(CleanupStaleAnalysesSchema),
-        outputSchema: zodToJsonSchema(CleanupStaleAnalysesResponseSchema),
+        inputSchema: zodToJsonSchema(CleanupStaleAnalysesSchema) as any,
+        outputSchema: zodToJsonSchema(CleanupStaleAnalysesResponseSchema) as any,
         handler: this.cleanupStaleAnalyses.bind(this),
       },
     ];
@@ -191,15 +191,14 @@ export class TreeSummaryTools {
     const { projectPath } = normalizedArgs;
 
     try {
-      await this.treeSummaryService.updateProjectMetadata(projectPath);
-
+      // TreeSummaryService.updateProjectMetadata removed in refactoring
+      // Metadata is now handled automatically via SQLite storage when files are analyzed
       return createSuccessResponse(
-        `Successfully updated project metadata${
-          projectPath ? ` for ${projectPath}` : ""
-        }`,
+        `Project metadata feature removed - metadata now managed automatically via file analysis`,
         {
           project_path: projectPath || process.cwd(),
-          metadata_updated: true,
+          metadata_updated: false,
+          note: "Metadata updates are now automatic when using updateFileAnalysis"
         },
         Date.now() - startTime
       );
@@ -228,17 +227,14 @@ export class TreeSummaryTools {
     const { projectPath } = normalizedArgs;
 
     try {
-      const overview = await this.treeSummaryService.getProjectOverview(
-        projectPath
-      );
-
+      // TreeSummaryService.getProjectOverview removed in refactoring
+      // Use analyze_project_structure or generate_project_summary instead
       return createSuccessResponse(
-        `Successfully retrieved project overview${
-          projectPath ? ` for ${projectPath}` : ""
-        }`,
+        `Project overview feature removed - use analyze_project_structure or generate_project_summary instead`,
         {
           project_path: projectPath || process.cwd(),
-          overview,
+          overview: null,
+          note: "Use analyze_project_structure for directory tree or generate_project_summary for comprehensive analysis"
         },
         Date.now() - startTime
       );
@@ -268,16 +264,14 @@ export class TreeSummaryTools {
     const { projectPath, maxAgeDays } = normalizedArgs;
 
     try {
-      const cleanedCount = await this.treeSummaryService.cleanupStaleAnalyses(
-        projectPath,
-        maxAgeDays
-      );
-
+      // TreeSummaryService.cleanupStaleAnalyses removed in refactoring
+      // Analysis data is now managed in SQLite with automatic cleanup
       return createSuccessResponse(
-        `Successfully cleaned up ${cleanedCount} stale analysis files`,
+        `Cleanup feature removed - analysis data now managed automatically in SQLite`,
         {
           project_path: projectPath || process.cwd(),
-          cleanup_count: cleanedCount,
+          cleanup_count: 0,
+          note: "SQLite-based storage has automatic cleanup mechanisms"
         },
         Date.now() - startTime
       );

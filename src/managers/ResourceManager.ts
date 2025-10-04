@@ -1586,10 +1586,11 @@ export class ResourceManager {
   ): Promise<TextResourceContents> {
     const query = searchParams.get("query");
     const limit = parseInt(searchParams.get("limit") || "10");
-    const threshold = parseFloat(searchParams.get("threshold") || "0.7");
+    const threshold = parseFloat(searchParams.get("threshold") || "0.0");
     const useBm25 = searchParams.get("use_bm25") !== "false"; // default true
     const useEmbeddings = searchParams.get("use_embeddings") !== "false"; // default true
-    const useReranker = searchParams.get("use_reranker") === "true"; // default false
+    const bm25Weight = parseFloat(searchParams.get("bm25_weight") || "0.3");
+    const semanticWeight = parseFloat(searchParams.get("semantic_weight") || "0.7");
 
     if (!query) {
       return {
@@ -1600,42 +1601,44 @@ export class ResourceManager {
           query: "",
           results: [],
           total: 0,
-          search_params: { useBm25, useEmbeddings, useReranker, threshold },
+          search_params: { useBm25, useEmbeddings, threshold, bm25Weight, semanticWeight },
           timestamp: new Date().toISOString(),
         }),
       };
     }
 
     try {
-      // Combine semantic and text search
-      let entities: any[] = [];
+      // Use IndexedKnowledgeSearch for direct search of indexed_knowledge.json
+      const { IndexedKnowledgeSearch } = await import('../services/IndexedKnowledgeSearch.js');
+      const searchService = new IndexedKnowledgeSearch(this.repositoryPath);
 
-      if (useEmbeddings) {
-        // Semantic search
-        const semanticResults = await this.knowledgeGraphService.findEntitiesBySemanticSearch(
-          this.repositoryPath,
-          query,
-          undefined, // entityTypes
-          limit,
-          threshold
-        );
-        entities = semanticResults;
-      }
+      const results = await searchService.search(query, {
+        limit,
+        useBm25,
+        useSemanticSearch: useEmbeddings,
+        bm25Weight,
+        semanticWeight,
+        minScoreThreshold: threshold
+      });
 
-      if (useBm25 && entities.length < limit) {
-        // Text search for additional results
-        const textResults = await this.knowledgeGraphService.findEntitiesByTextSearch(
-          this.repositoryPath,
-          query,
-          undefined, // entityTypes
-          limit - entities.length
-        );
-
-        // Merge results, avoiding duplicates
-        const existingIds = new Set(entities.map(e => e.id));
-        const uniqueTextResults = textResults.filter(e => !existingIds.has(e.id));
-        entities = [...entities, ...uniqueTextResults];
-      }
+      // Format results for knowledge:// resource
+      const formattedResults = results.map(r => ({
+        id: r.document.id,
+        type: r.document.type,
+        title: r.document.title || r.document.relative_path || r.document.id,
+        content: r.document.content.substring(0, 500), // Preview
+        score: r.score,
+        matchType: r.matchType,
+        bm25Score: r.bm25Score,
+        semanticScore: r.semanticScore,
+        // Include metadata
+        repo: r.document.repo,
+        number: r.document.number,
+        state: r.document.state,
+        labels: r.document.labels,
+        file_path: r.document.file_path,
+        relative_path: r.document.relative_path
+      }));
 
       return {
         uri: `knowledge://search?query=${encodeURIComponent(query)}&limit=${limit}`,
@@ -1643,16 +1646,9 @@ export class ResourceManager {
         text: JSON.stringify(
           {
             query,
-            results: entities.slice(0, limit).map((entity: any) => ({
-              id: entity.id,
-              type: entity.entityType,
-              name: entity.name,
-              description: entity.description?.substring(0, 200),
-              importance: entity.importanceScore,
-              confidence: entity.confidenceScore,
-            })),
-            total: entities.length,
-            search_params: { useBm25, useEmbeddings, useReranker, threshold },
+            results: formattedResults,
+            total: formattedResults.length,
+            search_params: { useBm25, useEmbeddings, threshold, bm25Weight, semanticWeight },
             timestamp: new Date().toISOString(),
           },
           null,
@@ -1672,7 +1668,7 @@ export class ResourceManager {
             query,
             results: [],
             total: 0,
-            search_params: { useBm25, useEmbeddings, useReranker, threshold },
+            search_params: { useBm25, useEmbeddings, threshold, bm25Weight, semanticWeight },
             timestamp: new Date().toISOString(),
           },
           null,

@@ -3,8 +3,9 @@
  * MCP tools that expose BM25 + GPU embedding hybrid search capabilities
  */
 
-import { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 import { HybridSearchService } from '../services/HybridSearchService.js';
 import { EmbeddingClient } from '../services/EmbeddingClient.js';
 import { BM25Service } from '../services/BM25Service.js';
@@ -62,7 +63,7 @@ export const searchKnowledgeGraphHybrid: Tool = {
 - alpha=1.0: Pure semantic search (concepts, ideas)
 
 Returns ranked results with combined scores and detailed statistics.`,
-  inputSchema: SearchKnowledgeGraphHybridSchema,
+  inputSchema: zodToJsonSchema(SearchKnowledgeGraphHybridSchema) as any,
 
   async handler({
     repository_path,
@@ -99,7 +100,7 @@ Returns ranked results with combined scores and detailed statistics.`,
         include_relationships: false
       });
 
-      if (!entities.entities || entities.entities.length === 0) {
+      if (!entities || entities.length === 0) {
         return {
           success: true,
           results: [],
@@ -120,7 +121,7 @@ Returns ranked results with combined scores and detailed statistics.`,
       }
 
       // Index entities for hybrid search (in-memory for this query)
-      const indexPromises = entities.entities.map(entity =>
+      const indexPromises = entities.map(entity =>
         hybridSearchService.indexDocument(
           entity.id,
           entity.description || entity.entity_name || '',
@@ -148,7 +149,7 @@ Returns ranked results with combined scores and detailed statistics.`,
 
       // Convert hybrid results back to knowledge graph format
       const hybridResults = searchResult.results.map(result => {
-        const originalEntity = entities.entities?.find(e => e.id === result.id);
+        const originalEntity = entities?.find(e => e.id === result.id);
         return {
           id: result.id,
           entity_type: result.metadata?.entity_type || 'unknown',
@@ -220,7 +221,7 @@ export const reindexKnowledgeBase: Tool = {
 **Params**: index_files (bool, default false), file_patterns (["*.py","*.md"]), batch_size (default 100).
 
 **Returns**: files_indexed, embeddings_generated, duration_ms.`,
-  inputSchema: ReindexKnowledgeBaseSchema,
+  inputSchema: zodToJsonSchema(ReindexKnowledgeBaseSchema) as any,
 
   async handler({ repository_path, force_reindex, embedding_model, batch_size }) {
     try {
@@ -246,7 +247,7 @@ export const reindexKnowledgeBase: Tool = {
         include_relationships: false
       });
 
-      if (!allEntities.entities || allEntities.entities.length === 0) {
+      if (!allEntities || allEntities.length === 0) {
         return {
           success: true,
           message: "No entities found to index",
@@ -355,7 +356,7 @@ Returns detailed information about:
 - Recent search performance metrics
 
 Use this to verify index health after re-indexing or troubleshoot search issues.`,
-  inputSchema: GetSearchStatsSchema,
+  inputSchema: zodToJsonSchema(GetSearchStatsSchema) as any,
 
   async handler({ repository_path }) {
     try {

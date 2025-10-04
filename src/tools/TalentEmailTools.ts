@@ -6,6 +6,7 @@
  */
 
 import { z } from 'zod';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { TalentEmailService } from '../services/TalentEmailService.js';
 import type { EmailPriority } from '../types/email.js';

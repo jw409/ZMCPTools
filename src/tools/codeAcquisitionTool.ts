@@ -82,7 +82,7 @@ After acquisition, immediately use \`search_knowledge_graph_unified\` to:
 
 Returns acquisition status, local path, and indexing statistics.`,
 
-  inputSchema: zodToJsonSchema(AcquireRepositorySchema),
+  inputSchema: zodToJsonSchema(AcquireRepositorySchema) as any,
 
   async handler({ repository_url, target_directory, auto_index, shallow, branch }) {
     try {
@@ -144,7 +144,7 @@ Shows all repositories that have been cloned and indexed, with metadata:
 
 Use this to see what codebases are available for analysis.`,
 
-  inputSchema: zodToJsonSchema(ListAcquisitionsSchema),
+  inputSchema: zodToJsonSchema(ListAcquisitionsSchema) as any,
 
   async handler({ acquisitions_directory }) {
     try {
@@ -184,7 +184,7 @@ export const removeAcquisition: Tool = {
 Permanently deletes a cloned repository and its indexed data.
 Use with caution - this cannot be undone!`,
 
-  inputSchema: zodToJsonSchema(RemoveAcquisitionSchema),
+  inputSchema: zodToJsonSchema(RemoveAcquisitionSchema) as any,
 
   async handler({ repository_name, acquisitions_directory }) {
     try {

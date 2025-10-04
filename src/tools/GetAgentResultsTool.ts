@@ -39,8 +39,8 @@ export async function getAgentResultsTool(
 
   try {
     // Initialize services
-    const resultFinder = new ResultFinderService(context.dbManager);
-    const agentRepository = new AgentRepository(context.dbManager);
+    const resultFinder = new ResultFinderService(context.db);
+    const agentRepository = new AgentRepository(context.db);
 
     // Try to find existing results first
     let findResult = await resultFinder.findResults(agentId, repositoryPath);
@@ -86,7 +86,10 @@ export async function getAgentResultsTool(
         success: true,
         agentId,
         results: findResult.results.results,
-        artifacts: findResult.results.artifacts,
+        artifacts: findResult.results.artifacts ? {
+          created: findResult.results.artifacts.created || [],
+          modified: findResult.results.artifacts.modified || []
+        } : { created: [], modified: [] },
         completionMessage: findResult.results.completionMessage,
         errorDetails: findResult.results.errorDetails,
         foundPath: findResult.foundPath!,

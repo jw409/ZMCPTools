@@ -12,7 +12,9 @@ export const messageTypeSchema = z.enum([
   'status_update',
   'coordination',
   'error',
-  'debug'
+  'debug',
+  'progress',
+  'artifact'
 ]);
 
 export const roomMetadataSchema = z.record(z.string(), z.unknown()).optional();
@@ -39,7 +41,7 @@ export const chatMessages = sqliteTable('chat_messages', {
   message: text('message').notNull(),
   timestamp: text('timestamp').notNull().default(sql`(current_timestamp)`),
   mentions: text('mentions', { mode: 'json' }).$type<string[]>(),
-  messageType: text('messageType', { enum: ['standard', 'system', 'notification', 'alert', 'status_update', 'coordination', 'error', 'debug'] }).notNull().default('standard'),
+  messageType: text('messageType', { enum: ['standard', 'system', 'notification', 'alert', 'status_update', 'coordination', 'error', 'debug', 'progress', 'artifact'] }).notNull().default('standard'),
 });
 
 export const roomParticipants = sqliteTable('room_participants', {
@@ -127,7 +129,7 @@ export type ChatMessage = {
   message: string;
   timestamp: string;
   mentions?: string[];
-  messageType: 'standard' | 'system' | 'notification' | 'alert' | 'status_update' | 'coordination' | 'error' | 'debug';
+  messageType: 'standard' | 'system' | 'notification' | 'alert' | 'status_update' | 'coordination' | 'error' | 'debug' | 'progress' | 'artifact';
 };
 
 export type NewChatMessage = Omit<ChatMessage, 'timestamp'> & {

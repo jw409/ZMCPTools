@@ -104,7 +104,7 @@ export const orchestrateCollaborativeTeam: Tool = {
 
 **Returns**: Session details, agent IDs, room coordination info, and real-time collaboration status.`,
 
-  inputSchema: zodToJsonSchema(CollaborativeOrchestrationSchema),
+  inputSchema: zodToJsonSchema(CollaborativeOrchestrationSchema) as any,
 
   async handler({
     repository_path,
@@ -148,8 +148,8 @@ export const orchestrateCollaborativeTeam: Tool = {
         agentName: `planner-${Date.now()}`,
         agentType: 'planner_agent',
         repositoryPath: repository_path,
-        additionalInstructions: teamInstructions.planner,
-        foundationSessionId: foundation_session_id
+        prompt: teamInstructions.planner,
+        claudeConfig: { foundationSessionId: foundation_session_id }
       });
 
       // Spawn implementer agent (executor)
@@ -157,8 +157,8 @@ export const orchestrateCollaborativeTeam: Tool = {
         agentName: `implementer-${Date.now()}`,
         agentType: 'implementer_agent',
         repositoryPath: repository_path,
-        additionalInstructions: teamInstructions.implementer,
-        foundationSessionId: foundation_session_id
+        prompt: teamInstructions.implementer,
+        claudeConfig: { foundationSessionId: foundation_session_id }
       });
 
       // Spawn tester agent (verifier)
@@ -166,8 +166,8 @@ export const orchestrateCollaborativeTeam: Tool = {
         agentName: `tester-${Date.now()}`,
         agentType: 'tester_agent',
         repositoryPath: repository_path,
-        additionalInstructions: teamInstructions.tester,
-        foundationSessionId: foundation_session_id
+        prompt: teamInstructions.tester,
+        claudeConfig: { foundationSessionId: foundation_session_id }
       });
 
       logger.info('Team spawned successfully', {
@@ -183,9 +183,9 @@ export const orchestrateCollaborativeTeam: Tool = {
         objective,
         repository_path,
         {
-          planner: plannerAgent,
-          implementer: implementerAgent,
-          tester: testerAgent
+          planner: plannerAgent.agent,
+          implementer: implementerAgent.agent,
+          tester: testerAgent.agent
         }
       );
 
@@ -193,12 +193,16 @@ export const orchestrateCollaborativeTeam: Tool = {
       logger.info('Phase 4: Creating coordination room for team communication');
 
       const roomId = collaborationSession.roomId;
-      await communicationService.createRoom(roomId, {
-        roomType: 'collaboration',
+      await communicationService.createRoom({
+        name: roomId,
         description: `Collaborative session: ${objective}`,
-        isPrivate: false,
-        autoCleanup: true,
-        maxParticipants: 3
+        repositoryPath: repository_path,
+        metadata: {
+          roomType: 'collaboration',
+          isPrivate: false,
+          autoCleanup: true,
+          maxParticipants: 3
+        }
       });
 
       // Join all agents to coordination room
@@ -215,11 +219,17 @@ export const orchestrateCollaborativeTeam: Tool = {
         settings
       );
 
-      await communicationService.sendMessage(roomId, 'system', initialMessage, [
-        plannerAgent.agentId,
-        implementerAgent.agentId,
-        testerAgent.agentId
-      ]);
+      await communicationService.sendMessage({
+        roomName: roomId,
+        agentName: 'system',
+        message: initialMessage,
+        messageType: 'coordination',
+        mentions: [
+          plannerAgent.agentId,
+          implementerAgent.agentId,
+          testerAgent.agentId
+        ]
+      });
 
       const totalSetupTime = Date.now() - startTime;
 
@@ -240,21 +250,21 @@ export const orchestrateCollaborativeTeam: Tool = {
         team_members: {
           planner: {
             agent_id: plannerAgent.agentId,
-            agent_name: plannerAgent.agentName,
+            agent_name: plannerAgent.agent.agentName,
             role: 'Strategic planning and coordination',
             permissions: this.summarizePermissions('planner_agent'),
             status: 'active - leading first phase'
           },
           implementer: {
             agent_id: implementerAgent.agentId,
-            agent_name: implementerAgent.agentName,
+            agent_name: implementerAgent.agent.agentName,
             role: 'Code implementation and execution',
             permissions: this.summarizePermissions('implementer_agent'),
             status: 'waiting - ready for implementation phase'
           },
           tester: {
             agent_id: testerAgent.agentId,
-            agent_name: testerAgent.agentName,
+            agent_name: testerAgent.agent.agentName,
             role: 'Testing and quality verification',
             permissions: this.summarizePermissions('tester_agent'),
             status: 'waiting - ready for testing phase'

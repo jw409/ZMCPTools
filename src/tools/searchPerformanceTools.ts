@@ -6,6 +6,7 @@
 
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 import { DatabaseManager } from '../database/index.js';
 import { KnowledgeGraphService } from '../services/KnowledgeGraphService.js';
 import { VectorSearchService } from '../services/VectorSearchService.js';

@@ -53,12 +53,12 @@ export class FairShareScheduler {
   private setupEventListeners(): void {
     // Agent state changes update workload metrics
     eventBus.subscribe('agent_status_change', async (data) => {
-      await this.updateAgentWorkState(data.agentId, this.mapStatusToWorkState(data.status));
+      await this.updateAgentWorkState(data.agentId, this.mapStatusToWorkState(data.newStatus));
     });
 
     // Task completion affects progress velocity
     eventBus.subscribe('task_completed', async (data) => {
-      await this.updateProgressVelocity(data.agentId, 'completed');
+      await this.updateProgressVelocity(data.completedBy || '', 'completed');
     });
 
     // Error events indicate blockers

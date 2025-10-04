@@ -1,9 +1,20 @@
-import { Tool } from '../schemas/tools.js';
+import type { Tool } from '../schemas/tools/index.js';
 import { z } from 'zod';
 import { DatabaseManager } from '../database/index.js';
 import { CommunicationService } from '../services/CommunicationService.js';
 import { eventBus } from '../services/EventBus.js';
 import { zodToJsonSchema } from 'zod-to-json-schema';
+import { eq, and, like } from 'drizzle-orm';
+import {
+  sharedTodos,
+  agentProgress,
+  artifactRegistry,
+  chatRooms,
+  roomParticipants,
+  type InsertSharedTodo,
+  type InsertAgentProgress,
+  type InsertArtifactRegistry
+} from '../schemas/index.js';
 
 // Schemas for shared state tools
 const TodoItemSchema = z.object({
@@ -56,56 +67,7 @@ export class SharedStateTools {
   constructor(dbManager: DatabaseManager) {
     this.dbManager = dbManager;
     this.commService = new CommunicationService(dbManager);
-    this.initializeDatabase();
-  }
-
-  private async initializeDatabase() {
-    const db = await this.dbManager.getDatabase();
-    
-    // Create shared todos table
-    await db.run(`
-      CREATE TABLE IF NOT EXISTS shared_todos (
-        id TEXT PRIMARY KEY,
-        repository_path TEXT NOT NULL,
-        content TEXT NOT NULL,
-        status TEXT NOT NULL,
-        priority TEXT NOT NULL,
-        assigned_agent TEXT,
-        dependencies TEXT,
-        artifacts TEXT,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    // Create agent progress table
-    await db.run(`
-      CREATE TABLE IF NOT EXISTS agent_progress (
-        id TEXT PRIMARY KEY,
-        agent_id TEXT NOT NULL,
-        task_id TEXT NOT NULL,
-        status TEXT NOT NULL,
-        message TEXT NOT NULL,
-        progress INTEGER,
-        artifacts TEXT,
-        blockers TEXT,
-        next_steps TEXT,
-        timestamp TEXT DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    // Create artifact registry
-    await db.run(`
-      CREATE TABLE IF NOT EXISTS artifact_registry (
-        id TEXT PRIMARY KEY,
-        agent_id TEXT NOT NULL,
-        artifact_path TEXT NOT NULL,
-        artifact_type TEXT NOT NULL,
-        description TEXT NOT NULL,
-        related_tasks TEXT,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
+    // No need to manually initialize - Drizzle handles table creation via schema
   }
 
   getTools(): Tool[] {
@@ -113,85 +75,76 @@ export class SharedStateTools {
       {
         name: 'mcp__zmcp-tools__todo_write',
         description: 'Write or update shared todos that all agents can see',
-        inputSchema: zodToJsonSchema(TodoWriteSchema),
+        inputSchema: zodToJsonSchema(TodoWriteSchema) as any,
         handler: this.todoWrite.bind(this)
       },
       {
         name: 'mcp__zmcp-tools__todo_read',
         description: 'Read shared todos with optional filtering',
-        inputSchema: zodToJsonSchema(TodoReadSchema),
+        inputSchema: zodToJsonSchema(TodoReadSchema) as any,
         handler: this.todoRead.bind(this)
       },
       {
         name: 'mcp__zmcp-tools__broadcast_progress',
         description: 'Broadcast task progress to all agents in the repository',
-        inputSchema: zodToJsonSchema(BroadcastProgressSchema),
+        inputSchema: zodToJsonSchema(BroadcastProgressSchema) as any,
         handler: this.broadcastProgress.bind(this)
       },
       {
         name: 'mcp__zmcp-tools__register_artifact',
         description: 'Register created artifacts for discovery by other agents',
-        inputSchema: zodToJsonSchema(RegisterArtifactSchema),
+        inputSchema: zodToJsonSchema(RegisterArtifactSchema) as any,
         handler: this.registerArtifact.bind(this)
       }
     ];
   }
 
   private async todoWrite(input: z.infer<typeof TodoWriteSchema>) {
-    const db = await this.dbManager.getDatabase();
+    const drizzle = this.dbManager.drizzle;
     const { repositoryPath, todos } = input;
 
     try {
-      // Start transaction
-      await db.run('BEGIN TRANSACTION');
-
       for (const todo of todos) {
         // Check if todo exists
-        const existing = await db.get(
-          'SELECT id FROM shared_todos WHERE id = ?',
-          todo.id
-        );
+        const existing = await drizzle
+          .select()
+          .from(sharedTodos)
+          .where(eq(sharedTodos.id, todo.id))
+          .get();
 
         if (existing) {
           // Update existing todo
-          await db.run(`
-            UPDATE shared_todos 
-            SET content = ?, status = ?, priority = ?, 
-                assigned_agent = ?, dependencies = ?, artifacts = ?,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-          `, 
-            todo.content,
-            todo.status,
-            todo.priority,
-            todo.assignedAgent || null,
-            JSON.stringify(todo.dependencies || []),
-            JSON.stringify(todo.artifacts || []),
-            todo.id
-          );
+          await drizzle
+            .update(sharedTodos)
+            .set({
+              content: todo.content,
+              status: todo.status,
+              priority: todo.priority,
+              assignedAgent: todo.assignedAgent || null,
+              dependencies: JSON.stringify(todo.dependencies || []),
+              artifacts: JSON.stringify(todo.artifacts || []),
+              updatedAt: new Date().toISOString()
+            })
+            .where(eq(sharedTodos.id, todo.id))
+            .run();
         } else {
           // Insert new todo
-          await db.run(`
-            INSERT INTO shared_todos 
-            (id, repository_path, content, status, priority, assigned_agent, dependencies, artifacts)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-          `,
-            todo.id,
+          const insertData: InsertSharedTodo = {
+            id: todo.id,
             repositoryPath,
-            todo.content,
-            todo.status,
-            todo.priority,
-            todo.assignedAgent || null,
-            JSON.stringify(todo.dependencies || []),
-            JSON.stringify(todo.artifacts || [])
-          );
+            content: todo.content,
+            status: todo.status,
+            priority: todo.priority,
+            assignedAgent: todo.assignedAgent || null,
+            dependencies: JSON.stringify(todo.dependencies || []),
+            artifacts: JSON.stringify(todo.artifacts || [])
+          };
+          await drizzle.insert(sharedTodos).values(insertData).run();
         }
 
         // Broadcast todo update to relevant rooms
         await this.broadcastTodoUpdate(repositoryPath, todo);
       }
-
-      await db.run('COMMIT');
 
       return {
         success: true,
@@ -200,47 +153,51 @@ export class SharedStateTools {
       };
 
     } catch (error) {
-      await db.run('ROLLBACK');
       throw error;
     }
   }
 
   private async todoRead(input: z.infer<typeof TodoReadSchema>) {
-    const db = await this.dbManager.getDatabase();
+    const drizzle = this.dbManager.drizzle;
     const { repositoryPath, filter = {} } = input;
 
-    let query = 'SELECT * FROM shared_todos WHERE repository_path = ?';
-    const params: any[] = [repositoryPath];
+    // Build where conditions
+    const conditions = [eq(sharedTodos.repositoryPath, repositoryPath)];
 
     if (filter.status) {
-      query += ' AND status = ?';
-      params.push(filter.status);
+      conditions.push(eq(sharedTodos.status, filter.status));
     }
 
     if (filter.assignedAgent) {
-      query += ' AND assigned_agent = ?';
-      params.push(filter.assignedAgent);
+      conditions.push(eq(sharedTodos.assignedAgent, filter.assignedAgent));
     }
 
-    if (!filter.includeCompleted) {
-      query += ' AND status != "completed"';
-    }
+    let query = drizzle
+      .select()
+      .from(sharedTodos)
+      .where(and(...conditions));
 
-    query += ' ORDER BY priority DESC, created_at ASC';
+    const rows = await query.all();
 
-    const rows = await db.all(query, ...params);
-
-    const todos = rows.map(row => ({
-      id: row.id,
-      content: row.content,
-      status: row.status,
-      priority: row.priority,
-      assignedAgent: row.assigned_agent,
-      dependencies: row.dependencies ? JSON.parse(row.dependencies) : [],
-      artifacts: row.artifacts ? JSON.parse(row.artifacts) : [],
-      createdAt: row.created_at,
-      updatedAt: row.updated_at
-    }));
+    const todos = rows
+      .filter(row => filter.includeCompleted || row.status !== 'completed')
+      .map(row => ({
+        id: row.id,
+        content: row.content,
+        status: row.status,
+        priority: row.priority,
+        assignedAgent: row.assignedAgent,
+        dependencies: row.dependencies ? JSON.parse(row.dependencies) : [],
+        artifacts: row.artifacts ? JSON.parse(row.artifacts) : [],
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt
+      }))
+      .sort((a, b) => {
+        // Sort by priority DESC, then created_at ASC
+        const priorityOrder = { high: 3, medium: 2, low: 1 };
+        const priorityDiff = priorityOrder[b.priority as keyof typeof priorityOrder] - priorityOrder[a.priority as keyof typeof priorityOrder];
+        return priorityDiff || (a.createdAt || '').localeCompare(b.createdAt || '');
+      });
 
     return {
       success: true,
@@ -249,25 +206,22 @@ export class SharedStateTools {
   }
 
   private async broadcastProgress(input: z.infer<typeof BroadcastProgressSchema>) {
-    const db = await this.dbManager.getDatabase();
+    const drizzle = this.dbManager.drizzle;
     const progressId = `prog_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     // Save progress to database
-    await db.run(`
-      INSERT INTO agent_progress 
-      (id, agent_id, task_id, status, message, progress, artifacts, blockers, next_steps)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `,
-      progressId,
-      input.agentId,
-      input.taskId,
-      input.status,
-      input.message,
-      input.progress || null,
-      JSON.stringify(input.artifacts || []),
-      JSON.stringify(input.blockers || []),
-      JSON.stringify(input.nextSteps || [])
-    );
+    const insertData: InsertAgentProgress = {
+      id: progressId,
+      agentId: input.agentId,
+      taskId: input.taskId,
+      status: input.status,
+      message: input.message,
+      progress: input.progress || null,
+      artifacts: JSON.stringify(input.artifacts || []),
+      blockers: JSON.stringify(input.blockers || []),
+      nextSteps: JSON.stringify(input.nextSteps || [])
+    };
+    await drizzle.insert(agentProgress).values(insertData).run();
 
     // Get agent's rooms and broadcast
     const rooms = await this.getAgentRooms(input.agentId);
@@ -282,11 +236,15 @@ export class SharedStateTools {
     }
 
     // Emit event for monitoring
-    eventBus.emit('agent:progress', {
+    eventBus.emit('progress_update', {
+      contextId: input.taskId,
+      contextType: 'task',
       agentId: input.agentId,
-      taskId: input.taskId,
-      status: input.status,
-      progress: input.progress
+      actualProgress: input.progress || 0,
+      reportedProgress: input.progress || 0,
+      message: input.message,
+      timestamp: new Date(),
+      repositoryPath: ''  // Will be filled by the event handler
     });
 
     // If completed, check for dependent tasks
@@ -302,21 +260,18 @@ export class SharedStateTools {
   }
 
   private async registerArtifact(input: z.infer<typeof RegisterArtifactSchema>) {
-    const db = await this.dbManager.getDatabase();
+    const drizzle = this.dbManager.drizzle;
     const artifactId = `art_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-    await db.run(`
-      INSERT INTO artifact_registry
-      (id, agent_id, artifact_path, artifact_type, description, related_tasks)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `,
-      artifactId,
-      input.agentId,
-      input.artifactPath,
-      input.artifactType,
-      input.description,
-      JSON.stringify(input.relatedTasks || [])
-    );
+    const insertData: InsertArtifactRegistry = {
+      id: artifactId,
+      agentId: input.agentId,
+      artifactPath: input.artifactPath,
+      artifactType: input.artifactType,
+      description: input.description,
+      relatedTasks: JSON.stringify(input.relatedTasks || [])
+    };
+    await drizzle.insert(artifactRegistry).values(insertData).run();
 
     // Broadcast artifact creation
     const rooms = await this.getAgentRooms(input.agentId);
@@ -339,11 +294,12 @@ export class SharedStateTools {
 
   private async broadcastTodoUpdate(repositoryPath: string, todo: any) {
     // Find all rooms for this repository
-    const db = await this.dbManager.getDatabase();
-    const rooms = await db.all(
-      'SELECT DISTINCT name FROM chat_rooms WHERE repositoryPath = ?',
-      repositoryPath
-    );
+    const drizzle = this.dbManager.drizzle;
+    const rooms = await drizzle
+      .selectDistinct({ name: chatRooms.name })
+      .from(chatRooms)
+      .where(eq(chatRooms.repositoryPath, repositoryPath))
+      .all();
 
     for (const room of rooms) {
       if (room.name.includes('coordination')) {
@@ -358,34 +314,42 @@ export class SharedStateTools {
   }
 
   private async getAgentRooms(agentId: string): Promise<any[]> {
-    const db = await this.dbManager.getDatabase();
-    return db.all(`
-      SELECT DISTINCT cr.* 
-      FROM chat_rooms cr
-      JOIN room_participants rp ON cr.id = rp.roomId
-      WHERE rp.agentId = ?
-    `, agentId);
+    const drizzle = this.dbManager.drizzle;
+    const results = await drizzle
+      .selectDistinct()
+      .from(chatRooms)
+      .innerJoin(roomParticipants, eq(chatRooms.id, roomParticipants.roomId))
+      .where(eq(roomParticipants.agentId, agentId))
+      .all();
+
+    // Extract just the chatRooms data from the joined results
+    return results.map(row => row.chat_rooms);
   }
 
   private async notifyDependentTasks(completedTaskId: string) {
-    const db = await this.dbManager.getDatabase();
-    
+    const drizzle = this.dbManager.drizzle;
+
     // Find todos that depend on this task
-    const dependentTodos = await db.all(`
-      SELECT * FROM shared_todos 
-      WHERE dependencies LIKE ? 
-      AND status = 'pending'
-    `, `%"${completedTaskId}"%`);
+    const dependentTodos = await drizzle
+      .select()
+      .from(sharedTodos)
+      .where(
+        and(
+          like(sharedTodos.dependencies, `%"${completedTaskId}"%`),
+          eq(sharedTodos.status, 'pending')
+        )
+      )
+      .all();
 
     for (const todo of dependentTodos) {
-      const deps = JSON.parse(todo.dependencies);
-      
+      const deps = todo.dependencies ? JSON.parse(todo.dependencies) : [];
+
       // Check if all dependencies are complete
       const allDepsComplete = await this.checkAllDependenciesComplete(deps);
-      
-      if (allDepsComplete && todo.assigned_agent) {
+
+      if (allDepsComplete && todo.assignedAgent) {
         // Notify the assigned agent
-        const rooms = await this.getAgentRooms(todo.assigned_agent);
+        const rooms = await this.getAgentRooms(todo.assignedAgent);
         for (const room of rooms) {
           await this.commService.sendMessage({
             roomName: room.name,
@@ -399,19 +363,20 @@ export class SharedStateTools {
   }
 
   private async checkAllDependenciesComplete(dependencies: string[]): Promise<boolean> {
-    const db = await this.dbManager.getDatabase();
-    
+    const drizzle = this.dbManager.drizzle;
+
     for (const dep of dependencies) {
-      const todo = await db.get(
-        'SELECT status FROM shared_todos WHERE id = ?',
-        dep
-      );
-      
+      const todo = await drizzle
+        .select({ status: sharedTodos.status })
+        .from(sharedTodos)
+        .where(eq(sharedTodos.id, dep))
+        .get();
+
       if (!todo || todo.status !== 'completed') {
         return false;
       }
     }
-    
+
     return true;
   }
 }

@@ -4,7 +4,8 @@
  * Prevents silent failures and configuration mismatches
  */
 
-import { EmbeddingClient, HealthStatus } from '../services/EmbeddingClient.js';
+import { EmbeddingClient } from '../services/EmbeddingClient.js';
+import type { HealthStatus } from '../services/EmbeddingClient.js';
 import { Logger } from '../utils/logger.js';
 
 export interface EmbeddingStatusOptions {

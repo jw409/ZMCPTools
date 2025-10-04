@@ -62,8 +62,8 @@ export class ReportProgressTool {
         name: "report_progress",
         description:
           "Report progress updates for agent tasks and status changes",
-        inputSchema: zodToJsonSchema(ReportProgressSchema),
-        outputSchema: zodToJsonSchema(ProgressReportResponseSchema),
+        inputSchema: zodToJsonSchema(ReportProgressSchema) as any,
+        outputSchema: zodToJsonSchema(ProgressReportResponseSchema) as any,
         handler: this.reportProgress.bind(this),
       },
     ];

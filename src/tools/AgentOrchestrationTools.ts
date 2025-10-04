@@ -144,91 +144,91 @@ export class AgentOrchestrationTools {
       {
         name: 'orchestrate_objective',
         description: 'Spawn architect agent to coordinate multi-agent objective completion',
-        inputSchema: zodToJsonSchema(OrchestrationObjectiveSchema),
-        outputSchema: zodToJsonSchema(OrchestrationObjectiveResponseSchema),
+        inputSchema: zodToJsonSchema(OrchestrationObjectiveSchema) as any,
+        outputSchema: zodToJsonSchema(OrchestrationObjectiveResponseSchema) as any,
         handler: this.orchestrateObjective.bind(this)
       },
       {
         name: 'orchestrate_objective_structured',
         description: 'Execute structured phased orchestration with intelligent model selection (Research → Plan → Execute → Monitor → Cleanup)',
-        inputSchema: zodToJsonSchema(StructuredOrchestrationSchema),
-        outputSchema: zodToJsonSchema(StructuredOrchestrationResponseSchema),
+        inputSchema: zodToJsonSchema(StructuredOrchestrationSchema) as any,
+        outputSchema: zodToJsonSchema(StructuredOrchestrationResponseSchema) as any,
         handler: this.orchestrateObjectiveStructured.bind(this)
       },
       {
         name: 'spawn_agent',
         description: 'Spawn fully autonomous Claude agent with complete tool access',
-        inputSchema: zodToJsonSchema(SpawnAgentSchema),
-        outputSchema: zodToJsonSchema(SpawnAgentResponseSchema),
+        inputSchema: zodToJsonSchema(SpawnAgentSchema) as any,
+        outputSchema: zodToJsonSchema(SpawnAgentResponseSchema) as any,
         handler: this.spawnAgent.bind(this)
       },
       {
         name: 'create_task',
         description: 'Create and assign task to agents with enhanced capabilities',
-        inputSchema: zodToJsonSchema(CreateTaskSchema),
-        outputSchema: zodToJsonSchema(CreateTaskResponseSchema),
+        inputSchema: zodToJsonSchema(CreateTaskSchema) as any,
+        outputSchema: zodToJsonSchema(CreateTaskResponseSchema) as any,
         handler: this.createTask.bind(this)
       },
       {
         name: 'list_agents',
         description: 'Get list of active agents',
-        inputSchema: zodToJsonSchema(ListAgentsSchema),
-        outputSchema: zodToJsonSchema(ListAgentsResponseSchema),
+        inputSchema: zodToJsonSchema(ListAgentsSchema) as any,
+        outputSchema: zodToJsonSchema(ListAgentsResponseSchema) as any,
         handler: this.listAgents.bind(this)
       },
       {
         name: 'terminate_agent',
         description: 'Terminate one or more agents',
-        inputSchema: zodToJsonSchema(TerminateAgentSchema),
-        outputSchema: zodToJsonSchema(TerminateAgentResponseSchema),
+        inputSchema: zodToJsonSchema(TerminateAgentSchema) as any,
+        outputSchema: zodToJsonSchema(TerminateAgentResponseSchema) as any,
         handler: this.terminateAgent.bind(this)
       },
       {
         name: 'monitor_agents',
         description: 'Monitor agents with real-time updates using EventBus system',
-        inputSchema: zodToJsonSchema(MonitorAgentsSchema),
-        outputSchema: zodToJsonSchema(MonitorAgentsResponseSchema),
+        inputSchema: zodToJsonSchema(MonitorAgentsSchema) as any,
+        outputSchema: zodToJsonSchema(MonitorAgentsResponseSchema) as any,
         handler: this.monitorAgents.bind(this)
       },
       {
         name: 'continue_agent_session',
         description: 'Continue an agent session using stored conversation session ID with additional instructions',
-        inputSchema: zodToJsonSchema(ContinueAgentSessionSchema),
-        outputSchema: zodToJsonSchema(ContinueAgentSessionResponseSchema),
+        inputSchema: zodToJsonSchema(ContinueAgentSessionSchema) as any,
+        outputSchema: zodToJsonSchema(ContinueAgentSessionResponseSchema) as any,
         handler: this.continueAgentSession.bind(this)
       },
       {
         name: 'cleanup_stale_agents',
         description: 'Clean up stale agents with enhanced options and optional room cleanup',
-        inputSchema: zodToJsonSchema(CleanupStaleAgentsSchema),
-        outputSchema: zodToJsonSchema(CleanupStaleAgentsResponseSchema),
+        inputSchema: zodToJsonSchema(CleanupStaleAgentsSchema) as any,
+        outputSchema: zodToJsonSchema(CleanupStaleAgentsResponseSchema) as any,
         handler: this.cleanupStaleAgents.bind(this)
       },
       {
         name: 'cleanup_stale_rooms',
         description: 'Clean up stale rooms based on activity and participant criteria',
-        inputSchema: zodToJsonSchema(CleanupStaleRoomsSchema),
-        outputSchema: zodToJsonSchema(CleanupStaleRoomsResponseSchema),
+        inputSchema: zodToJsonSchema(CleanupStaleRoomsSchema) as any,
+        outputSchema: zodToJsonSchema(CleanupStaleRoomsResponseSchema) as any,
         handler: this.cleanupStaleRooms.bind(this)
       },
       {
         name: 'run_comprehensive_cleanup',
         description: 'Run comprehensive cleanup for both agents and rooms with detailed reporting',
-        inputSchema: zodToJsonSchema(ComprehensiveCleanupSchema),
-        outputSchema: zodToJsonSchema(ComprehensiveCleanupResponseSchema),
+        inputSchema: zodToJsonSchema(ComprehensiveCleanupSchema) as any,
+        outputSchema: zodToJsonSchema(ComprehensiveCleanupResponseSchema) as any,
         handler: this.runComprehensiveCleanup.bind(this)
       },
       {
         name: 'get_cleanup_configuration',
         description: 'Get current cleanup configuration and settings for agents and rooms',
-        inputSchema: zodToJsonSchema(GetCleanupConfigurationSchema),
-        outputSchema: zodToJsonSchema(GetCleanupConfigurationResponseSchema),
+        inputSchema: zodToJsonSchema(GetCleanupConfigurationSchema) as any,
+        outputSchema: zodToJsonSchema(GetCleanupConfigurationResponseSchema) as any,
         handler: this.getCleanupConfiguration.bind(this)
       },
       {
         name: 'get_agent_results',
         description: 'Retrieve results from a completed or failed agent by ID. This tool searches for agent result files both in the local project directory and parent directories (bubbling up). Can wait for results if they are not immediately available.',
-        inputSchema: zodToJsonSchema(getAgentResultsSchema),
+        inputSchema: zodToJsonSchema(getAgentResultsSchema) as any,
         outputSchema: zodToJsonSchema(z.object({
           success: z.boolean(),
           agentId: z.string(),

@@ -5,7 +5,7 @@ import { CommunicationService } from './CommunicationService.js';
 import { FairShareScheduler } from './FairShareScheduler.js';
 import { TaskComplexityAnalyzer, type TaskComplexityAnalysis } from './TaskComplexityAnalyzer.js';
 import { eventBus } from './EventBus.js';
-import type { AgentConfig } from '../schemas/index.js';
+import type { CreateAgentRequest } from './AgentService.js';
 
 export type WorkflowPattern = 'sequential' | 'parallel' | 'adaptive' | 'custom';
 export type CoordinationMode = 'waterfall' | 'agile' | 'kanban' | 'freestyle';
@@ -131,12 +131,12 @@ export class FlexibleCoordinator {
   private setupEventListeners(): void {
     // Agent status changes affect coordination
     eventBus.subscribe('agent_status_change', async (data) => {
-      await this.handleAgentStatusChange(data.agentId, data.status);
+      await this.handleAgentStatusChange(data.agentId, data.newStatus);
     });
 
     // Task completion may trigger coordination adjustments
     eventBus.subscribe('task_completed', async (data) => {
-      await this.handleTaskCompletion(data.agentId, data.taskId);
+      await this.handleTaskCompletion(data.completedBy || '', data.taskId);
     });
 
     // Team coordination events
@@ -159,7 +159,8 @@ export class FlexibleCoordinator {
       {
         includeArchitectural: true,
         considerDependencies: true,
-        estimateResourceNeeds: true
+        evaluateRisks: true,
+        estimateDuration: true
       }
     );
 
@@ -226,8 +227,8 @@ export class FlexibleCoordinator {
       return this.strategies.get('kanban')!; // Simple tasks work well with flow
     } else if (complexityAnalysis.complexityLevel === 'complex') {
       return this.strategies.get('agile')!; // Complex tasks need iteration
-    } else if (complexityAnalysis.requiresArchitecturalChanges) {
-      return this.strategies.get('waterfall')!; // Architectural changes benefit from phases
+    } else if (complexityAnalysis.dependencies.length > 0) {
+      return this.strategies.get('waterfall')!; // Tasks with dependencies benefit from phases
     } else {
       return this.strategies.get('freestyle')!; // Default to self-organizing
     }
@@ -266,7 +267,7 @@ export class FlexibleCoordinator {
     complexityAnalysis: TaskComplexityAnalysis,
     preferredSpecializations?: string[]
   ): string[] {
-    const required = [...complexityAnalysis.requiredSpecializations];
+    const required = [...complexityAnalysis.requiredSpecializations] as string[];
 
     // Add preferred specializations if they make sense
     if (preferredSpecializations) {
@@ -278,8 +279,8 @@ export class FlexibleCoordinator {
     }
 
     // Ensure we have at least one generalist
-    if (!required.includes('general') && !required.includes('backend') && !required.includes('frontend')) {
-      required.push('general');
+    if (!required.includes('generalist') && !required.includes('backend') && !required.includes('frontend')) {
+      required.push('generalist');
     }
 
     return required;
@@ -311,7 +312,7 @@ export class FlexibleCoordinator {
           strategy
         );
 
-        const agentConfig: AgentConfig = {
+        const agentConfig: CreateAgentRequest = {
           agentName,
           repositoryPath: request.repositoryPath,
           taskDescription,

@@ -8,6 +8,7 @@ export * from './scraping';
 export * from './tasks';
 export * from './plans';
 export * from './knowledge-graph';
+export * from './shared-state';
 
 // Re-export commonly used types for convenience
 export type {
@@ -156,6 +157,16 @@ export type {
   EntityFilter,
   RelationshipFilter,
 } from './knowledge-graph';
+
+export type {
+  // Shared state types
+  SharedTodo,
+  InsertSharedTodo,
+  AgentProgress,
+  InsertAgentProgress,
+  ArtifactRegistry,
+  InsertArtifactRegistry,
+} from './shared-state';
 
 
 // Re-export schemas for validation
@@ -312,6 +323,16 @@ export {
   relationshipFilterSchema,
 } from './knowledge-graph';
 
+export {
+  // Shared state schemas
+  insertSharedTodoSchema,
+  selectSharedTodoSchema,
+  insertAgentProgressSchema,
+  selectAgentProgressSchema,
+  insertArtifactRegistrySchema,
+  selectArtifactRegistrySchema,
+} from './shared-state';
+
 
 // Re-export Drizzle table definitions
 export { memories } from './memories';
@@ -322,6 +343,7 @@ export { chatRooms, chatMessages, roomParticipants } from './communication';
 export { documentationSources, scrapeJobs, websites, websitePages } from './scraping';
 export { errorLogs, toolCallLogs } from './logs';
 export { knowledgeEntities, knowledgeRelationships, knowledgeInsights } from './knowledge-graph';
+export { sharedTodos, agentProgress, artifactRegistry } from './shared-state';
 
 // Import tables and schemas for collections
 import { 
@@ -405,6 +427,17 @@ import {
   selectKnowledgeInsightSchema,
   updateKnowledgeInsightSchema
 } from './knowledge-graph';
+import {
+  sharedTodos,
+  agentProgress,
+  artifactRegistry,
+  insertSharedTodoSchema,
+  selectSharedTodoSchema,
+  insertAgentProgressSchema,
+  selectAgentProgressSchema,
+  insertArtifactRegistrySchema,
+  selectArtifactRegistrySchema
+} from './shared-state';
 
 // Database schema collections for easier management
 export const allTables = {
@@ -414,27 +447,32 @@ export const allTables = {
   taskDependencies,
   plans,
   memories,
-  
-  
-  // Communication tables  
+
+
+  // Communication tables
   chatRooms,
   chatMessages,
   roomParticipants,
-  
+
   // Scraping tables
   documentationSources,
   scrapeJobs,
   websites,
   websitePages,
-  
+
   // Log tables
   errorLogs,
   toolCallLogs,
-  
+
   // Knowledge graph tables
   knowledgeEntities,
   knowledgeRelationships,
   knowledgeInsights,
+
+  // Shared state tables
+  sharedTodos,
+  agentProgress,
+  artifactRegistry,
 } as const;
 
 // Schema validation collections
@@ -456,6 +494,9 @@ export const insertSchemas = {
   knowledgeEntities: insertKnowledgeEntitySchema,
   knowledgeRelationships: insertKnowledgeRelationshipSchema,
   knowledgeInsights: insertKnowledgeInsightSchema,
+  sharedTodos: insertSharedTodoSchema,
+  agentProgress: insertAgentProgressSchema,
+  artifactRegistry: insertArtifactRegistrySchema,
 } as const;
 
 export const selectSchemas = {
@@ -476,6 +517,9 @@ export const selectSchemas = {
   knowledgeEntities: selectKnowledgeEntitySchema,
   knowledgeRelationships: selectKnowledgeRelationshipSchema,
   knowledgeInsights: selectKnowledgeInsightSchema,
+  sharedTodos: selectSharedTodoSchema,
+  agentProgress: selectAgentProgressSchema,
+  artifactRegistry: selectArtifactRegistrySchema,
 } as const;
 
 export const updateSchemas = {

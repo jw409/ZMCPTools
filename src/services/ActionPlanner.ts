@@ -260,7 +260,7 @@ export class ActionPlanner {
       steps.push({
         action: 'click',
         locator: this.createLocatorFromElement(submitButton),
-        waitAfter: WaitStrategyFactory.forFormSubmission(),
+        waitAfter: WaitStrategyFactory.forFormSubmission()[0],
         verify: intent.parameters.verifySuccess ? [
           {
             type: 'url_changed',
@@ -340,7 +340,7 @@ export class ActionPlanner {
         steps.push({
           action: 'click',
           locator: this.createLocatorFromElement(submitButton),
-          waitAfter: WaitStrategyFactory.forFormSubmission()
+          waitAfter: WaitStrategyFactory.forFormSubmission()[0]
         });
       }
     }
@@ -376,7 +376,7 @@ export class ActionPlanner {
       steps.push({
         action: 'click',
         locator: this.createLocatorFromElement(bestLink),
-        waitAfter: WaitStrategyFactory.forSPANavigation(),
+        waitAfter: WaitStrategyFactory.forSPANavigation()[0],
         verify: [{
           type: 'url_changed',
           expectedUrl: target,

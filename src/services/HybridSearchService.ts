@@ -6,7 +6,8 @@
 
 import { Logger } from '../utils/logger.js';
 import { EmbeddingClient } from './EmbeddingClient.js';
-import { BM25Service, BM25Document, BM25SearchResult } from './BM25Service.js';
+import { BM25Service } from './BM25Service.js';
+import type { BM25Document, BM25SearchResult } from './BM25Service.js';
 // Define DocumentMetadata interface locally
 export interface DocumentMetadata {
   [key: string]: any;
@@ -240,7 +241,7 @@ export class HybridSearchService {
 
     try {
       // Generate query embedding
-      const queryEmbedding = await this.embeddingClient.embedTexts([query]);
+      const queryEmbedding = await this.embeddingClient.generateEmbeddings([query]);
 
       if (!queryEmbedding || queryEmbedding.embeddings.length === 0) {
         throw new Error('Failed to generate query embedding');
@@ -403,6 +404,26 @@ export class HybridSearchService {
     return {
       bm25_stats: this.bm25Service.getStatistics()
     };
+  }
+
+  /**
+   * Wrapper method for backward compatibility - calls the main search method
+   */
+  async searchHybrid(
+    documents: any[],
+    query: string,
+    options: {
+      alpha?: number;
+      limit?: number;
+      min_score_threshold?: number;
+    } = {}
+  ): Promise<any[]> {
+    const result = await this.search(query, {
+      alpha: options.alpha,
+      max_results: options.limit,
+      min_score_threshold: options.min_score_threshold
+    });
+    return result.results;
   }
 
   /**

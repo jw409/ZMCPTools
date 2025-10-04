@@ -212,86 +212,86 @@ export class BrowserTools {
       {
         name: 'create_browser_session',
         description: 'Create a new browser session with intelligent auto-close and session management',
-        inputSchema: zodToJsonSchema(BrowserCreateSessionSchema),
-        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema),
+        inputSchema: zodToJsonSchema(BrowserCreateSessionSchema) as any,
+        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema) as any,
         handler: (args: any) => this.createBrowserSessionEnhanced(args)
       },
       {
         name: 'navigate_and_scrape',
         description: 'Navigate to a URL and optionally scrape content in one operation. Auto-creates session if needed.',
-        inputSchema: zodToJsonSchema(BrowserNavigateAndScrapeSchema),
-        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema),
+        inputSchema: zodToJsonSchema(BrowserNavigateAndScrapeSchema) as any,
+        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema) as any,
         handler: (args: any) => this.navigateAndScrape(args)
       },
       {
         name: 'interact_with_page',
         description: 'Perform multiple interactions with a page: click, type, hover, select, screenshot, wait, scroll',
-        inputSchema: zodToJsonSchema(BrowserInteractWithPageSchema),
-        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema),
+        inputSchema: zodToJsonSchema(BrowserInteractWithPageSchema) as any,
+        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema) as any,
         handler: (args: any) => this.interactWithPage(args)
       },
       {
         name: 'manage_browser_sessions',
         description: 'Manage browser sessions: list, close, cleanup idle sessions, get status',
-        inputSchema: zodToJsonSchema(BrowserManageSessionsSchema),
-        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema),
+        inputSchema: zodToJsonSchema(BrowserManageSessionsSchema) as any,
+        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema) as any,
         handler: (args: any) => this.manageBrowserSessions(args)
       },
       {
         name: 'perform_dynamic_interaction',
         description: 'Perform intelligent, goal-oriented interactions with dynamic web pages using state-aware execution loop. Handles modern SPAs, React, Vue, Angular applications with automatic waiting, verification, and retry logic.',
-        inputSchema: zodToJsonSchema(PerformDynamicInteractionSchema),
-        outputSchema: zodToJsonSchema(DynamicInteractionResponseSchema),
+        inputSchema: zodToJsonSchema(PerformDynamicInteractionSchema) as any,
+        outputSchema: zodToJsonSchema(DynamicInteractionResponseSchema) as any,
         handler: (args: any) => this.performDynamicInteraction(args)
       },
       // Legacy tools for backward compatibility
       {
         name: 'navigate_to_url',
         description: '[LEGACY] Navigate to a URL in an existing browser session. Use navigate_and_scrape instead.',
-        inputSchema: zodToJsonSchema(BrowserLegacyNavigateSchema),
-        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema),
+        inputSchema: zodToJsonSchema(BrowserLegacyNavigateSchema) as any,
+        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema) as any,
         handler: (args: any) => this.navigateToUrl(args)
       },
       {
         name: 'scrape_content',
         description: '[LEGACY] Scrape content from the current page. Use navigate_and_scrape instead.',
-        inputSchema: zodToJsonSchema(BrowserLegacyScrapeSchema),
-        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema),
+        inputSchema: zodToJsonSchema(BrowserLegacyScrapeSchema) as any,
+        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema) as any,
         handler: (args: any) => this.scrapeContent(args)
       },
       {
         name: 'take_screenshot',
         description: '[LEGACY] Take a screenshot of the current page. Use interact_with_page instead.',
-        inputSchema: zodToJsonSchema(BrowserScreenshotSchema),
-        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema),
+        inputSchema: zodToJsonSchema(BrowserScreenshotSchema) as any,
+        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema) as any,
         handler: (args: any) => this.takeScreenshot(args)
       },
       {
         name: 'execute_browser_script',
         description: '[LEGACY] Execute JavaScript in the browser context. Use interact_with_page instead.',
-        inputSchema: zodToJsonSchema(BrowserExecuteScriptSchema),
-        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema),
+        inputSchema: zodToJsonSchema(BrowserExecuteScriptSchema) as any,
+        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema) as any,
         handler: (args: any) => this.executeScript(args)
       },
       {
         name: 'interact_with_element',
         description: '[LEGACY] Interact with a page element. Use interact_with_page instead.',
-        inputSchema: zodToJsonSchema(BrowserInteractSchema),
-        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema),
+        inputSchema: zodToJsonSchema(BrowserInteractSchema) as any,
+        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema) as any,
         handler: (args: any) => this.interactWithElement(args)
       },
       {
         name: 'close_browser_session',
         description: '[LEGACY] Close a browser session. Use manage_browser_sessions instead.',
-        inputSchema: zodToJsonSchema(z.object({ session_id: z.string() })),
-        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema),
+        inputSchema: zodToJsonSchema(z.object({ session_id: z.string() as any })),
+        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema) as any,
         handler: (args: any) => this.closeBrowserSession(args)
       },
       {
         name: 'list_browser_sessions',
         description: '[LEGACY] List all browser sessions. Use manage_browser_sessions instead.',
-        inputSchema: zodToJsonSchema(z.object({})),
-        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema),
+        inputSchema: zodToJsonSchema(z.object({}) as any),
+        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema) as any,
         handler: (args: any) => this.listBrowserSessions()
       }
     ];
