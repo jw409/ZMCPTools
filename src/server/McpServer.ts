@@ -91,6 +91,7 @@ import { hybridSearchTools } from "../tools/hybridSearchTools.js";
 import { unifiedSearchTools } from "../tools/unifiedSearchTool.js";
 import { codeAcquisitionTools } from "../tools/codeAcquisitionTool.js";
 import { collaborativeOrchestrationTools } from "../tools/collaborativeOrchestrationTool.js";
+import { TalentEmailTools } from "../tools/TalentEmailTools.js";
 import type { McpTool, McpProgressContext } from "../schemas/tools/index.js";
 
 export interface McpServerOptions {
@@ -117,6 +118,7 @@ export class McpToolsServer {
   private knowledgeGraphMcpTools: KnowledgeGraphMcpTools;
   private treeSummaryTools: TreeSummaryTools;
   private reportProgressTool: ReportProgressTool;
+  private talentEmailTools: TalentEmailTools;
   // cacheMcpTools removed - foundation caching now automatic
   private fileOperationsService: FileOperationsService;
   private treeSummaryService: TreeSummaryService;
@@ -380,6 +382,7 @@ export class McpToolsServer {
     this.knowledgeGraphMcpTools = new KnowledgeGraphMcpTools(this.db);
     this.treeSummaryTools = new TreeSummaryTools();
     this.reportProgressTool = new ReportProgressTool(this.db);
+    this.talentEmailTools = new TalentEmailTools();
     // Foundation caching is now automatic - no manual tools needed
 
     // Initialize managers
@@ -628,6 +631,8 @@ export class McpToolsServer {
       ...this.orchestrationTools.getTools(),
       // Progress reporting tool
       ...this.reportProgressTool.getTools(),
+      // Talent email tools (filesystem-based inter-talent communication)
+      ...this.talentEmailTools.getTools(),
     ];
   }
 
