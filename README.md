@@ -9,6 +9,61 @@
 
 🚀 **ZMCPTools Enhanced** - Professional multi-agent orchestration platform with **62 tools**, dynamic web interaction, enterprise-grade TypeScript architecture, and advanced AI orchestration capabilities.
 
+## 🔱 Fork Status & Upstream Divergence
+
+**This is a fork of [ZachHandley/ZMCPTools](https://github.com/ZachHandley/ZMCPTools)** with significant architectural divergence for TalentOS integration.
+
+### Major Deviations from Upstream:
+
+**1. Talent Profile System (New)**
+- Complete filesystem-based talent persona system (`src/types/talent.ts`, `src/services/TalentProfileService.ts`)
+- Named AI agent personas with modular, token-efficient file structures
+- Not present in upstream - custom implementation for LLM-as-agent architecture
+- Integrates with TalentOS learning/memory/scavenger systems (planned)
+
+**2. Browser Automation Removed**
+- **Removed**: Playwright-based browser automation, web scraping, dynamic interaction
+- **Rationale**: Functionality available via separate playwright-mcp server for cleaner separation
+- **Files Deleted**: `BrowserService`, `WebScrapingService`, `DynamicInteractionService`, related tools
+- **Impact**: Reduced dependencies, faster startup, focused on agent orchestration
+
+**3. Documentation Intelligence Removed**
+- **Removed**: LanceDB-based documentation scraping and indexing
+- **Rationale**: Specialized documentation servers provide this functionality
+- **Files Deleted**: `DocumentationService`, `DocumentationRepository`, scraping schemas
+- **Impact**: Smaller codebase, reduced database complexity
+
+**4. Tree-sitter/Lezer Parsing Removed**
+- **Removed**: AST parsing and code analysis via tree-sitter/lezer
+- **Rationale**: Experimental features, incomplete implementation, dependency overhead
+- **Files Deleted**: `LezerParserService`, `TreeSitterASTTool`, `TreeSitterRefactoringTool`
+- **Impact**: Cleaner build, fewer native dependencies
+
+**5. Database Schema Simplification**
+- **Removed**: Scraping tables, website pages, documentation stores
+- **Kept**: Agent sessions, tasks, execution plans, rooms, knowledge graph
+- **Migration**: `src/migrations/drop_scraping_tables.py` documents removal
+
+### Maintained from Upstream:
+
+✅ Multi-agent orchestration core
+✅ Knowledge graph and shared memory
+✅ Task and execution plan management
+✅ Agent communication rooms
+✅ MCP protocol implementation
+✅ TypeScript-first architecture
+
+### Sync Strategy:
+
+- **Upstream updates**: Evaluated case-by-case for agent orchestration features
+- **Browser/scraping features**: Not merged (architectural decision)
+- **Core MCP protocol**: Tracked and integrated when beneficial
+- **Independent development**: Talent system, TalentOS integration
+
+**Upstream Repository**: https://github.com/ZachHandley/ZMCPTools
+**This Fork**: https://github.com/jw409/ZMCPTools
+**Divergence Point**: Approximately commit `e95ac2a` (Feb 2025)
+
 ## ⚠️ Important Setup Note
 
 **Before spawning agents**, run this command once to enable proper agent permissions:
