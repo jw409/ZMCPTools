@@ -312,65 +312,6 @@ export class ResourceManager {
         }
       },
       {
-        uriTemplate: "scraping://jobs",
-        name: "Scraper Jobs",
-        description:
-          "List of web scraping jobs and their status (use ?limit=50&cursor=token&status=active&search=text)",
-        mimeType: "application/json",
-        _meta: {
-          "params": {
-            "limit": 50,
-            "cursor": "optional cursor token from previous response",
-            "status": "active",
-            "search": "text to search job names and descriptions, if provided"
-          }
-        }
-      },
-      {
-        uriTemplate: "docs://sources",
-        name: "Documentation Sources",
-        description:
-          "List of scraped documentation sources (use ?limit=50&cursor=token&sourceType=api&search=text)",
-        mimeType: "application/json",
-        _meta: {
-          "params": {
-            "limit": 50,
-            "cursor": "optional cursor token from previous response",
-            "sourceType": "api",
-            "search": "text to search source names and descriptions, if provided"
-          }
-        }
-      },
-      {
-        uriTemplate: "docs://websites",
-        name: "Documentation Websites",
-        description:
-          "List of all scraped websites (use ?limit=50&cursor=token&search=text)",
-        mimeType: "application/json",
-        _meta: {
-          "params": {
-            "limit": 50,
-            "cursor": "optional cursor token from previous response",
-            "search": "text to search website names and descriptions, if provided"
-          }
-        }
-      },
-      {
-        uriTemplate: "docs://*/pages",
-        name: "Website Pages",
-        description:
-          "List of pages for a specific website (use docs://{websiteId}/pages?limit=50&cursor=token&search=text)",
-        mimeType: "application/json",
-        _meta: {
-          "params": {
-            "websiteId": "ID of the website to fetch pages for (in the URI path)",
-            "limit": 50,
-            "cursor": "optional cursor token from previous response",
-            "search": "text to search page titles and content, if provided"
-          }
-        }
-      },
-      {
         uriTemplate: "agents://insights",
         name: "Agent Insights",
         description:
@@ -421,19 +362,6 @@ export class ResourceManager {
         mimeType: "application/json",
         _meta: {
           "params": {}
-        }
-      },
-      {
-        uriTemplate: "docs://search",
-        name: "Documentation Search",
-        description: "Search documentation content (use ?query=text&source_id=id&limit=10)",
-        mimeType: "application/json",
-        _meta: {
-          "params": {
-            "query": "text to search for in documentation",
-            "source_id": "optional source ID to filter by",
-            "limit": 10
-          }
         }
       },
       {
@@ -547,34 +475,6 @@ export class ResourceManager {
       case "communication://messages":
         return await this.getRoomMessages(searchParams);
 
-      case "scraping://jobs":
-        return await this.getScrapingJobs(searchParams);
-
-      case "docs://sources":
-        return await this.getDocumentationSources(searchParams);
-
-      case "docs://websites":
-        return await this.getWebsites(searchParams);
-
-      case "docs://search":
-        return await this.getDocumentationSearch(searchParams);
-
-      // Handle docs://{websiteId}/pages pattern
-      case "docs://websites/pages":
-        if (!searchParams.has("websiteId")) {
-          return {
-            uri: "docs://websites/pages",
-            mimeType: "application/json",
-            text: JSON.stringify({
-              error: "websiteId parameter is required",
-            }),
-          };
-        }
-        return await this.getWebsitePages(
-          searchParams.get("websiteId"),
-          searchParams
-        );
-
       case "agents://insights":
         return await this.getAgentInsights(searchParams);
 
@@ -597,14 +497,6 @@ export class ResourceManager {
         return await this.getLogsList();
 
       default:
-        // Handle docs://{websiteId}/pages pattern
-        if (scheme === "docs" && path.endsWith("/pages")) {
-          const websiteId = path.replace("/pages", "");
-          if (websiteId) {
-            return await this.getWebsitePages(websiteId, searchParams);
-          }
-        }
-
         // Handle logs://{dirname}/files pattern
         if (scheme === "logs" && path.endsWith("/files")) {
           const dirname = path.replace("/files", "");
