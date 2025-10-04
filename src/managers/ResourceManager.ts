@@ -304,7 +304,7 @@ export class ResourceManager {
         uriTemplate: "vector://collections",
         name: "Vector Collections",
         description:
-          "List of LanceDB vector collections and their statistics (use ?limit=50&cursor=token&search=text)",
+          "📚 BROWSE VECTOR COLLECTIONS: List all LanceDB collections with statistics (doc count, embedding dimensions, storage size). Use `?search=text` to find specific collections. Useful for discovering available knowledge bases before semantic search.",
         mimeType: "application/json",
         _meta: {
           "params": {
@@ -318,7 +318,7 @@ export class ResourceManager {
         uriTemplate: "vector://search",
         name: "Vector Search",
         description:
-          "Semantic search across vector collections (use ?query=text&collection=name&limit=10)",
+          "🔍 SEMANTIC SEARCH: Find documents by meaning, not keywords. Query across vector collections using embeddings for similarity matching. Returns top-N most relevant results with cosine similarity scores. Use `?collection=name` to target specific knowledge bases.",
         mimeType: "application/json",
         _meta: {
           "params": {
@@ -331,7 +331,7 @@ export class ResourceManager {
       {
         uriTemplate: "vector://status",
         name: "Vector Database Status",
-        description: "LanceDB connection status, TalentOS GPU integration info, and embedding model details (Stock vs Enhanced mode)",
+        description: "📊 VECTOR DATABASE HEALTH: Check LanceDB connection status, TalentOS GPU integration info, active embedding models (Stock vs Enhanced mode), and available vector collections. Use to verify GPU acceleration and model configuration before operations.",
         mimeType: "application/json",
         _meta: {
           "params": {}
@@ -381,7 +381,7 @@ export class ResourceManager {
       {
         uriTemplate: "logs://list",
         name: "Logs Directory",
-        description: "List directories and files in ~/.mcptools/logs/",
+        description: "📂 BROWSE LOG DIRECTORIES: List all log directories in ~/.mcptools/logs/ organized by agent, session, or service type. Use to discover available logs before drilling down to specific files. Returns directory names and file counts.",
         mimeType: "application/json",
         _meta: {
           "params": {}
@@ -391,7 +391,7 @@ export class ResourceManager {
         uriTemplate: "logs://*/files",
         name: "Log Files",
         description:
-          "List files in a specific log directory (use logs://{dirname}/files)",
+          "📄 LIST LOG FILES: Get all log files in a specific directory (e.g., `logs://agent-123/files`). Returns filenames, sizes, timestamps. Use to identify relevant logs before reading content (recent errors, specific operations).",
         mimeType: "application/json",
         _meta: {
           "params": {
@@ -403,7 +403,7 @@ export class ResourceManager {
         uriTemplate: "logs://*/content",
         name: "Log File Content",
         description:
-          "Read content of a specific log file (use logs://{dirname}/content?file=filename)",
+          "📖 READ LOG CONTENT: Get full content of specific log file (e.g., `logs://agent-123/content?file=errors.log`). Use for debugging, error analysis, or reviewing agent execution history. Supports text/plain logs with timestamps and stack traces.",
         mimeType: "text/plain",
         _meta: {
           "params": {
