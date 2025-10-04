@@ -136,15 +136,33 @@ await readResource('knowledge://status')
 
 **Savings**: 570 tokens (3 search tools eliminated, use resources instead)
 
-### Coming Soon (In Progress)
+### Phase 4: Agent Status Resources ✅
 
-**Phase 4**: Agent Status Resources (~370 tokens saved)
+**2 agent operations now use resources instead of tools:**
+
+| Resource URI | Use Case | Query Parameters |
+|-------------|----------|------------------|
+| `agents://list` | List all agents with filtering | `status=active/completed/failed/terminated`, `type=backend/frontend/testing`, `limit=50`, `cursor=token` |
+| `agents://{id}/status` | Get detailed agent status | - |
+
+**Usage Examples:**
 ```typescript
-resource://agent/all?status=active   // Active agents
-resource://agent/{id}/status         // Specific agent status
+// List active backend agents
+await readResource('agents://list?status=active&type=backend&limit=20')
+
+// Get detailed agent status
+await readResource('agents://agent-123/status')
 ```
 
-**Total Savings So Far**: 2,140 tokens (Phase 1: 1,170 + Phase 2: 400 + Phase 3: 570)
+**Mutation tools (keep using these):**
+- `spawn_agent` - Create agents
+- `terminate_agent` - Stop agents
+- `monitor_agents` - Set up real-time monitoring
+- `cleanup_stale_agents`, `cleanup_stale_rooms`, `run_comprehensive_cleanup`
+
+**Savings**: 170 tokens (list_agents tool eliminated)
+
+**Total Savings**: 2,310 tokens (Phase 1: 1,170 + Phase 2: 400 + Phase 3: 570 + Phase 4: 170)
 **Projected Total**: 13,000+ tokens across all phases
 
 ---

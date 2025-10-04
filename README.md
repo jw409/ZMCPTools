@@ -235,10 +235,30 @@ await readResource('knowledge://status')
 - `export_knowledge_graph` - Backup data
 - `wipe_knowledge_graph` - Clear all (destructive)
 
-### Coming Soon
+### Agent Status Resources (Phase 4 ✅)
 
-Additional resource types being migrated (see [Issue #35](https://github.com/jw409/ZMCPTools/issues/35)):
-- `agent://{id}` - Agent status and monitoring (Phase 4)
+**Monitor and manage spawned agents with 2 resource URIs:**
+
+| Resource URI | Use Case | Key Parameters |
+|-------------|----------|----------------|
+| `agents://list` | List all agents with filtering | `status=active/completed/failed/terminated`, `type=backend/frontend/testing`, `limit=50` |
+| `agents://{id}/status` | Get detailed agent status | - |
+
+**Usage Examples:**
+
+```typescript
+// List active backend agents
+await readResource('agents://list?status=active&type=backend&limit=20')
+
+// Get detailed status for specific agent
+await readResource('agents://agent-123/status')
+```
+
+**Keep Using (Mutation Tools):**
+- `spawn_agent` - Create new agents
+- `terminate_agent` - Stop agents
+- `monitor_agents` - Set up real-time monitoring
+- `cleanup_stale_agents` - Remove dead agents
 
 ## 🎭 Talent Profile System
 

@@ -261,14 +261,26 @@ export class ResourceManager {
         uriTemplate: "agents://list",
         name: "Agent List",
         description:
-          "List of all active agents with their status and metadata (use ?limit=50&cursor=token&status=active&type=backend)",
+          "👥 LIST ALL AGENTS: View spawned agents with filtering by status (active/completed/failed/terminated) and type (backend/frontend/testing/documentation). Use for: checking what agents are running, finding agents by task type, monitoring agent health, debugging agent issues. Supports pagination for large agent pools. Example: agents://list?status=active&type=backend&limit=20",
         mimeType: "application/json",
         _meta: {
           "params": {
-            "limit": 50,
-            "cursor": "optional cursor token from previous response",
-            "status": "active",
-            "type": "agentType"
+            "limit": "max results (default: 50, supports pagination with cursor)",
+            "cursor": "pagination token from previous response",
+            "status": "filter by status: active/completed/failed/terminated",
+            "type": "filter by agent type: backend/frontend/testing/documentation/devops/analysis"
+          }
+        }
+      },
+      {
+        uriTemplate: "agents://*/status",
+        name: "Agent Status",
+        description:
+          "🎯 MONITOR SPECIFIC AGENT: Get detailed status of a single agent including task progress, current activity, health metrics, error history, resource usage, and completion status. Use for: debugging agent issues, monitoring long-running tasks, checking why agent stalled, getting detailed progress. Example: agents://agent-123/status",
+        mimeType: "application/json",
+        _meta: {
+          "params": {
+            "id": "agent ID from agents://list (in URI path like /agents/ID/status)"
           }
         }
       },
@@ -617,6 +629,14 @@ export class ResourceManager {
           }
         }
 
+        // Handle agents://{id}/status pattern
+        if (scheme === "agents" && path.endsWith("/status")) {
+          const agentId = path.replace("/status", "");
+          if (agentId) {
+            return await this.getAgentStatus(agentId);
+          }
+        }
+
         throw new Error(`Unknown resource: ${uri}`);
     }
   }
@@ -695,6 +715,89 @@ export class ResourceManager {
         2
       ),
     };
+  }
+
+  private async getAgentStatus(
+    agentId: string
+  ): Promise<TextResourceContents> {
+    try {
+      const agent = await this.agentService.getAgent(agentId);
+
+      if (!agent) {
+        return {
+          uri: `agents://${agentId}/status`,
+          mimeType: "application/json",
+          text: JSON.stringify(
+            {
+              error: `Agent not found: ${agentId}`,
+              agentId,
+              timestamp: new Date().toISOString(),
+            },
+            null,
+            2
+          ),
+        };
+      }
+
+      // Calculate health metrics
+      const lastHeartbeat = agent.lastHeartbeat ? new Date(agent.lastHeartbeat) : null;
+      const now = new Date();
+      const minutesSinceHeartbeat = lastHeartbeat
+        ? (now.getTime() - lastHeartbeat.getTime()) / (1000 * 60)
+        : null;
+
+      const isHealthy = agent.status === "active" && minutesSinceHeartbeat !== null && minutesSinceHeartbeat < 5;
+      const isStalled = agent.status === "active" && minutesSinceHeartbeat !== null && minutesSinceHeartbeat > 10;
+
+      return {
+        uri: `agents://${agentId}/status`,
+        mimeType: "application/json",
+        text: JSON.stringify(
+          {
+            id: agent.id,
+            status: agent.status,
+            type: agent.agentType,
+            health: {
+              is_healthy: isHealthy,
+              is_stalled: isStalled,
+              last_heartbeat: agent.lastHeartbeat,
+              minutes_since_heartbeat: minutesSinceHeartbeat,
+            },
+            task: {
+              description: agent.agentMetadata?.taskDescription || "No description",
+              repository_path: agent.repositoryPath,
+            },
+            activity: {
+              created_at: agent.createdAt,
+              last_active_at: agent.lastHeartbeat,
+              session_id: agent.sessionId,
+            },
+            capabilities: agent.capabilities || [],
+            metadata: agent.agentMetadata || {},
+            timestamp: new Date().toISOString(),
+          },
+          null,
+          2
+        ),
+      };
+    } catch (error) {
+      return {
+        uri: `agents://${agentId}/status`,
+        mimeType: "application/json",
+        text: JSON.stringify(
+          {
+            error:
+              error instanceof Error
+                ? error.message
+                : `Failed to get agent status: ${agentId}`,
+            agentId,
+            timestamp: new Date().toISOString(),
+          },
+          null,
+          2
+        ),
+      };
+    }
   }
 
   private async getCommunicationRooms(
