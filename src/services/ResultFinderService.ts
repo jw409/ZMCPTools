@@ -3,6 +3,7 @@ import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { AgentResultService } from './AgentResultService.js';
 import { DatabaseManager } from '../database/index.js';
+import { StoragePathResolver } from './StoragePathResolver.js';
 import type { AgentResults } from '../schemas/index.js';
 
 /**
@@ -12,7 +13,7 @@ import type { AgentResults } from '../schemas/index.js';
  * 1. Current directory: ./var/zmcp_agent_results/{agent-id}/
  * 2. Parent directory: ../var/zmcp_agent_results/{agent-id}/
  * 3. Continue up to repository root (detected by .git)
- * 4. Last resort: ~/.mcptools/orphaned-results/{agent-id}/
+ * 4. Last resort: StoragePathResolver.getOrphanedResultsPath()
  */
 export class ResultFinderService {
   private resultService: AgentResultService;
@@ -65,7 +66,8 @@ export class ResultFinderService {
 
     // Phase 2: Check orphaned results as last resort
     if (!results) {
-      const orphanedPath = join(homedir(), '.mcptools', 'orphaned-results', agentId);
+      const storageConfig = StoragePathResolver.getStorageConfig({ preferLocal: true });
+      const orphanedPath = StoragePathResolver.getOrphanedResultsPath(storageConfig, agentId);
       searchPaths.push(orphanedPath);
 
       if (existsSync(orphanedPath)) {
@@ -177,7 +179,8 @@ export class ResultFinderService {
    * Move results to orphaned location for recovery
    */
   async moveToOrphaned(agentId: string, fromPath: string): Promise<string> {
-    const orphanedDir = join(homedir(), '.mcptools', 'orphaned-results');
+    const storageConfig = StoragePathResolver.getStorageConfig({ preferLocal: true });
+    const orphanedDir = StoragePathResolver.getOrphanedResultsPath(storageConfig);
     const targetPath = join(orphanedDir, agentId);
 
     try {
@@ -200,7 +203,8 @@ export class ResultFinderService {
    * Clean up orphaned results older than specified days
    */
   async cleanupOrphanedResults(maxAgeDays: number = 30): Promise<number> {
-    const orphanedDir = join(homedir(), '.mcptools', 'orphaned-results');
+    const storageConfig = StoragePathResolver.getStorageConfig({ preferLocal: true });
+    const orphanedDir = StoragePathResolver.getOrphanedResultsPath(storageConfig);
 
     if (!existsSync(orphanedDir)) {
       return 0;
@@ -254,13 +258,14 @@ export class ResultFinderService {
   }
 
   /**
-   * Read orphaned results from the global location
+   * Read orphaned results from the storage location
    */
   private async readOrphanedResults(agentId: string): Promise<AgentResults> {
-    const orphanedPath = join(homedir(), '.mcptools', 'orphaned-results', agentId);
+    const storageConfig = StoragePathResolver.getStorageConfig({ preferLocal: true });
+    const orphanedDir = StoragePathResolver.getOrphanedResultsPath(storageConfig);
 
     // Use the same structure as regular results but from orphaned location
-    return this.resultService.readResults(agentId, join(homedir(), '.mcptools', 'orphaned-results'));
+    return this.resultService.readResults(agentId, orphanedDir);
   }
 
   /**

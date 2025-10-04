@@ -204,8 +204,12 @@ export class BrowserTools {
   }
 
   /**
-   * Get optimized browser-related MCP tools (Phase 4)
-   * Consolidated from 8 tools to 5 essential tools with smart session management
+   * Get optimized browser-related MCP tools
+   *
+   * Consolidated from 8 tools to 5 essential tools with smart session management.
+   * Legacy tools (7) removed 2025-10-04 - zero active usage, modern replacements available.
+   *
+   * Token savings: 840+ tokens (7 tools × ~120 tokens/tool)
    */
   getTools(): McpTool[] {
     return [
@@ -243,57 +247,17 @@ export class BrowserTools {
         inputSchema: zodToJsonSchema(PerformDynamicInteractionSchema) as any,
         outputSchema: zodToJsonSchema(DynamicInteractionResponseSchema) as any,
         handler: (args: any) => this.performDynamicInteraction(args)
-      },
-      // Legacy tools for backward compatibility
-      {
-        name: 'navigate_to_url',
-        description: '[LEGACY] Navigate to a URL in an existing browser session. Use navigate_and_scrape instead.',
-        inputSchema: zodToJsonSchema(BrowserLegacyNavigateSchema) as any,
-        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema) as any,
-        handler: (args: any) => this.navigateToUrl(args)
-      },
-      {
-        name: 'scrape_content',
-        description: '[LEGACY] Scrape content from the current page. Use navigate_and_scrape instead.',
-        inputSchema: zodToJsonSchema(BrowserLegacyScrapeSchema) as any,
-        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema) as any,
-        handler: (args: any) => this.scrapeContent(args)
-      },
-      {
-        name: 'take_screenshot',
-        description: '[LEGACY] Take a screenshot of the current page. Use interact_with_page instead.',
-        inputSchema: zodToJsonSchema(BrowserScreenshotSchema) as any,
-        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema) as any,
-        handler: (args: any) => this.takeScreenshot(args)
-      },
-      {
-        name: 'execute_browser_script',
-        description: '[LEGACY] Execute JavaScript in the browser context. Use interact_with_page instead.',
-        inputSchema: zodToJsonSchema(BrowserExecuteScriptSchema) as any,
-        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema) as any,
-        handler: (args: any) => this.executeScript(args)
-      },
-      {
-        name: 'interact_with_element',
-        description: '[LEGACY] Interact with a page element. Use interact_with_page instead.',
-        inputSchema: zodToJsonSchema(BrowserInteractSchema) as any,
-        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema) as any,
-        handler: (args: any) => this.interactWithElement(args)
-      },
-      {
-        name: 'close_browser_session',
-        description: '[LEGACY] Close a browser session. Use manage_browser_sessions instead.',
-        inputSchema: zodToJsonSchema(z.object({ session_id: z.string() as any })),
-        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema) as any,
-        handler: (args: any) => this.closeBrowserSession(args)
-      },
-      {
-        name: 'list_browser_sessions',
-        description: '[LEGACY] List all browser sessions. Use manage_browser_sessions instead.',
-        inputSchema: zodToJsonSchema(z.object({}) as any),
-        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema) as any,
-        handler: (args: any) => this.listBrowserSessions()
       }
+      // Legacy tools removed 2025-10-04 (zero active usage):
+      // - navigate_to_url → use navigate_and_scrape
+      // - scrape_content → use navigate_and_scrape
+      // - take_screenshot → use interact_with_page
+      // - execute_browser_script → use interact_with_page
+      // - interact_with_element → use interact_with_page
+      // - close_browser_session → use manage_browser_sessions
+      // - list_browser_sessions → use manage_browser_sessions
+      //
+      // Legacy implementations preserved below for 1 release (safety)
     ];
   }
 

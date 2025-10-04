@@ -39,48 +39,18 @@ export class TreeSummaryTools {
 
   /**
    * Get all TreeSummary MCP tools
+   *
+   * DEPRECATED: These tools are broken stubs. Use MCP Resources instead:
+   * - file://{path}/symbols - Extract functions, classes, methods
+   * - file://{path}/imports - Extract imports
+   * - file://{path}/ast - Full AST analysis
+   * - project://{path}/structure - Directory tree
+   * - project://{path}/summary - Project overview
    */
   getTools(): McpTool[] {
-    return [
-      {
-        name: "update_file_analysis",
-        description:
-          "Update or create analysis data for a specific file in the TreeSummary system",
-        inputSchema: zodToJsonSchema(UpdateFileAnalysisSchema) as any,
-        outputSchema: zodToJsonSchema(UpdateFileAnalysisResponseSchema) as any,
-        handler: this.updateFileAnalysis.bind(this),
-      },
-      {
-        name: "remove_file_analysis",
-        description:
-          "Remove analysis data for a deleted file from the TreeSummary system",
-        inputSchema: zodToJsonSchema(RemoveFileAnalysisSchema) as any,
-        outputSchema: zodToJsonSchema(RemoveFileAnalysisResponseSchema) as any,
-        handler: this.removeFileAnalysis.bind(this),
-      },
-      {
-        name: "update_project_metadata",
-        description: "Update project metadata in the TreeSummary system",
-        inputSchema: zodToJsonSchema(UpdateProjectMetadataSchema) as any,
-        outputSchema: zodToJsonSchema(UpdateProjectMetadataResponseSchema) as any,
-        handler: this.updateProjectMetadata.bind(this),
-      },
-      {
-        name: "get_project_overview",
-        description:
-          "Get comprehensive project overview from TreeSummary analysis",
-        inputSchema: zodToJsonSchema(GetProjectOverviewSchema) as any,
-        outputSchema: zodToJsonSchema(GetProjectOverviewResponseSchema) as any,
-        handler: this.getProjectOverview.bind(this),
-      },
-      {
-        name: "cleanup_stale_analyses",
-        description: "Clean up stale analysis files older than specified days",
-        inputSchema: zodToJsonSchema(CleanupStaleAnalysesSchema) as any,
-        outputSchema: zodToJsonSchema(CleanupStaleAnalysesResponseSchema) as any,
-        handler: this.cleanupStaleAnalyses.bind(this),
-      },
-    ];
+    // Return empty array - these tools are deprecated and non-functional
+    // The implementations below just return "feature removed" messages
+    return [];
   }
 
 

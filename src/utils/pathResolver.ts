@@ -64,6 +64,9 @@ export class PathResolver {
   
   /**
    * Get user data directory (consistent with existing ~/.mcptools/data)
+   *
+   * ⚠️ READ ONLY - For legacy data lookup/migration purposes only!
+   * DO NOT use this for writing new data - use StoragePathResolver instead.
    */
   getUserDataPath(): string {
     return join(homedir(), '.mcptools', 'data');
@@ -167,6 +170,9 @@ export class PathResolver {
 
   /**
    * Get the data directory (always ~/.mcptools/data)
+   *
+   * ⚠️ READ ONLY - For legacy data lookup/migration purposes only!
+   * DO NOT use this for writing new data - use StoragePathResolver instead.
    */
   getDataDirectory(): string {
     return join(homedir(), '.mcptools', 'data');
@@ -174,6 +180,9 @@ export class PathResolver {
 
   /**
    * Get the logs directory (always ~/.mcptools/logs)
+   *
+   * ⚠️ READ ONLY - For legacy data lookup/migration purposes only!
+   * DO NOT use this for writing new logs - use StoragePathResolver instead.
    */
   getLogsDirectory(): string {
     return join(homedir(), '.mcptools', 'logs');
@@ -181,6 +190,9 @@ export class PathResolver {
 
   /**
    * Get the global directory (always ~/.mcptools)
+   *
+   * ⚠️ READ ONLY - For legacy data lookup/migration purposes only!
+   * DO NOT use this for writing new data - use StoragePathResolver instead.
    */
   getGlobalDirectory(): string {
     return join(homedir(), '.mcptools');

@@ -63,15 +63,63 @@ export class StoragePathResolver {
   }
 
   /**
+   * Get logs directory path
+   */
+  static getLogsPath(config: StorageConfig, category?: string): string {
+    const basePath = this.getBaseStoragePath(config);
+    const logsPath = join(basePath, 'logs');
+
+    if (category) {
+      return join(logsPath, category);
+    }
+
+    return logsPath;
+  }
+
+  /**
+   * Get model cache directory path (for HuggingFace/ML models)
+   */
+  static getModelCachePath(config: StorageConfig): string {
+    const basePath = this.getBaseStoragePath(config);
+    return join(basePath, 'model_cache');
+  }
+
+  /**
+   * Get browser data directory path (for persistent browser sessions)
+   */
+  static getBrowserDataPath(config: StorageConfig): string {
+    const basePath = this.getBaseStoragePath(config);
+    return join(basePath, 'browser_data');
+  }
+
+  /**
+   * Get orphaned results directory path (for agent results without a home)
+   */
+  static getOrphanedResultsPath(config: StorageConfig, agentId?: string): string {
+    const basePath = this.getBaseStoragePath(config);
+    const orphanedPath = join(basePath, 'orphaned_results');
+
+    if (agentId) {
+      return join(orphanedPath, agentId);
+    }
+
+    return orphanedPath;
+  }
+
+  /**
    * Ensure storage directories exist
    */
   static ensureStorageDirectories(config: StorageConfig): void {
     const basePath = this.getBaseStoragePath(config);
     const lanceDbPath = join(basePath, 'lancedb');
     const sqlitePath = join(basePath, 'sqlite');
+    const logsPath = join(basePath, 'logs');
+    const modelCachePath = join(basePath, 'model_cache');
+    const browserDataPath = join(basePath, 'browser_data');
+    const orphanedResultsPath = join(basePath, 'orphaned_results');
 
     // Create directories if they don't exist, with proper error handling
-    [basePath, lanceDbPath, sqlitePath].forEach(dir => {
+    [basePath, lanceDbPath, sqlitePath, logsPath, modelCachePath, browserDataPath, orphanedResultsPath].forEach(dir => {
       if (!existsSync(dir)) {
         try {
           mkdirSync(dir, { recursive: true });

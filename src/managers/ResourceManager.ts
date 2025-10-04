@@ -16,6 +16,7 @@ import { WebsitePagesRepository } from "../repositories/WebsitePagesRepository.j
 import { PathUtils } from "../utils/pathUtils.js";
 import { TreeSitterASTTool } from "../tools/TreeSitterASTTool.js";
 import { TreeSummaryService } from "../services/TreeSummaryService.js";
+import { StoragePathResolver } from "../services/StoragePathResolver.js";
 import { readdir, stat, readFile } from "fs/promises";
 import { join, resolve } from "path";
 import { homedir } from "os";
@@ -99,6 +100,14 @@ export class ResourceManager {
     this.websitePagesRepository = new WebsitePagesRepository(this.db);
     this.treeSitterASTTool = new TreeSitterASTTool();
     this.treeSummaryService = new TreeSummaryService();
+  }
+
+  /**
+   * Get logs directory path using StoragePathResolver
+   */
+  private getLogsPath(category?: string): string {
+    const storageConfig = StoragePathResolver.getStorageConfig({ preferLocal: true });
+    return StoragePathResolver.getLogsPath(storageConfig, category);
   }
 
   /**
@@ -1210,7 +1219,7 @@ export class ResourceManager {
       const mode = talentosStatus?.available ? 'TalentOS Enhanced' : 'Stock ZMCP';
       const versionInfo = connectionStatus.version || 'LanceDB Vector Store';
       const enhancedVersion = talentosStatus?.available
-        ? `${versionInfo} + TalentOS GPU (Qwen3 0.6B)`
+        ? `${versionInfo} + TalentOS GPU embeddings`
         : versionInfo;
 
       return {
@@ -1265,7 +1274,7 @@ export class ResourceManager {
 
   private async getLogsList(): Promise<TextResourceContents> {
     try {
-      const logsPath = join(homedir(), ".mcptools", "logs");
+      const logsPath = this.getLogsPath();
       const entries = await readdir(logsPath, { withFileTypes: true });
 
       const directories = [];
@@ -1319,7 +1328,7 @@ export class ResourceManager {
               error instanceof Error
                 ? error.message
                 : "Failed to list logs directory",
-            path: join(homedir(), ".mcptools", "logs"),
+            path: this.getLogsPath(),
             directories: [],
             files: [],
             total: 0,
@@ -1334,7 +1343,7 @@ export class ResourceManager {
 
   private async getLogFiles(dirname: string): Promise<TextResourceContents> {
     try {
-      const dirPath = join(homedir(), ".mcptools", "logs", dirname);
+      const dirPath = this.getLogsPath(dirname);
       const entries = await readdir(dirPath, { withFileTypes: true });
 
       const files = [];
@@ -1379,7 +1388,7 @@ export class ResourceManager {
                 ? error.message
                 : "Failed to list log files",
             directory: dirname,
-            path: join(homedir(), ".mcptools", "logs", dirname),
+            path: this.getLogsPath(dirname),
             files: [],
             total: 0,
             timestamp: new Date().toISOString(),
@@ -1406,7 +1415,8 @@ export class ResourceManager {
     }
 
     try {
-      const filePath = join(homedir(), ".mcptools", "logs", dirname, filename);
+      const dirPath = this.getLogsPath(dirname);
+      const filePath = join(dirPath, filename);
       const content = await readFile(filePath, "utf8");
 
       return {

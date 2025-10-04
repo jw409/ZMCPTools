@@ -10,6 +10,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from 'patchrig
 import { Logger } from '../utils/logger.js';
 import { PatternMatcher } from '../utils/patternMatcher.js';
 import { SitemapParser, type SitemapResult } from '../utils/sitemapParser.js';
+import { StoragePathResolver } from './StoragePathResolver.js';
 
 export interface BrowserManagerConfig {
   browserType: 'chrome';
@@ -66,16 +67,19 @@ export class BrowserManager {
   }
 
   private createDefaultUserDataDir(): string {
-    const browserDataRoot = join(homedir(), '.mcptools', 'browser_data');
+    // Use StoragePathResolver for project-local isolation
+    const storageConfig = StoragePathResolver.getStorageConfig({ preferLocal: true });
+    const browserDataRoot = StoragePathResolver.getBrowserDataPath(storageConfig);
+
     if (!existsSync(browserDataRoot)) {
       mkdirSync(browserDataRoot, { recursive: true });
     }
-    
+
     const persistentDir = join(browserDataRoot, `${this.browserType}_${randomInt(1000, 9999)}`);
     if (!existsSync(persistentDir)) {
       mkdirSync(persistentDir, { recursive: true });
     }
-    
+
     return persistentDir;
   }
 

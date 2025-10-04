@@ -8,7 +8,19 @@ export class Logger {
 
   constructor(category: string) {
     this.category = category;
-    this.logDir = join(homedir(), '.mcptools', 'logs', category);
+
+    // Use project-local logs if var/ directory exists, otherwise global
+    const cwd = process.cwd();
+    const varDir = join(cwd, 'var');
+
+    if (existsSync(varDir) || process.env.ZMCP_USE_LOCAL_STORAGE === 'true') {
+      // Project-local storage
+      this.logDir = join(cwd, 'var', 'storage', 'logs', category);
+    } else {
+      // Global storage (backward compatibility)
+      this.logDir = join(homedir(), '.mcptools', 'logs', category);
+    }
+
     this.ensureLogDir();
   }
 

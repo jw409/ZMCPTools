@@ -14,12 +14,14 @@ See [GitHub Issue #35](https://github.com/jw409/ZMCPTools/issues/35) for migrati
 ## Table of Contents
 
 - [🔍 MCP Resources (Token-Optimized)](#mcp-resources-token-optimized)
-- [Browser Automation (13 tools)](#browser-automation)
+- [Browser Automation (6 tools)](#browser-automation)
 - [Browser AI DOM Tools (5 tools)](#browser-ai-dom-tools)
 - [~~Project Analysis & File Operations (0 tools - ALL DEPRECATED)~~](#project-analysis--file-operations)
 - [Knowledge Graph & Memory (13 tools)](#knowledge-graph--memory)
-- [Tree Summary System (5 tools)](#tree-summary-system)
+- [Tree Summary System (0 tools - deprecated)](#tree-summary-system)
 - [Progress Reporting (1 tool)](#progress-reporting)
+
+**Total Active Tools**: 25 (down from 39)
 
 ---
 
@@ -191,7 +193,7 @@ All descriptions now follow pattern: 🎯 USE CASE + practical examples + when t
 
 ## Browser Automation
 
-**13 tools for advanced web automation and interaction**
+**6 tools for advanced web automation and interaction** (7 legacy tools removed 2025-10-04)
 
 | Tool Name | Description |
 |-----------|-------------|
@@ -200,14 +202,23 @@ All descriptions now follow pattern: 🎯 USE CASE + practical examples + when t
 | `interact_with_page` | Perform multiple interactions with a page: click, type, hover, select, screenshot, wait, scroll |
 | `perform_dynamic_interaction` | Perform intelligent, goal-oriented interactions with dynamic web pages using state-aware execution loop. Handles modern SPAs, React, Vue, Angular applications with automatic waiting, verification, and retry logic. |
 | `manage_browser_sessions` | Manage browser sessions: list, close, cleanup idle sessions, get status |
-| `navigate_to_url` | [LEGACY] Navigate to a URL in an existing browser session. Use navigate_and_scrape instead |
-| `scrape_content` | [LEGACY] Scrape content from the current page. Use navigate_and_scrape instead |
-| `take_screenshot` | [LEGACY] Take a screenshot of the current page. Use interact_with_page instead |
-| `execute_browser_script` | [LEGACY] Execute JavaScript in the browser context. Use interact_with_page instead |
-| `interact_with_element` | [LEGACY] Interact with a page element. Use interact_with_page instead |
-| `close_browser_session` | [LEGACY] Close a browser session. Use manage_browser_sessions instead |
-| `list_browser_sessions` | [LEGACY] List all browser sessions. Use manage_browser_sessions instead |
 | `execute_with_plan` | Execute an objective using a pre-created execution plan with well-defined agent tasks |
+
+### ~~Legacy Browser Tools~~ (REMOVED ✅)
+
+**7 legacy tools removed 2025-10-04** - zero active usage, modern replacements available
+
+| Removed Tool | Use This Instead | Status |
+|--------------|------------------|--------|
+| `navigate_to_url` | `navigate_and_scrape` | ✅ Removed (840 token savings) |
+| `scrape_content` | `navigate_and_scrape` | ✅ Removed |
+| `take_screenshot` | `interact_with_page` | ✅ Removed |
+| `execute_browser_script` | `interact_with_page` | ✅ Removed |
+| `interact_with_element` | `interact_with_page` | ✅ Removed |
+| `close_browser_session` | `manage_browser_sessions` | ✅ Removed |
+| `list_browser_sessions` | `manage_browser_sessions` | ✅ Removed |
+
+**Rationale**: Usage analysis found zero external callers. All functionality available in 5 modern tools with better DX.
 
 ---
 
@@ -293,15 +304,13 @@ All 13 analysis tools have been deprecated in favor of:
 
 ## Tree Summary System
 
-**5 tools for project structure caching and analysis**
+**0 tools - Use MCP Resources instead**
 
-| Tool Name | Description |
-|-----------|-------------|
-| `update_file_analysis` | Update or create analysis data for a specific file in the TreeSummary system |
-| `remove_file_analysis` | Remove analysis data for a deleted file from the TreeSummary system |
-| `update_project_metadata` | Update project metadata in the TreeSummary system |
-| `get_project_overview` | Get comprehensive project overview from TreeSummary analysis |
-| `cleanup_stale_analyses` | Clean up stale analysis files older than specified days |
+TreeSummary tools are deprecated. Use these MCP Resources for file/project analysis:
+- `file://{path}/symbols` - Extract functions, classes, methods
+- `file://{path}/ast` - Full AST analysis
+- `project://{path}/structure` - Directory tree
+- `project://{path}/summary` - Project overview
 
 ---
 
@@ -317,16 +326,20 @@ All 13 analysis tools have been deprecated in favor of:
 
 ## Tool Categories Summary
 
-- **Browser Automation**: 13 tools for web automation (8 legacy tools for backward compatibility)
+- **Browser Automation**: 6 tools for web automation (7 legacy tools removed 2025-10-04)
 - **Browser AI DOM Tools**: 5 tools for intelligent DOM analysis
-- **Project Analysis & File Operations**: 7 tools for code analysis and file management
+- **Project Analysis & File Operations**: 0 tools (use MCP resources + native tools)
 - **Knowledge Graph & Memory**: 13 tools for GPU-accelerated semantic knowledge management
-- **Tree Summary System**: 5 tools for project structure caching
+- **Tree Summary System**: 0 tools (use MCP resources instead)
 - **Progress Reporting**: 1 tool for progress tracking
 
-**Total: 44 Professional MCP Tools** (down from 71 - removed 23 orchestration + 9 web scraping tools)
+**Total Active Tools**: 25 (down from 39 before cleanup)
 
-**Note**: Agent orchestration, communication, plan management, and documentation scraping tools removed. Agent tools will be re-added via claude-agent-sdk integration.
+**Cleanup History**:
+- 2025-10-04: Removed 7 legacy browser tools (zero usage, modern replacements exist)
+- Previous: Removed 7 project analysis tools (now MCP resources or native tools)
+- Previous: Removed 5 TreeSummary tools (now MCP resources)
+- Previous: Removed 32 agent orchestration/web scraping tools (pending claude-agent-sdk)
 
 ## Usage Notes
 

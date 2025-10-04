@@ -75,7 +75,7 @@ const UnifiedSearchSchema = z.object({
 
   // Core pipeline flags
   use_bm25: z.boolean().default(true).describe("Enable BM25 keyword/sparse search for exact matches and technical terms"),
-  use_qwen3_embeddings: z.boolean().default(true).describe("Enable Qwen3-0.6B GPU semantic embeddings (1024D) for conceptual understanding"),
+  use_gpu_embeddings: z.boolean().default(true).describe("Enable GPU-accelerated semantic embeddings (auto-detects available model) for conceptual understanding"),
   use_reranker: z.boolean().default(false).describe("Enable neural reranker for final ranking precision (two-stage retrieval)"),
 
   // Pipeline configuration
@@ -110,7 +110,7 @@ export const searchKnowledgeGraphUnified: Tool = {
 - Searching for exact file names or paths: "config.json", "src/components/"
 - Looking for specific code patterns: "async function", "class extends"
 
-🧠 **When to Use Semantic Search (use_qwen3_embeddings=true):**
+🧠 **When to Use Semantic Search (use_gpu_embeddings=true):**
 - Understanding concepts: "user authentication logic", "password validation flow"
 - Finding similar implementations: "code that handles file uploads"
 - Searching by functionality: "functions that process user input"
@@ -131,9 +131,9 @@ export const searchKnowledgeGraphUnified: Tool = {
 - Research tasks requiring highest quality results
 
 📝 **Smart Defaults - Let the Tool Choose:**
-- \`{use_bm25: true, use_qwen3_embeddings: true}\` - Balanced hybrid search (recommended)
-- \`{use_bm25: true, use_qwen3_embeddings: false}\` - Fast exact matching
-- \`{use_bm25: false, use_qwen3_embeddings: true}\` - Conceptual understanding
+- \`{use_bm25: true, use_gpu_embeddings: true}\` - Balanced hybrid search (recommended)
+- \`{use_bm25: true, use_gpu_embeddings: false}\` - Fast exact matching
+- \`{use_bm25: false, use_gpu_embeddings: true}\` - Conceptual understanding
 - \`{use_reranker: true}\` - Add this for maximum precision (requires semantic search)
 
 🚀 **Automatic Repository Indexing:**
@@ -147,7 +147,7 @@ Returns real file paths, content snippets, and extracted code symbols (functions
     repository_path,
     query,
     use_bm25,
-    use_qwen3_embeddings,
+    use_gpu_embeddings,
     use_reranker,
     candidate_limit,
     final_limit,
@@ -163,7 +163,7 @@ Returns real file paths, content snippets, and extracted code symbols (functions
       query,
       pipeline_config: {
         bm25: use_bm25,
-        semantic: use_qwen3_embeddings,
+        semantic: use_gpu_embeddings,
         reranker: use_reranker
       },
       stage_timings: {},
@@ -177,25 +177,25 @@ Returns real file paths, content snippets, and extracted code symbols (functions
       const queryAnalysis = analyzeQuery(query);
 
       // Validate configuration
-      if (!use_bm25 && !use_qwen3_embeddings) {
+      if (!use_bm25 && !use_gpu_embeddings) {
         return {
           success: false,
           error: "Must enable at least one search method (BM25 or embeddings)",
-          suggestion: "Set use_bm25=true or use_qwen3_embeddings=true",
+          suggestion: "Set use_bm25=true or use_gpu_embeddings=true",
           auto_routing_suggestion: {
             use_bm25: queryAnalysis.suggestedBM25,
-            use_qwen3_embeddings: queryAnalysis.suggestedSemantic,
+            use_gpu_embeddings: queryAnalysis.suggestedSemantic,
             use_reranker: queryAnalysis.suggestedReranker,
             reasoning: queryAnalysis.reasoning
           }
         };
       }
 
-      if (use_reranker && !use_qwen3_embeddings) {
+      if (use_reranker && !use_gpu_embeddings) {
         return {
           success: false,
           error: "Reranker requires semantic embeddings for candidate generation",
-          suggestion: "Set use_qwen3_embeddings=true when using reranker"
+          suggestion: "Set use_gpu_embeddings=true when using reranker"
         };
       }
 
@@ -213,7 +213,7 @@ Returns real file paths, content snippets, and extracted code symbols (functions
 
       logger.info('Starting unified search', {
         query: query.substring(0, 50),
-        pipeline: { bm25: use_bm25, semantic: use_qwen3_embeddings, reranker: use_reranker },
+        pipeline: { bm25: use_bm25, semantic: use_gpu_embeddings, reranker: use_reranker },
         gpu_available: gpuAvailable
       });
 
@@ -256,7 +256,7 @@ Returns real file paths, content snippets, and extracted code symbols (functions
       }
 
       // Semantic embedding search
-      if (use_qwen3_embeddings) {
+      if (use_gpu_embeddings) {
         const semanticStart = Date.now();
 
         // Search files using semantic similarity
@@ -280,7 +280,7 @@ Returns real file paths, content snippets, and extracted code symbols (functions
       }
 
       // Combine results based on enabled methods
-      if (use_bm25 && use_qwen3_embeddings) {
+      if (use_bm25 && use_gpu_embeddings) {
         // Hybrid fusion with weighted combination
         const resultMap = new Map();
 
@@ -318,7 +318,7 @@ Returns real file paths, content snippets, and extracted code symbols (functions
 
       } else if (use_bm25) {
         allCandidates = bm25Results.slice(0, candidate_limit);
-      } else if (use_qwen3_embeddings) {
+      } else if (use_gpu_embeddings) {
         allCandidates = semanticResults.slice(0, candidate_limit);
       }
 
@@ -393,7 +393,7 @@ Returns real file paths, content snippets, and extracted code symbols (functions
           query,
           pipeline_used: {
             bm25: use_bm25,
-            semantic: use_qwen3_embeddings,
+            semantic: use_gpu_embeddings,
             reranker: use_reranker
           },
           auto_routing_analysis: {
@@ -401,7 +401,7 @@ Returns real file paths, content snippets, and extracted code symbols (functions
             suggested_semantic: queryAnalysis.suggestedSemantic,
             suggested_reranker: queryAnalysis.suggestedReranker,
             reasoning: queryAnalysis.reasoning,
-            user_overrode: use_bm25 !== queryAnalysis.suggestedBM25 || use_qwen3_embeddings !== queryAnalysis.suggestedSemantic
+            user_overrode: use_bm25 !== queryAnalysis.suggestedBM25 || use_gpu_embeddings !== queryAnalysis.suggestedSemantic
           },
           gpu_accelerated: gpuAvailable,
           model_used: metrics.model_used,
@@ -417,7 +417,7 @@ Returns real file paths, content snippets, and extracted code symbols (functions
       if (explain_ranking && finalResults.length > 0) {
         response.ranking_explanation = {
           note: "Results ranked by: " + (use_reranker ? "neural reranker scores" :
-                use_bm25 && use_qwen3_embeddings ? "weighted BM25+semantic fusion" :
+                use_bm25 && use_gpu_embeddings ? "weighted BM25+semantic fusion" :
                 use_bm25 ? "BM25 keyword relevance" : "semantic similarity"),
           top_result_scores: finalResults.slice(0, 3).map(result => ({
             id: result.id,

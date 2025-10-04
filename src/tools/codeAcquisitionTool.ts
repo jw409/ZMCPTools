@@ -69,7 +69,7 @@ After acquisition, immediately use \`search_knowledge_graph_unified\` to:
   "repository_path": "/tmp/code-acquisitions/repo",
   "query": "main entry point",
   "use_bm25": true,
-  "use_qwen3_embeddings": true
+  "use_gpu_embeddings": true
 }
 \`\`\`
 

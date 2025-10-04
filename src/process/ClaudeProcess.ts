@@ -5,6 +5,7 @@ import { tmpdir, homedir } from "os";
 import { execSync, execFile } from "child_process";
 import { spawn } from "child_process";
 import { type SDKMessage } from "@anthropic-ai/claude-code";
+import { StoragePathResolver } from "../services/StoragePathResolver.js";
 
 export interface ClaudeSpawnConfig {
   workingDirectory: string;
@@ -42,8 +43,9 @@ export class ClaudeProcess extends EventEmitter {
     this.config = config;
     this.pid = Math.floor(Math.random() * 90000) + 10000; // Generate simple 5-digit PID
 
-    // Set up log files in the dedicated claude_agents directory
-    const logDir = join(homedir(), ".mcptools", "logs", "claude_agents");
+    // Set up log files in the dedicated claude_agents directory using StoragePathResolver
+    const storageConfig = StoragePathResolver.getStorageConfig({ preferLocal: true });
+    const logDir = StoragePathResolver.getLogsPath(storageConfig, "claude_agents");
 
     try {
       if (!existsSync(logDir)) {

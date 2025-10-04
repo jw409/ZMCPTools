@@ -8,6 +8,7 @@ import { Logger } from '../utils/logger.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { homedir } from 'os';
+import { StoragePathResolver } from './StoragePathResolver.js';
 
 export interface EmbeddingConfig {
   active_model: 'gemma3' | 'qwen3' | 'minilm';
@@ -118,7 +119,15 @@ export class EmbeddingClient {
   constructor() {
     this.logger = new Logger('embedding-client');
     this.mcptoolsDir = path.join(homedir(), '.mcptools');
-    this.configPath = path.join(this.mcptoolsDir, 'embedding_config.json');
+
+    // Use StoragePathResolver for project-local isolation
+    const storageConfig = StoragePathResolver.getStorageConfig({ preferLocal: true });
+    const basePath = StoragePathResolver.getBaseStoragePath(storageConfig);
+    this.configPath = path.join(basePath, 'embedding_config.json');
+
+    // Ensure storage directories exist
+    StoragePathResolver.ensureStorageDirectories(storageConfig);
+
     this.config = this.loadConfig();
   }
 

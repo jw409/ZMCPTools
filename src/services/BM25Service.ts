@@ -9,6 +9,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { homedir } from 'os';
 import Database from 'better-sqlite3';
+import { StoragePathResolver } from './StoragePathResolver.js';
 
 export interface BM25Document {
   id: string;
@@ -49,11 +50,18 @@ export class BM25Service {
     this.logger = new Logger('bm25-service');
     this.mcptoolsDir = path.join(homedir(), '.mcptools');
 
+    // Use StoragePathResolver for project-local isolation
+    const storageConfig = StoragePathResolver.getStorageConfig({ preferLocal: true });
+    const defaultDbPath = StoragePathResolver.getSQLitePath(storageConfig, 'bm25_index');
+
     this.config = {
       ...this.DEFAULT_CONFIG,
-      database_path: path.join(this.mcptoolsDir, 'bm25_index.db'),
+      database_path: defaultDbPath,
       ...config
     };
+
+    // Ensure storage directories exist
+    StoragePathResolver.ensureStorageDirectories(storageConfig);
 
     this.initializeDatabase();
   }

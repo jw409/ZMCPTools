@@ -2,6 +2,7 @@ import { writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import { Logger } from './logger.js';
+import { StoragePathResolver } from '../services/StoragePathResolver.js';
 import type { DatabaseManager } from '../database/index.js';
 import { ScrapeJobRepository } from '../repositories/ScrapeJobRepository.js';
 
@@ -15,7 +16,9 @@ export class CrashHandler {
   private scrapeJobRepository: ScrapeJobRepository | null = null;
 
   constructor() {
-    this.crashLogDir = join(homedir(), '.mcptools', 'logs', 'crashes');
+    // Use StoragePathResolver for project-local isolation
+    const storageConfig = StoragePathResolver.getStorageConfig({ preferLocal: true });
+    this.crashLogDir = StoragePathResolver.getLogsPath(storageConfig, 'crashes');
     this.ensureCrashLogDir();
   }
 
