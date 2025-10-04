@@ -80,60 +80,19 @@ export class AnalysisMcpTools {
 
   /**
    * Get all analysis-related MCP tools
+   *
+   * REMOVED DEPRECATED TOOLS:
+   * - ast_analyze, parse, query, extract_symbols, etc. → Use file://{path}/{aspect} resources
+   * - analyze_project_structure → Use project://{path}/structure resource
+   * - generate_project_summary → Use project://{path}/summary resource
+   * - analyze_file_symbols → Use file://{path}/symbols resource
+   * - list_files → Use Glob tool (native Claude Code tool)
+   *
+   * Deprecation saves ~1,400 tokens in MCP registration
+   * Migration guide: https://github.com/jw409/ZMCPTools/issues/35
    */
   getTools(): McpTool[] {
-    // ⚠️ DEPRECATED: AST tools are now available as Resources (file://{path}/{aspect})
-    // Keeping tools as deprecated wrappers during transition period
-    // Resources save 1,170 tokens (6 tools × 200 tokens → 1 resource template × 30 tokens)
-    // Migration: Use file://path/to/file.ts/symbols instead of ast_analyze tool
-    // See: https://github.com/jw409/ZMCPTools/issues/35
-    const astTools = this.treeSitterASTTool.getTools().map(tool => ({
-      name: tool.name,
-      description: `⚠️ DEPRECATED: Use file://{path}/{aspect} resources instead. ${tool.description}`,
-      inputSchema: tool.inputSchema,
-      outputSchema: tool.outputSchema || {
-        type: 'object',
-        properties: {
-          success: { type: 'boolean' },
-          error: { type: 'string' }
-        }
-      },
-      handler: async (args: any) => {
-        // Pass the entire args object which includes the 'operation' parameter
-        return await this.treeSitterASTTool.executeByToolName('ast_analyze', args);
-      }
-    }));
-
     return [
-      ...astTools,
-      {
-        name: 'analyze_project_structure',
-        description: '⚠️ DEPRECATED: Use project://{path}/structure resource instead. Analyze project structure and generate a comprehensive overview',
-        inputSchema: zodToJsonSchema(AnalyzeProjectStructureSchema) as any,
-        outputSchema: zodToJsonSchema(AnalyzeProjectStructureResponseSchema) as any,
-        handler: this.analyzeProjectStructure.bind(this)
-      },
-      {
-        name: 'generate_project_summary',
-        description: '⚠️ DEPRECATED: Use project://{path}/summary resource instead. Generate AI-optimized project overview and analysis',
-        inputSchema: zodToJsonSchema(GenerateProjectSummarySchema) as any,
-        outputSchema: zodToJsonSchema(GenerateProjectSummaryResponseSchema) as any,
-        handler: this.generateProjectSummary.bind(this)
-      },
-      {
-        name: 'analyze_file_symbols',
-        description: '⚠️ DEPRECATED: Use file://{path}/symbols resource instead. Extract and analyze symbols (functions, classes, etc.) from code files',
-        inputSchema: zodToJsonSchema(AnalyzeFileSymbolsSchema) as any,
-        outputSchema: zodToJsonSchema(AnalyzeFileSymbolsResponseSchema) as any,
-        handler: this.analyzeFileSymbols.bind(this)
-      },
-      {
-        name: 'list_files',
-        description: '⚠️ DEPRECATED: Use Glob tool instead (more efficient). List files in a directory with smart ignore patterns',
-        inputSchema: zodToJsonSchema(ListFilesSchema) as any,
-        outputSchema: zodToJsonSchema(ListFilesResponseSchema) as any,
-        handler: this.listFiles.bind(this)
-      },
       {
         name: 'find_files',
         description: 'Search for files by pattern with optional content matching',
