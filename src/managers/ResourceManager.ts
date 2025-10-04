@@ -338,47 +338,6 @@ export class ResourceManager {
         }
       },
       {
-        uriTemplate: "knowledge://search",
-        name: "Knowledge Graph Search",
-        description:
-          "Search knowledge graph with hybrid BM25 + semantic search (use ?query=text&limit=10&threshold=0.7&use_bm25=true&use_embeddings=true&use_reranker=false)",
-        mimeType: "application/json",
-        _meta: {
-          "params": {
-            "query": "text to search for in knowledge graph",
-            "limit": 10,
-            "threshold": 0.7,
-            "use_bm25": "enable BM25 keyword search (default: true)",
-            "use_embeddings": "enable semantic embeddings search (default: true)",
-            "use_reranker": "apply reranker for final pass (default: false)"
-          }
-        }
-      },
-      {
-        uriTemplate: "knowledge://entity/*/related",
-        name: "Related Entities",
-        description:
-          "Find entities related to a specific entity (use knowledge://entity/{id}/related?limit=10&min_strength=0.5)",
-        mimeType: "application/json",
-        _meta: {
-          "params": {
-            "id": "entity ID to find relations for (in URI path)",
-            "limit": 10,
-            "min_strength": "minimum relationship strength (default: 0.5)"
-          }
-        }
-      },
-      {
-        uriTemplate: "knowledge://status",
-        name: "Knowledge Graph Status",
-        description:
-          "Knowledge graph statistics, index freshness, and system health",
-        mimeType: "application/json",
-        _meta: {
-          "params": {}
-        }
-      },
-      {
         uriTemplate: "logs://list",
         name: "Logs Directory",
         description: "📂 BROWSE LOG DIRECTORIES: List all log directories in ~/.mcptools/logs/ organized by agent, session, or service type. Use to discover available logs before drilling down to specific files. Returns directory names and file counts.",
