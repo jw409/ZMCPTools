@@ -49,6 +49,30 @@ Built for developers creating AI agent systems where agents need to learn, remem
 
 **Upstream**: https://github.com/ZachHandley/ZMCPTools | **This Fork**: https://github.com/jw409/ZMCPTools
 
+## 🏗️ Architecture: Dual MCP Server Design
+
+ZMCPTools implements **two separate MCP server binaries** to prevent namespace pollution:
+
+### Dom0 (Global Orchestrator)
+- **Binary**: `dist/server/index.js`
+- **Purpose**: Main Claude instance orchestration tools
+- **Tools**: Agent spawning, knowledge graph, project analysis, file operations
+- **Used By**: Primary Claude Code instance
+
+### DomU (Talent Coordination)
+- **Binary**: `dist/talent-server/index.js`
+- **Purpose**: Talent-specific coordination tools ONLY
+- **Tools**: Email, meetings (inter-talent communication)
+- **Used By**: Individual spawned talent agents
+
+**Why Separate Servers?**
+- Prevents talent coordination tools from polluting global tool list
+- Reduces token usage in main Claude instance
+- Each talent gets isolated server instance with `--talent-id` parameter
+- "Never cross the streams" - strict layer boundary enforcement
+
+See [AGENT_TOOL_LIST.md](./AGENT_TOOL_LIST.md) for complete tool breakdown.
+
 ## 🚀 Quick Start
 
 ### Prerequisites
@@ -65,11 +89,13 @@ cd ZMCPTools
 # Install dependencies
 npm install
 
-# Build
+# Build both servers
 npm run build
 ```
 
 ### Configure Claude Code
+
+#### Global Server (Dom0)
 
 Add to your Claude Code MCP settings:
 
@@ -78,19 +104,39 @@ Add to your Claude Code MCP settings:
   "mcpServers": {
     "zmcp-tools": {
       "command": "node",
-      "args": ["/path/to/ZMCPTools/dist/index.js"],
+      "args": ["/path/to/ZMCPTools/dist/server/index.js"],
       "env": {}
     }
   }
 }
 ```
 
+#### Talent Server (DomU)
+
+When spawning talents programmatically:
+
+```bash
+# Stdio transport (for MCP client)
+node dist/talent-server/index.js --talent-id backend-boris-001
+
+# HTTP transport (for testing)
+node dist/talent-server/index.js \
+  --talent-id frontend-felix-001 \
+  --transport http \
+  --port 4270
+
+# With explicit coordination root
+node dist/talent-server/index.js \
+  --talent-id testing-tina-001 \
+  --coordination-root /path/to/project
+```
+
 ## 📚 Documentation
 
-**See [TOOL_LIST.md](./TOOL_LIST.md) for complete tool documentation.**
+**Key Documentation Files:**
 
-Key documentation:
-- **[TOOL_LIST.md](./TOOL_LIST.md)** - All available MCP tools and their usage
+- **[TOOL_LIST.md](./TOOL_LIST.md)** - Complete dom0 (global orchestrator) tool documentation
+- **[AGENT_TOOL_LIST.md](./AGENT_TOOL_LIST.md)** - Complete domU (talent coordination) tool documentation
 - **Talent System** - See "Talent Profile System" section below
 - **Resources vs Tools** - See [GitHub Issue #35](https://github.com/jw409/ZMCPTools/issues/35) for migration details
 
@@ -353,11 +399,28 @@ await service.promoteTalent('backend-boris-001', 'junior');
 
 **Implemented in Issue #27**: Filesystem-based talent profile system foundation
 
-### Email Communication
+### Talent Coordination (DomU Tools)
 
-Talents communicate via filesystem-based emails in `var/coordination/{talent-id}/inbox/`. Each email is an atomic JSON file enabling crash-safe, asynchronous coordination. Use `send_email()` and `check_inbox()` MCP tools for inter-talent communication.
+Talents use **separate MCP server instances** with coordination-specific tools:
 
-**Implemented in Issue #28**: Filesystem-based email system for inter-talent coordination
+**Email System** (`var/coordination/{talent-id}/inbox/`)
+- Filesystem-based pseudo-email using talent IDs (not real addresses)
+- Atomic JSON files for crash-safe async coordination
+- Tools: `send_email`, `check_inbox`, `process_email`, `get_email`
+- **Issue #28**: Filesystem-based email implementation
+
+**Meeting Simulation** (`var/meetings/{date}/{meeting-id}.meeting`)
+- Simulated meeting coordination for talent collaboration
+- Atomic file writes with meeting minutes, decisions, action items
+- Tools: `join_meeting`, `speak_in_meeting`, `leave_meeting`, `get_meeting_status`
+- **Issue #29**: Meeting simulation implementation
+
+**Coordination Root Resolution**
+- Cooperative registration via `/tmp/zmcp-coordination-root.json`
+- Ensures talents from different directories can communicate
+- 4-tier priority: CLI arg → env var → registry file → CWD
+
+See [AGENT_TOOL_LIST.md](./AGENT_TOOL_LIST.md) for complete domU tool documentation.
 
 ## 📜 License
 

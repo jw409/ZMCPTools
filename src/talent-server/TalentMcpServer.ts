@@ -19,6 +19,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import express from 'express';
 import http from 'http';
 import {
@@ -50,6 +51,7 @@ interface CoordinationRegistry {
   created_by: string;
   created_at: string;
   pid: number;
+  hostname: string;
 }
 
 export class TalentMcpServer {
@@ -136,6 +138,7 @@ export class TalentMcpServer {
         created_by: this.talentId,
         created_at: new Date().toISOString(),
         pid: process.pid,
+        hostname: os.hostname(),
       };
       fs.writeFileSync(COORDINATION_REGISTRY, JSON.stringify(registry, null, 2));
       process.stderr.write(`   Created coordination registry at ${COORDINATION_REGISTRY}\n`);
