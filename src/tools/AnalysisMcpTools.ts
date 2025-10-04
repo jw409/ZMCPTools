@@ -81,40 +81,23 @@ export class AnalysisMcpTools {
   /**
    * Get all analysis-related MCP tools
    *
-   * REMOVED DEPRECATED TOOLS:
-   * - ast_analyze, parse, query, extract_symbols, etc. → Use file://{path}/{aspect} resources
-   * - analyze_project_structure → Use project://{path}/structure resource
-   * - generate_project_summary → Use project://{path}/summary resource
-   * - analyze_file_symbols → Use file://{path}/symbols resource
-   * - list_files → Use Glob tool (native Claude Code tool)
+   * ALL TOOLS REMOVED - Use native Claude Code tools + MCP Resources instead:
    *
-   * Deprecation saves ~1,400 tokens in MCP registration
-   * Migration guide: https://github.com/jw409/ZMCPTools/issues/35
+   * DEPRECATED (removed 2025-10-04):
+   * - ast_analyze, parse, query, extract_symbols → file://{path}/{aspect} resources
+   * - analyze_project_structure → project://{path}/structure resource
+   * - generate_project_summary → project://{path}/summary resource
+   * - analyze_file_symbols → file://{path}/symbols resource
+   * - list_files → Glob tool (native)
+   * - find_files → Glob tool (native, supports patterns)
+   * - easy_replace → Edit tool (native, has Read context for fuzzy matching)
+   * - cleanup_orphaned_projects → Manual bash task (infrequent, not worth MCP overhead)
+   *
+   * Token savings: ~1,600 in MCP registration (13 tools × ~120 tokens/tool)
+   * Architecture: MCP Resources (file://, project://) + Native tools > Custom MCP tools
    */
   getTools(): McpTool[] {
-    return [
-      {
-        name: 'find_files',
-        description: 'Search for files by pattern with optional content matching',
-        inputSchema: zodToJsonSchema(FindFilesSchema) as any,
-        outputSchema: zodToJsonSchema(FindFilesResponseSchema) as any,
-        handler: this.findFiles.bind(this)
-      },
-      {
-        name: 'easy_replace',
-        description: 'Fuzzy string replacement in files with smart matching',
-        inputSchema: zodToJsonSchema(EasyReplaceSchema) as any,
-        outputSchema: zodToJsonSchema(EasyReplaceResponseSchema) as any,
-        handler: this.easyReplace.bind(this)
-      },
-      {
-        name: 'cleanup_orphaned_projects',
-        description: 'Clean up orphaned or unused project directories',
-        inputSchema: zodToJsonSchema(CleanupOrphanedProjectsSchema) as any,
-        outputSchema: zodToJsonSchema(CleanupOrphanedProjectsResponseSchema) as any,
-        handler: this.cleanupOrphanedProjects.bind(this)
-      }
-    ];
+    return [];
   }
 
 
