@@ -14,6 +14,8 @@ import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import * as fs from "fs/promises";
 import * as path from "path";
+import { spawn } from 'child_process';
+import { promisify } from 'util';
 // Note: For initial implementation, we'll use TypeScript's compiler API for TS/JS files
 // Tree-sitter native packages have version conflicts, so we'll add them progressively
 import * as ts from "typescript";
@@ -99,6 +101,112 @@ export class TreeSitterASTTool {
     return sourceFile;
   }
 
+  /**
+   * Parse Python file using subprocess to call Python AST parser
+   */
+  private async parsePythonViaSubprocess(filePath: string): Promise<ParseResult> {
+    try {
+      // Find the Python AST parser script relative to this file
+      const __dirname = path.dirname(new URL(import.meta.url).pathname);
+      const parserScript = path.join(__dirname, '../../python/ast_parser.py');
+
+      return new Promise((resolve, reject) => {
+        const process = spawn('uv', ['run', 'python', parserScript, filePath], {
+          cwd: path.resolve(__dirname, '../../..')
+        });
+
+        let stdout = '';
+        let stderr = '';
+
+        process.stdout.on('data', (data) => {
+          stdout += data.toString();
+        });
+
+        process.stderr.on('data', (data) => {
+          stderr += data.toString();
+        });
+
+        process.on('close', (code) => {
+          if (code !== 0) {
+            resolve({
+              success: false,
+              language: 'python',
+              errors: [{
+                type: 'subprocess_error',
+                message: `Python AST parser exited with code ${code}: ${stderr}`,
+                startPosition: { row: 0, column: 0 },
+                endPosition: { row: 0, column: 0 }
+              }]
+            });
+            return;
+          }
+
+          try {
+            const result = JSON.parse(stdout);
+            if (!result.success) {
+              resolve({
+                success: false,
+                language: 'python',
+                errors: [{
+                  type: 'parse_error',
+                  message: result.error || 'Unknown parse error',
+                  startPosition: { row: result.line || 0, column: result.offset || 0 },
+                  endPosition: { row: result.line || 0, column: result.offset || 0 }
+                }]
+              });
+              return;
+            }
+
+            // Convert Python AST result to our format
+            resolve({
+              success: true,
+              language: 'python',
+              tree: {
+                symbols: result.symbols
+              },
+              errors: undefined
+            });
+          } catch (error) {
+            resolve({
+              success: false,
+              language: 'python',
+              errors: [{
+                type: 'json_parse_error',
+                message: `Failed to parse AST parser output: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                startPosition: { row: 0, column: 0 },
+                endPosition: { row: 0, column: 0 }
+              }]
+            });
+          }
+        });
+
+        process.on('error', (error) => {
+          resolve({
+            success: false,
+            language: 'python',
+            errors: [{
+              type: 'spawn_error',
+              message: `Failed to spawn Python AST parser: ${error.message}`,
+              startPosition: { row: 0, column: 0 },
+              endPosition: { row: 0, column: 0 }
+            }]
+          });
+        });
+      });
+    } catch (error) {
+      return {
+        success: false,
+        language: 'python',
+        errors: [{
+          type: 'subprocess_setup_error',
+          message: error instanceof Error ? error.message : 'Unknown error setting up subprocess',
+          startPosition: { row: 0, column: 0 },
+          endPosition: { row: 0, column: 0 }
+        }]
+      };
+    }
+  }
+
   private supportsLanguage(language: string): boolean {
     // For now, only TypeScript/JavaScript are fully supported
     // Other languages will return basic structure
@@ -155,6 +263,11 @@ export class TreeSitterASTTool {
           tree,
           errors: undefined
         };
+      }
+
+      // For Python, use subprocess to call Python AST parser
+      if (detectedLanguage === 'python') {
+        return await this.parsePythonViaSubprocess(filePath);
       }
 
       // For other languages, return basic structure

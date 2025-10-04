@@ -9,6 +9,7 @@ export * from './tasks';
 export * from './plans';
 export * from './knowledge-graph';
 export * from './shared-state';
+export * from './contracts';
 
 // Re-export commonly used types for convenience
 export type {
