@@ -6,7 +6,7 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
-import { RealFileIndexingService } from '../services/RealFileIndexingService.js';
+import { SymbolGraphIndexer } from '../services/SymbolGraphIndexer.js';
 import { EmbeddingClient } from '../services/EmbeddingClient.js';
 import { Logger } from '../utils/logger.js';
 
@@ -200,12 +200,15 @@ Returns real file paths, content snippets, and extracted code symbols (functions
       }
 
       // Initialize services
-      const fileIndexingService = new RealFileIndexingService();
+      const symbolGraphIndexer = new SymbolGraphIndexer();
       const embeddingClient = new EmbeddingClient();
 
-      // Index repository first (with caching to avoid re-indexing)
-      logger.info('Indexing repository files for search');
-      const indexingStats = await fileIndexingService.indexRepository(repository_path);
+      // Initialize symbol graph indexer
+      await symbolGraphIndexer.initialize(repository_path);
+
+      // Index repository first (with incremental caching)
+      logger.info('Indexing repository files for search (incremental)');
+      const indexingStats = await symbolGraphIndexer.indexRepository(repository_path);
 
       // Check GPU availability
       const gpuAvailable = await embeddingClient.checkGPUService();
@@ -235,8 +238,8 @@ Returns real file paths, content snippets, and extracted code symbols (functions
       if (use_bm25) {
         const bm25Start = Date.now();
 
-        // Search files using BM25
-        const bm25SearchResults = await fileIndexingService.searchKeyword(query, candidate_limit);
+        // Search files using BM25 (code-only search domain)
+        const bm25SearchResults = await symbolGraphIndexer.searchKeyword(query, candidate_limit);
 
         bm25Results = bm25SearchResults.map(result => ({
           id: result.filePath,
@@ -244,8 +247,8 @@ Returns real file paths, content snippets, and extracted code symbols (functions
           entity_type: 'file',
           description: `File: ${result.filePath}`,
           file_path: result.filePath,
-          content: result.content,
-          relevant_symbols: result.relevantSymbols,
+          content: result.snippet || '',
+          relevant_symbols: result.symbols || [],
           bm25_score: result.score,
           search_method: 'bm25',
           match_type: result.matchType
@@ -259,21 +262,12 @@ Returns real file paths, content snippets, and extracted code symbols (functions
       if (use_gpu_embeddings) {
         const semanticStart = Date.now();
 
-        // Search files using semantic similarity
-        const semanticSearchResults = await fileIndexingService.searchSemantic(query, candidate_limit);
+        // Search files using semantic similarity (intent-only search domain)
+        // TODO: Implement semantic search in SymbolGraphIndexer
+        // For now, use empty results (will be implemented in follow-up)
+        semanticResults = [];
 
-        semanticResults = semanticSearchResults.map(result => ({
-          id: result.filePath,
-          entity_name: result.filePath.split('/').pop() || result.filePath,
-          entity_type: 'file',
-          description: `File: ${result.filePath}`,
-          file_path: result.filePath,
-          content: result.content,
-          relevant_symbols: result.relevantSymbols,
-          semantic_score: result.score,
-          search_method: 'semantic',
-          match_type: result.matchType
-        }));
+        logger.info('Semantic search not yet implemented in SymbolGraphIndexer - using BM25 only');
 
         metrics.stage_timings.semantic_ms = Date.now() - semanticStart;
         metrics.component_scores.semantic_results = semanticResults.length;

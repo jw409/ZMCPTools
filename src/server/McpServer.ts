@@ -42,30 +42,18 @@ import type {
 } from "@modelcontextprotocol/sdk/types.js";
 
 import { DatabaseManager } from "../database/index.js";
-import { WebScrapingMcpTools } from "../tools/WebScrapingMcpTools.js";
-import { AnalysisMcpTools } from "../tools/AnalysisMcpTools.js";
-import {
-  ProjectStructureInfoSchema,
-  ProjectSummarySchema,
-  FileSymbolsSchema,
-} from "../schemas/toolResponses.js";
-import { TreeSummaryTools } from "../tools/TreeSummaryTools.js";
+import { WebScrapingService } from "../services/WebScrapingService.js";
 import { ReportProgressTool } from "../tools/ReportProgressTool.js";
-// CacheMcpTools removed - foundation caching now automatic
 import {
   BrowserTools,
   SessionConfigSchema,
   SessionMetadataSchema,
 } from "../tools/BrowserTools.js";
 import { BrowserAIDOMTools } from "../tools/BrowserAIDOMTools.js";
-import { WebScrapingService } from "../services/WebScrapingService.js";
 import {
   AgentService,
   KnowledgeGraphService,
-  VectorSearchService, // RESTORED: Now uses SQLite3 only
-  FileOperationsService,
-  TreeSummaryService,
-  fileOperationsService,
+  VectorSearchService,
 } from "../services/index.js";
 import { ResourceManager } from "../managers/ResourceManager.js";
 import { PromptManager } from "../managers/PromptManager.js";
@@ -79,10 +67,13 @@ import {
   FindRelatedEntitiesSchema,
 } from "../tools/knowledgeGraphTools.js";
 import { gpuKnowledgeTools } from "../tools/knowledgeGraphGPUTools.js";
-import { hybridSearchTools } from "../tools/hybridSearchTools.js";
-import { unifiedSearchTools } from "../tools/unifiedSearchTool.js";
-import { codeAcquisitionTools } from "../tools/codeAcquisitionTool.js";
 import type { McpTool, McpProgressContext } from "../schemas/tools/index.js";
+
+// REMOVED unused imports (deprecated/undocumented tools):
+// - WebScrapingMcpTools, AnalysisMcpTools, TreeSummaryTools (deprecated)
+// - hybridSearchTools, unifiedSearchTools, codeAcquisitionTools (undocumented)
+// - ProjectStructureInfoSchema, ProjectSummarySchema, FileSymbolsSchema (unused)
+// - FileOperationsService, TreeSummaryService, fileOperationsService (unused)
 
 export interface McpServerOptions {
   name: string;
@@ -99,24 +90,21 @@ export class McpToolsServer {
   private db: DatabaseManager;
   private browserTools: BrowserTools;
   private browserAIDOMTools: BrowserAIDOMTools;
-  private webScrapingMcpTools: WebScrapingMcpTools;
   private webScrapingService: WebScrapingService;
-  private analysisMcpTools: AnalysisMcpTools;
   private knowledgeGraphMcpTools: KnowledgeGraphMcpTools;
-  private treeSummaryTools: TreeSummaryTools;
   private reportProgressTool: ReportProgressTool;
-  // cacheMcpTools removed - foundation caching now automatic
-  private fileOperationsService: FileOperationsService;
-  private treeSummaryService: TreeSummaryService;
   private resourceManager: ResourceManager;
   private promptManager: PromptManager;
   private lanceDBManager: LanceDBService;
   private repositoryPath: string;
   private httpServer?: http.Server;
-  private transports: { [sessionId: string]: StreamableHTTPServerTransport } =
-    {};
+  private transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
   private lastClientActivity: number = Date.now();
   private inactivityTimer?: NodeJS.Timeout;
+
+  // REMOVED unused properties (deprecated/undocumented tools):
+  // - webScrapingMcpTools, analysisMcpTools, treeSummaryTools
+  // - fileOperationsService, treeSummaryService
 
   /**
    * Start the inactivity timer that will shutdown the server if no client activity for 10 minutes
@@ -329,10 +317,6 @@ export class McpToolsServer {
       this.repositoryPath
     );
 
-    // Initialize file operations and tree summary services
-    this.fileOperationsService = fileOperationsService; // Use singleton instance
-    this.treeSummaryService = new TreeSummaryService();
-
     // Initialize tools
     this.browserTools = new BrowserTools(
       knowledgeGraphService,
@@ -340,19 +324,12 @@ export class McpToolsServer {
       this.db
     );
     this.browserAIDOMTools = new BrowserAIDOMTools(this.db);
-    this.webScrapingMcpTools = new WebScrapingMcpTools(
-      this.webScrapingService,
-      knowledgeGraphService,
-      this.repositoryPath,
-      this.db
-    );
-    this.analysisMcpTools = new AnalysisMcpTools(
-      knowledgeGraphService,
-      this.repositoryPath
-    );
     this.knowledgeGraphMcpTools = new KnowledgeGraphMcpTools(this.db);
-    this.treeSummaryTools = new TreeSummaryTools();
     this.reportProgressTool = new ReportProgressTool(this.db);
+
+    // REMOVED deprecated tool initialization:
+    // - fileOperationsService, treeSummaryService (deprecated - use MCP resources)
+    // - webScrapingMcpTools, analysisMcpTools, treeSummaryTools (deprecated)
     // Foundation caching is now automatic - no manual tools needed
 
     // Initialize managers
@@ -571,28 +548,31 @@ export class McpToolsServer {
 
   public getAvailableTools(): McpTool[] {
     return [
-      // Browser automation tools
+      // Browser automation (5 tools)
       ...this.browserTools.getTools(),
-      // Browser AI DOM navigation tools
+
+      // Browser AI DOM navigation (5 tools)
       ...this.browserAIDOMTools.getTools(),
-      // Analysis and file operation tools
-      ...this.analysisMcpTools.getTools(),
-      // Knowledge graph tools (original)
+
+      // Knowledge graph core + GPU (13 tools total per TOOL_LIST.md)
+      // - Core: store/create/search/find (4 tools)
+      // - GPU: search_gpu/status/reindex (3 tools)
+      // - Mgmt: update/prune/compact/export/wipe (6 tools)
       ...this.knowledgeGraphMcpTools.getTools(),
-      // GPU-accelerated knowledge graph tools (NEW)
       ...gpuKnowledgeTools,
-      // Hybrid search tools (BM25 + GPU embeddings)
-      ...hybridSearchTools,
-      // Unified search tools (configurable BM25 + Qwen3 + Reranker)
-      ...unifiedSearchTools,
-      // Code acquisition tools (clone and auto-index repositories)
-      ...codeAcquisitionTools,
-      // TreeSummary tools
-      ...this.treeSummaryTools.getTools(),
-      // Progress reporting tool
+
+      // Progress reporting (1 tool)
       ...this.reportProgressTool.getTools(),
-      // NOTE: Agent orchestration, communication, plan management, and web scraping tools removed
-      // Agent tools will be re-added via claude-agent-sdk integration later
+
+      // REMOVED - NOT in TOOL_LIST.md (saves ~7k tokens):
+      // - analysisMcpTools: DEPRECATED (moved to MCP resources)
+      // - treeSummaryTools: DEPRECATED (moved to MCP resources)
+      // - hybridSearchTools: Undocumented
+      // - unifiedSearchTools: Undocumented
+      // - codeAcquisitionTools: Undocumented
+
+      // NOTE: Agent orchestration, communication, plan management removed
+      // Will be re-added via claude-agent-sdk integration
     ];
   }
 

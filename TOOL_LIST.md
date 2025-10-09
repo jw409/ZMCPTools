@@ -14,14 +14,14 @@ See [GitHub Issue #35](https://github.com/jw409/ZMCPTools/issues/35) for migrati
 ## Table of Contents
 
 - [🔍 MCP Resources (Token-Optimized)](#mcp-resources-token-optimized)
-- [Browser Automation (6 tools)](#browser-automation)
+- [Browser Automation (5 tools)](#browser-automation)
 - [Browser AI DOM Tools (5 tools)](#browser-ai-dom-tools)
 - [~~Project Analysis & File Operations (0 tools - ALL DEPRECATED)~~](#project-analysis--file-operations)
-- [Knowledge Graph & Memory (13 tools)](#knowledge-graph--memory)
+- [Knowledge Graph & Memory (7 tools)](#knowledge-graph--memory)
 - [Tree Summary System (0 tools - deprecated)](#tree-summary-system)
 - [Progress Reporting (1 tool)](#progress-reporting)
 
-**Total Active Tools**: 25 (down from 39)
+**Total Active Tools**: 18 (Browser:5 + AI-DOM:5 + KG:7 + Progress:1)
 
 ---
 
@@ -193,7 +193,7 @@ All descriptions now follow pattern: 🎯 USE CASE + practical examples + when t
 
 ## Browser Automation
 
-**6 tools for advanced web automation and interaction** (7 legacy tools removed 2025-10-04)
+**5 tools for advanced web automation and interaction** (7 legacy tools removed 2025-10-04)
 
 | Tool Name | Description |
 |-----------|-------------|
@@ -326,20 +326,20 @@ TreeSummary tools are deprecated. Use these MCP Resources for file/project analy
 
 ## Tool Categories Summary
 
-- **Browser Automation**: 6 tools for web automation (7 legacy tools removed 2025-10-04)
+- **Browser Automation**: 5 tools for web automation (7 legacy tools removed 2025-10-04)
 - **Browser AI DOM Tools**: 5 tools for intelligent DOM analysis
 - **Project Analysis & File Operations**: 0 tools (use MCP resources + native tools)
-- **Knowledge Graph & Memory**: 13 tools for GPU-accelerated semantic knowledge management
+- **Knowledge Graph & Memory**: 7 tools for semantic knowledge management
 - **Tree Summary System**: 0 tools (use MCP resources instead)
 - **Progress Reporting**: 1 tool for progress tracking
 
-**Total Active Tools**: 25 (down from 39 before cleanup)
+**Total Active Tools**: 18 (verified via grep count 2025-10-04)
 
 **Cleanup History**:
 - 2025-10-04: Removed 7 legacy browser tools (zero usage, modern replacements exist)
 - Previous: Removed 7 project analysis tools (now MCP resources or native tools)
 - Previous: Removed 5 TreeSummary tools (now MCP resources)
-- Previous: Removed 32 agent orchestration/web scraping tools (pending claude-agent-sdk)
+- Previous: Removed 32+ agent orchestration/web scraping tools (in TalentMcpServer only)
 
 ## Usage Notes
 

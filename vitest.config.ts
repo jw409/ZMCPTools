@@ -4,7 +4,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['src/**/*.test.ts', 'test/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'test/**/*.test.ts', 'tests/**/*.test.ts'],
     // Prevent runaway tests from hammering disk
     testTimeout: 30000, // 30 second max per test
     hookTimeout: 10000, // 10 second max for setup/teardown

@@ -7,7 +7,7 @@ import { spawn } from 'child_process';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { Logger } from '../utils/logger.js';
-import { RealFileIndexingService } from './RealFileIndexingService.js';
+import { SymbolGraphIndexer } from './SymbolGraphIndexer.js';
 
 const logger = new Logger('code-acquisition');
 
@@ -36,11 +36,11 @@ export interface AcquisitionOptions {
  */
 export class CodeAcquisitionService {
   private acquisitionsDir: string;
-  private fileIndexingService: RealFileIndexingService;
+  private symbolGraphIndexer: SymbolGraphIndexer;
 
   constructor(baseDir: string = '/tmp/code-acquisitions') {
     this.acquisitionsDir = baseDir;
-    this.fileIndexingService = new RealFileIndexingService();
+    this.symbolGraphIndexer = new SymbolGraphIndexer();
   }
 
   /**
@@ -85,17 +85,19 @@ export class CodeAcquisitionService {
 
       // Auto-index if requested
       if (autoIndex) {
-        logger.info('Auto-indexing acquired repository');
-        const indexingStats = await this.fileIndexingService.indexRepository(localPath);
+        logger.info('Auto-indexing acquired repository with SymbolGraphIndexer');
+        await this.symbolGraphIndexer.initialize(localPath);
+        const indexingStats = await this.symbolGraphIndexer.indexRepository(localPath);
         result.indexingStats = {
           totalFiles: indexingStats.totalFiles,
           indexedFiles: indexingStats.indexedFiles,
-          languages: indexingStats.languages,
-          indexingTimeMs: indexingStats.indexingTimeMs
+          languages: indexingStats.languages || {},
+          indexingTimeMs: indexingStats.indexingTimeMs || 0
         };
         logger.info('Repository indexed successfully', {
           files: indexingStats.indexedFiles,
-          languages: Object.keys(indexingStats.languages).length
+          languages: Object.keys(indexingStats.languages || {}).length,
+          cacheHitRate: `${((indexingStats.alreadyIndexed / indexingStats.totalFiles) * 100).toFixed(1)}%`
         });
       }
 

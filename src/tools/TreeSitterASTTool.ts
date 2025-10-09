@@ -696,7 +696,7 @@ export class TreeSitterASTTool {
     return [
       {
         name: "ast_analyze",
-        description: "Analyze source code using tree-sitter AST parsing. Operations: parse (full AST with optimizations), query (S-expression patterns), extract_symbols (functions/classes), extract_imports, extract_exports, find_pattern (code search), get_structure (readable outline), get_diagnostics (syntax errors).",
+        description: "🔍 Analyze source code using tree-sitter AST parsing within project context.\n\nUSE FOR: Building project-local call graphs, import analysis, symbol search\nNOT FOR: API testing, Swagger validation, cross-project contracts\n\nOperations: parse (full AST with optimizations), query (S-expression patterns), extract_symbols (functions/classes), extract_imports, extract_exports, find_pattern (code search), get_structure (readable outline), get_diagnostics (syntax errors).\n\nSymbols are scoped to this repository and its import graph. Use extract_imports to understand cross-file relationships.",
         inputSchema: {
           type: "object",
           properties: {
