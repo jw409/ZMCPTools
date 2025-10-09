@@ -3,7 +3,7 @@
 This document provides a comprehensive reference for all MCP tools and resources available in ZMCPTools.
 
 ⚠️  **AUTO-GENERATED** from source code by `npm run generate:docs`
-Last generated: 2025-10-09T05:51:37.595Z
+Last generated: 2025-10-09T06:07:23.147Z
 
 ## ⚡ Token Optimization Notice
 
@@ -51,14 +51,6 @@ See [GitHub Issue #35](https://github.com/jw409/ZMCPTools/issues/35) for migrati
 | `knowledge://search` | 🔍 SEARCH BEFORE IMPLEMENTING: Search GitHub issues, architecture docs, implementation patterns, and prior solutions. Contains: ZMCPTools issues, TalentOS architecture (CLAUDE.md, etc/*.md, docs/*.md), design decisions, and known solutions. Use for: finding prior work, understanding architecture, discovering existing solutions, checking if feature exists. GPU-accelerated semantic + BM25 hybrid search. Example: knowledge://search?query=resource+migration+MCP&limit=5 | - |
 | `knowledge://entity/*/related` | 📊 DISCOVER CONNECTIONS: Find entities related to a specific entity via graph traversal. Use after finding an entity via search to discover: related issues, connected docs, dependency chains, implementation patterns, similar solutions. Example: knowledge://entity/issue-35/related?limit=5&min_strength=0.6 finds docs/issues related to issue #35 | - |
 | `knowledge://status` | 📈 KNOWLEDGE GRAPH HEALTH: Get statistics about indexed content - total entities, relationships, quality metrics, entity types, index freshness. Use to: verify indexing completed, check what | - |
-
-### Agent Management Resources
-
-| Resource URI Template | Description | Query Parameters |
-|----------------------|-------------|------------------|
-| `agents://list` | 👥 LIST ALL AGENTS: View spawned agents with filtering by status (active/completed/failed/terminated) and type (backend/frontend/testing/documentation). Use for: checking what agents are running, finding agents by task type, monitoring agent health, debugging agent issues. Supports pagination for large agent pools. Example: agents://list?status=active&type=backend&limit=20 | - |
-| `agents://*/status` | 🎯 MONITOR SPECIFIC AGENT: Get detailed status of a single agent including task progress, current activity, health metrics, error history, resource usage, and completion status. Use for: debugging agent issues, monitoring long-running tasks, checking why agent stalled, getting detailed progress. Example: agents://agent-123/status | - |
-| `agents://insights` | Aggregated insights and learnings from agents (use ?limit=100&cursor=token&memoryType=insight&agentId=id&search=text) | - |
 
 ### Vector Search Resources
 

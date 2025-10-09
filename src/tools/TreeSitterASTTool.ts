@@ -316,6 +316,25 @@ export class TreeSitterASTTool {
         return await this.parsePythonViaSubprocess(filePath);
       }
 
+      // For JSON, use JSON.parse with safeguards
+      if (detectedLanguage === 'json') {
+        return await this.parseJSON(filePath, content);
+      }
+
+      // For Markdown, provide helpful error
+      if (filePath.endsWith('.md') || filePath.endsWith('.markdown')) {
+        return {
+          success: false,
+          language: 'markdown',
+          errors: [{
+            type: 'unsupported_language',
+            message: 'Markdown files should be processed using semantic search/embeddings (knowledge://search or vector://search resources), not AST parsing',
+            startPosition: { row: 0, column: 0 },
+            endPosition: { row: 0, column: 0 }
+          }]
+        };
+      }
+
       // For other languages, return basic structure
       return {
         success: false,

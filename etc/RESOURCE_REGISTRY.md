@@ -1,7 +1,7 @@
 # MCP Resource Registry
 
 **AUTO-GENERATED** from source code by `npm run generate:docs`
-Last generated: 2025-10-09T05:51:37.599Z
+Last generated: 2025-10-09T06:07:23.151Z
 
 ## Available MCP Resources
 
@@ -32,14 +32,6 @@ MCP Resources provide 97% token reduction compared to tools for read-only operat
 | `knowledge://entity/*/related` | 📊 DISCOVER CONNECTIONS: Find entities related to a specific entity via graph traversal. Use after finding an entity via search to discover: related issues, connected docs, dependency chains, implementation patterns, similar solutions. Example: knowledge://entity/issue-35/related?limit=5&min_strength=0.6 finds docs/issues related to issue #35 |
 | `knowledge://status` | 📈 KNOWLEDGE GRAPH HEALTH: Get statistics about indexed content - total entities, relationships, quality metrics, entity types, index freshness. Use to: verify indexing completed, check what |
 
-### Agent Management
-
-| URI Template | Description |
-|--------------|-------------|
-| `agents://list` | 👥 LIST ALL AGENTS: View spawned agents with filtering by status (active/completed/failed/terminated) and type (backend/frontend/testing/documentation). Use for: checking what agents are running, finding agents by task type, monitoring agent health, debugging agent issues. Supports pagination for large agent pools. Example: agents://list?status=active&type=backend&limit=20 |
-| `agents://*/status` | 🎯 MONITOR SPECIFIC AGENT: Get detailed status of a single agent including task progress, current activity, health metrics, error history, resource usage, and completion status. Use for: debugging agent issues, monitoring long-running tasks, checking why agent stalled, getting detailed progress. Example: agents://agent-123/status |
-| `agents://insights` | Aggregated insights and learnings from agents (use ?limit=100&cursor=token&memoryType=insight&agentId=id&search=text) |
-
 ### Vector Search
 
 | URI Template | Description |
@@ -58,4 +50,4 @@ MCP Resources provide 97% token reduction compared to tools for read-only operat
 
 ---
 
-**Total Resources**: 19
+**Total Resources**: 16
