@@ -50,8 +50,8 @@ export interface SymbolRecord {
   name: string;
   type: string;
   signature?: string;
-  startLine: number;
-  endLine: number;
+  location: string;          // Compact format: "startLine:startCol-endLine:endCol"
+  parentSymbol?: string;      // Parent class name for methods
   isExported: boolean;
 }
 
@@ -184,13 +184,53 @@ export class SymbolGraphIndexer {
   }
 
   /**
+   * Migrate schema from old format (start_line/end_line) to new format (location/parent_symbol)
+   */
+  private async migrateSchemaIfNeeded(): Promise<void> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    try {
+      // Check if symbols table exists and has old schema
+      const tableInfo = this.db.prepare(`PRAGMA table_info(symbols)`).all() as any[];
+
+      if (tableInfo.length === 0) {
+        // Table doesn't exist yet, no migration needed
+        return;
+      }
+
+      const hasOldSchema = tableInfo.some(col => col.name === 'start_line' || col.name === 'end_line');
+      const hasNewSchema = tableInfo.some(col => col.name === 'location');
+
+      if (hasOldSchema && !hasNewSchema) {
+        logger.info('Migrating SymbolGraphIndexer schema to hierarchical format...');
+
+        // Backup old symbols data
+        const oldSymbols = this.db.prepare('SELECT * FROM symbols').all();
+
+        // Drop old table
+        this.db.exec('DROP TABLE IF EXISTS symbols');
+
+        // New schema will be created by initializeSchema
+        logger.info(`Schema migration complete. Cleared ${oldSymbols.length} symbols for re-indexing.`);
+      }
+    } catch (error: any) {
+      logger.warn('Schema migration check failed', { error: error.message });
+    }
+  }
+
+  /**
    * Initialize database schema
-   * Schema design from GitHub issue #45
+   * Schema design from GitHub issue #45 + hierarchical symbol support
    */
   private async initializeSchema(): Promise<void> {
     if (!this.db) {
       throw new Error('Database not initialized');
     }
+
+    // Check if we need to migrate from old schema
+    await this.migrateSchemaIfNeeded();
 
     const schema = `
       -- File index with mtime tracking (incremental indexing)
@@ -206,14 +246,15 @@ export class SymbolGraphIndexer {
       );
 
       -- Symbol table (extracted via TreeSitterASTTool)
+      -- Updated to support hierarchical symbols from compact AST format
       CREATE TABLE IF NOT EXISTS symbols (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         file_path TEXT NOT NULL,
         name TEXT NOT NULL,
         type TEXT NOT NULL,
         signature TEXT,
-        start_line INTEGER NOT NULL,
-        end_line INTEGER NOT NULL,
+        location TEXT NOT NULL,           -- Compact format: "startLine:startCol-endLine:endCol"
+        parent_symbol TEXT,                -- Parent class name for methods (NULL for top-level)
         is_exported BOOLEAN DEFAULT 0,
         FOREIGN KEY (file_path) REFERENCES indexed_files(file_path) ON DELETE CASCADE
       );
@@ -472,26 +513,42 @@ export class SymbolGraphIndexer {
         this.db!.prepare('DELETE FROM symbols WHERE file_path = ?').run(relativePath);
         this.db!.prepare('DELETE FROM imports WHERE source_file = ?').run(relativePath);
 
-        // 3. Insert symbols
+        // 3. Insert symbols (flatten hierarchical structure)
         const symbolStmt = this.db!.prepare(`
-          INSERT INTO symbols (file_path, name, type, signature, start_line, end_line, is_exported)
+          INSERT INTO symbols (file_path, name, type, signature, location, parent_symbol, is_exported)
           VALUES (?, ?, ?, ?, ?, ?, ?)
         `);
 
-        for (const sym of symbols) {
-          // Check if symbol is exported
-          const isExported = exportedNames.has(sym.name) ? 1 : 0;
+        // Flatten hierarchical symbols while preserving parent-child relationships
+        const flattenSymbols = (symList: any[], parentName: string | null = null) => {
+          for (const sym of symList) {
+            // Check if symbol is exported
+            const isExported = exportedNames.has(sym.name) ? 1 : 0;
 
-          symbolStmt.run(
-            relativePath,
-            sym.name,
-            sym.kind || 'unknown',
-            sym.text || null,
-            sym.startPosition?.row || 0,
-            sym.endPosition?.row || 0,
-            isExported
-          );
-        }
+            // Use compact location if available, fallback to constructing from positions
+            const location = sym.location ||
+              (sym.startPosition && sym.endPosition
+                ? `${sym.startPosition.row}:${sym.startPosition.column}-${sym.endPosition.row}:${sym.endPosition.column}`
+                : '0:0-0:0');
+
+            symbolStmt.run(
+              relativePath,
+              sym.name,
+              sym.kind || 'unknown',
+              sym.text || null,
+              location,
+              parentName,
+              isExported
+            );
+
+            // Recursively flatten children (methods within classes)
+            if (sym.children && sym.children.length > 0) {
+              flattenSymbols(sym.children, sym.name);
+            }
+          }
+        };
+
+        flattenSymbols(symbols);
 
         // 4. Insert imports
         const importStmt = this.db!.prepare(`

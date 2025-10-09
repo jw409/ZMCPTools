@@ -73,20 +73,18 @@ export class PathResolver {
   }
   
   /**
-   * Get the database path - checks for project-local database first
+   * Get the database path - prefers project-local database
    */
   getDatabasePath(): string {
-    // Check for project-local database first
-    const localDbPath = join(process.cwd(), 'var', 'db', 'zmcp_local.db');
+    // Project-local database (respects dom0/domU isolation)
+    const localDbPath = this.getLocalDatabasePath();
 
-    // Use local database if:
-    // 1. It already exists, OR
-    // 2. ZMCP_USE_LOCAL_DB environment variable is set to 'true'
+    // Use local database if it exists or env var is set
     if (existsSync(localDbPath) || process.env.ZMCP_USE_LOCAL_DB === 'true') {
       return localDbPath;
     }
 
-    // Fall back to global database for backward compatibility
+    // Fall back to global for backward compatibility (but discouraged per GitHub issue #6)
     return join(this.getUserDataPath(), 'claude_mcp_tools.db');
   }
 

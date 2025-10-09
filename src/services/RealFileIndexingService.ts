@@ -304,8 +304,8 @@ export class RealFileIndexingService {
           const searchableText = this.createSearchableText(file);
           const result = await this.embeddingClient.generateEmbeddings([searchableText]);
           file.embedding = result.embeddings[0];
-        } catch (error) {
-          logger.warn(`Failed to generate embedding for ${file.filePath}:`, error.message);
+        } catch (error: any) {
+          logger.warn(`Failed to generate embedding for ${file.filePath}: "${error?.message || error}"`);
         }
       });
 
