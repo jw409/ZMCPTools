@@ -5,6 +5,8 @@ type: mcp_integration
 storage: ~/.mcptools/data/
 vector_db: ~/.mcptools/lancedb/
 authoritative:
+  docs: etc/META_DOCUMENTATION_MAP.md
+  github: etc/GITHUB_ISSUES.md
   tools: TOOL_LIST.md
   resources: etc/generated/MCP_RESOURCES.md
 rules:
@@ -24,8 +26,10 @@ discovery:
 - `ListMcpResourcesTool` - See available resources
 - `ReadMcpResourceTool` - Read specific resources
 
-**Tool catalog** (authoritative):
-- `cat ZMCPTools/TOOL_LIST.md`
+**Documentation & References** (authoritative):
+- `cat etc/META_DOCUMENTATION_MAP.md` - Documentation index (start here)
+- `cat etc/GITHUB_ISSUES.md` - GitHub labels & issue protocol
+- `cat TOOL_LIST.md` - MCP tool catalog
 
 ## Core Patterns
 

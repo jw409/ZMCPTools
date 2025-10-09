@@ -455,83 +455,157 @@ export class TreeSitterASTTool {
     }
   }
 
-  async extractSymbols(tree: any, language: string): Promise<Symbol[]> {
-    const symbols: Symbol[] = [];
-
+  /**
+   * Extract symbols in hierarchical format with compact location encoding
+   * Format: {"name": "Class", "kind": "class", "location": "line:col-line:col", "children": [...]}
+   */
+  async extractSymbols(tree: any, language: string): Promise<any[]> {
     // Python uses pre-extracted symbols from subprocess parser
     if (language === 'python' && tree.symbols && tree.symbols.symbols) {
-      // Return symbols directly from Python AST parser
       return tree.symbols.symbols.map((sym: any) => ({
         name: sym.name,
         kind: sym.kind || sym.type,
-        startPosition: { row: sym.line || 0, column: sym.col || 0 },
-        endPosition: { row: sym.line || 0, column: sym.col || 0 }
+        location: this.compactLocation(sym.line || 0, sym.col || 0, sym.line || 0, sym.col || 0)
       }));
     }
 
-    // TypeScript/JavaScript - traverse tree cursor
+    // TypeScript/JavaScript - build hierarchical structure
+    const topLevelSymbols: any[] = [];
+    const classMap = new Map<string, any>(); // Track classes for nesting methods
+    const nodeToParentMap = new Map<any, string>(); // Map nodes to parent class names
+
     const cursor = tree.walk();
 
-    const visitNode = () => {
+    // First pass: build parent map and collect classes
+    const buildParentMap = (parentClassName: string | null = null) => {
       const node = cursor.currentNode;
 
-      // TypeScript/JavaScript symbols - look for name in children since childForFieldName isn't available
       if (language === 'typescript' || language === 'javascript') {
-        if (node.type === 'function_declaration' || node.type === 'arrow_function') {
-          // Look for identifier in children
-          const nameNode = this.findNameInChildren(node);
-          if (nameNode) {
-            symbols.push({
-              name: nameNode,
-              kind: 'function',
-              startPosition: node.startPosition,
-              endPosition: node.endPosition
-            });
-          }
-        } else if (node.type === 'class_declaration') {
-          const nameNode = this.findNameInChildren(node);
-          if (nameNode) {
-            symbols.push({
-              name: nameNode,
-              kind: 'class',
-              startPosition: node.startPosition,
-              endPosition: node.endPosition
-            });
-          }
-        } else if (node.type === 'interface_declaration') {
-          const nameNode = this.findNameInChildren(node);
-          if (nameNode) {
-            symbols.push({
-              name: nameNode,
-              kind: 'interface',
-              startPosition: node.startPosition,
-              endPosition: node.endPosition
-            });
-          }
-        } else if (node.type === 'method_definition') {
-          const nameNode = this.findNameInChildren(node);
-          if (nameNode) {
-            symbols.push({
-              name: nameNode,
-              kind: 'method',
-              startPosition: node.startPosition,
-              endPosition: node.endPosition
-            });
+        const nameNode = this.findNameInChildren(node);
+
+        // Track current class context
+        let currentClassName = parentClassName;
+        if (node.type === 'class_declaration' && nameNode) {
+          currentClassName = nameNode;
+        }
+
+        // Map this node to its parent class
+        if (currentClassName && node.type === 'method_definition') {
+          nodeToParentMap.set(node, currentClassName);
+        }
+
+        // Recursively process children
+        if (cursor.gotoFirstChild()) {
+          do {
+            buildParentMap(currentClassName);
+          } while (cursor.gotoNextSibling());
+          cursor.gotoParent();
+        }
+      } else {
+        // For non-TS/JS, just recurse
+        if (cursor.gotoFirstChild()) {
+          do {
+            buildParentMap(null);
+          } while (cursor.gotoNextSibling());
+          cursor.gotoParent();
+        }
+      }
+    };
+
+    // Build the parent map
+    buildParentMap();
+
+    // Reset cursor to root
+    const cursor2 = tree.walk();
+
+    // Second pass: extract symbols using parent map
+    const visitNode = () => {
+      const node = cursor2.currentNode;
+
+      if (language === 'typescript' || language === 'javascript') {
+        const nameNode = this.findNameInChildren(node);
+
+        if (node.type === 'class_declaration' && nameNode) {
+          const classSymbol = {
+            name: nameNode,
+            kind: 'class',
+            location: this.compactLocation(
+              node.startPosition.row,
+              node.startPosition.column,
+              node.endPosition.row,
+              node.endPosition.column
+            ),
+            children: [] as any[]
+          };
+          topLevelSymbols.push(classSymbol);
+          classMap.set(nameNode, classSymbol);
+
+        } else if (node.type === 'interface_declaration' && nameNode) {
+          topLevelSymbols.push({
+            name: nameNode,
+            kind: 'interface',
+            location: this.compactLocation(
+              node.startPosition.row,
+              node.startPosition.column,
+              node.endPosition.row,
+              node.endPosition.column
+            )
+          });
+
+        } else if (node.type === 'function_declaration' && nameNode) {
+          topLevelSymbols.push({
+            name: nameNode,
+            kind: 'function',
+            location: this.compactLocation(
+              node.startPosition.row,
+              node.startPosition.column,
+              node.endPosition.row,
+              node.endPosition.column
+            )
+          });
+
+        } else if (node.type === 'method_definition' && nameNode) {
+          // Look up parent class from map
+          const parentClass = nodeToParentMap.get(node);
+          const methodSymbol = {
+            name: nameNode,
+            kind: 'method',
+            location: this.compactLocation(
+              node.startPosition.row,
+              node.startPosition.column,
+              node.endPosition.row,
+              node.endPosition.column
+            )
+          };
+
+          if (parentClass && classMap.has(parentClass)) {
+            classMap.get(parentClass)!.children.push(methodSymbol);
+          } else {
+            // Orphaned method - add to top level
+            topLevelSymbols.push(methodSymbol);
           }
         }
       }
 
       // Recursively visit children
-      if (cursor.gotoFirstChild()) {
+      if (cursor2.gotoFirstChild()) {
         do {
           visitNode();
-        } while (cursor.gotoNextSibling());
-        cursor.gotoParent();
+        } while (cursor2.gotoNextSibling());
+        cursor2.gotoParent();
       }
     };
 
     visitNode();
-    return symbols;
+    return topLevelSymbols;
+  }
+
+  /**
+   * Compact location encoding: "startLine:startCol-endLine:endCol"
+   * Example: "69:77-69:668" for single line, "85:1-1200:5" for multi-line
+   */
+  private compactLocation(startRow: number, startCol: number, endRow: number, endCol: number): string {
+    return `${startRow}:${startCol}-${endRow}:${endCol}`;
   }
 
   /**

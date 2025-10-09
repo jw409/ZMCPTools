@@ -1838,22 +1838,39 @@ export class ResourceManager {
       const mimeType =
         aspect === "structure" ? "text/markdown" : "application/json";
 
-      // Extract text based on aspect
-      let text: string;
-      if (aspect === "structure") {
-        // For structure, extract the markdown string from result.structure
-        text = typeof result.structure === "string"
-          ? result.structure
-          : JSON.stringify(result, null, 2);
+      // Build compact hierarchical output for symbols
+      let outputData: any;
+      if (aspect === "symbols") {
+        // Compact hierarchical format with location encoding
+        outputData = {
+          uri: `file://${path}`,
+          language: result.language,
+          symbols: result.symbols || []
+        };
+      } else if (aspect === "structure") {
+        // Structure returns markdown text directly
+        return {
+          uri: `file://${path}`,
+          mimeType,
+          text: typeof result.structure === "string"
+            ? result.structure
+            : JSON.stringify(result, null, 2)
+        };
       } else {
-        // For other aspects, return JSON
-        text = JSON.stringify(result, null, 2);
+        // For other aspects (imports, exports, diagnostics), use clean format
+        outputData = {
+          uri: `file://${path}`,
+          language: result.language,
+          ...result
+        };
+        // Remove redundant wrapper fields
+        delete outputData.success;
       }
 
       return {
         uri: `file://${path}`,
         mimeType,
-        text,
+        text: JSON.stringify(outputData, null, 2),
       };
     } catch (error) {
       return {
