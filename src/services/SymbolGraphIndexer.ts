@@ -24,6 +24,7 @@ import { glob } from 'glob';
 import { TreeSitterASTTool } from '../tools/TreeSitterASTTool.js';
 import { BM25Service } from './BM25Service.js';
 import { EmbeddingClient } from './EmbeddingClient.js';
+import { LanceDBService } from './LanceDBService.js';
 import { Logger } from '../utils/logger.js';
 import { StoragePathResolver } from './StoragePathResolver.js';
 
@@ -106,6 +107,9 @@ export class SymbolGraphIndexer {
   private astTool: TreeSitterASTTool;
   private bm25Service: BM25Service;
   private embeddingClient: EmbeddingClient;
+  private lanceDBService: LanceDBService | null = null;
+  private projectPath: string = '';
+  private readonly COLLECTION_NAME = 'symbol_graph_embeddings';
 
   // File patterns to ignore (aligned with RealFileIndexingService)
   private ignorePatterns = [
@@ -179,6 +183,22 @@ export class SymbolGraphIndexer {
 
     // Create schema
     await this.initializeSchema();
+
+    // Initialize LanceDB for semantic search
+    this.projectPath = projectPath;
+    this.lanceDBService = new LanceDBService(this.db as any, {
+      projectPath,
+      preferLocal: true,
+      embeddingModel: 'gemma_embed'  // Use TalentOS GPU embeddings
+    });
+    const lanceResult = await this.lanceDBService.initialize();
+    if (!lanceResult.success) {
+      logger.warn('LanceDB initialization failed, semantic search will be unavailable', {
+        error: lanceResult.error
+      });
+    } else {
+      logger.info('LanceDB initialized for semantic search');
+    }
 
     logger.info('SymbolGraphIndexer initialized successfully');
   }
@@ -604,6 +624,76 @@ export class SymbolGraphIndexer {
   }
 
   /**
+   * Generate embeddings for files that don't have them yet
+   * Processes files in batches to avoid overwhelming the GPU service
+   */
+  private async generatePendingEmbeddings(): Promise<void> {
+    if (!this.lanceDBService || !this.db) {
+      logger.warn('LanceDB not initialized, skipping embedding generation');
+      return;
+    }
+
+    try {
+      // Get files where embedding_stored = 0 and embedding_text not empty
+      const pending = this.db.prepare(`
+        SELECT file_path, embedding_text FROM semantic_metadata
+        WHERE embedding_stored = 0 AND length(embedding_text) > 10
+      `).all() as Array<{ file_path: string; embedding_text: string }>;
+
+      if (pending.length === 0) {
+        logger.info('No pending embeddings to generate');
+        return;
+      }
+
+      logger.info(`Generating embeddings for ${pending.length} files...`);
+
+      // Batch process (20 at a time to avoid overwhelming GPU)
+      const batchSize = 20;
+      let processedCount = 0;
+
+      for (let i = 0; i < pending.length; i += batchSize) {
+        const batch = pending.slice(i, i + batchSize);
+
+        // Prepare documents for LanceDB
+        const documents = batch.map(row => ({
+          id: row.file_path,
+          content: row.embedding_text,
+          metadata: {
+            file_path: row.file_path,
+            indexed_at: new Date().toISOString()
+          }
+        }));
+
+        // Add to LanceDB (will generate embeddings automatically)
+        const result = await this.lanceDBService.addDocuments(this.COLLECTION_NAME, documents);
+
+        if (result.success) {
+          // Update semantic_metadata to mark embeddings as stored
+          const updateStmt = this.db.prepare(`
+            UPDATE semantic_metadata
+            SET embedding_stored = 1, lancedb_id = ?
+            WHERE file_path = ?
+          `);
+
+          for (const row of batch) {
+            updateStmt.run(row.file_path, row.file_path);
+          }
+
+          processedCount += batch.length;
+          logger.info(`Embedding progress: ${processedCount}/${pending.length} files`);
+        } else {
+          logger.error('Failed to generate embeddings for batch', { error: result.error });
+        }
+      }
+
+      logger.info(`Successfully generated embeddings for ${processedCount} files`);
+
+    } catch (error: any) {
+      logger.error('Error generating pending embeddings', { error: error.message });
+    }
+  }
+
+  /**
    * Find all indexable files in repository
    */
   private async findIndexableFiles(repoPath: string): Promise<string[]> {
@@ -681,6 +771,10 @@ export class SymbolGraphIndexer {
         }
       }
 
+      // Generate embeddings for newly indexed files
+      logger.info('Generating embeddings for indexed files...');
+      await this.generatePendingEmbeddings();
+
       stats.indexingTimeMs = Date.now() - startTime;
       stats.indexedFiles = stats.alreadyIndexed + stats.needsIndexing; // Total indexed (new + cached)
 
@@ -729,25 +823,52 @@ export class SymbolGraphIndexer {
 
   /**
    * Search using semantic embeddings (intent domain)
-   * Minimum viable implementation - falls back to keyword search
-   *
-   * TODO: Full implementation with LanceDB integration:
-   * 1. Generate query embedding using EmbeddingClient
-   * 2. Search LanceDB for similar embeddings
-   * 3. Return files with similarity scores
+   * Uses LanceDB vector search to find semantically similar files
    */
   async searchSemantic(query: string, limit: number = 10): Promise<SearchResult[]> {
-    logger.warn('Semantic search not yet implemented in SymbolGraphIndexer, falling back to keyword search');
+    if (!this.lanceDBService || !this.db) {
+      logger.warn('LanceDB not initialized, falling back to keyword search');
+      return this.searchKeyword(query, limit);
+    }
 
-    // Fallback to keyword search until LanceDB integration is complete
-    const keywordResults = await this.searchKeyword(query, limit);
+    try {
+      // Search LanceDB using vector similarity
+      const results = await this.lanceDBService.searchSimilar(
+        this.COLLECTION_NAME,
+        query,
+        limit,
+        0.3  // threshold - return results with >30% similarity
+      );
 
-    // Convert matchType to semantic for consistency
-    return keywordResults.map(result => ({
-      ...result,
-      matchType: 'semantic' as const,
-      score: result.score * 0.8 // Reduce score to indicate fallback
-    }));
+      // Map to SearchResult format
+      return results.map(result => {
+        // Get symbols for this file
+        const symbols = this.db!.prepare(`
+          SELECT * FROM symbols WHERE file_path = ?
+        `).all(result.metadata.file_path) as SymbolRecord[];
+
+        return {
+          filePath: result.metadata.file_path,
+          score: result.score,
+          matchType: 'semantic' as const,
+          symbols,
+          snippet: result.content.substring(0, 200)
+        };
+      });
+
+    } catch (error: any) {
+      logger.error('Semantic search failed, falling back to keyword search', {
+        error: error.message
+      });
+
+      // Fallback to keyword search on error
+      const keywordResults = await this.searchKeyword(query, limit);
+      return keywordResults.map(result => ({
+        ...result,
+        matchType: 'semantic' as const,
+        score: result.score * 0.8 // Reduce score to indicate fallback
+      }));
+    }
   }
 
   /**
@@ -790,6 +911,154 @@ export class SymbolGraphIndexer {
       matchType: 'import' as const,
       snippet: `Imports: ${row.import_path}`
     }));
+  }
+
+  /**
+   * Get files that depend on a specific file (reverse dependencies)
+   * Used for impact analysis: "what breaks if I change this file?"
+   */
+  async getFileDependents(filePath: string): Promise<string[]> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    const results = this.db.prepare(`
+      SELECT DISTINCT source_file
+      FROM imports
+      WHERE import_path LIKE ?
+    `).all(`%${filePath}%`) as Array<{ source_file: string }>;
+
+    return results.map(r => r.source_file);
+  }
+
+  /**
+   * Get files that a specific file depends on (direct dependencies)
+   */
+  async getFileDependencies(filePath: string): Promise<string[]> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    const results = this.db.prepare(`
+      SELECT DISTINCT import_path
+      FROM imports
+      WHERE source_file = ?
+    `).all(filePath) as Array<{ import_path: string }>;
+
+    return results.map(r => r.import_path);
+  }
+
+  /**
+   * Detect circular dependencies in the import graph
+   * Returns cycles where A → B → ... → A
+   */
+  async detectCircularDependencies(): Promise<Array<{
+    cycle: string[];
+    depth: number;
+  }>> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    const cycles: Array<{ cycle: string[]; depth: number }> = [];
+    const visited = new Set<string>();
+    const recursionStack = new Set<string>();
+
+    // Get all files
+    const allFiles = this.db.prepare(`
+      SELECT DISTINCT file_path FROM indexed_files
+    `).all() as Array<{ file_path: string }>;
+
+    // DFS to detect cycles
+    const detectCycle = (file: string, path: string[]): boolean => {
+      if (recursionStack.has(file)) {
+        // Found a cycle
+        const cycleStart = path.indexOf(file);
+        const cycle = path.slice(cycleStart).concat([file]);
+        cycles.push({
+          cycle,
+          depth: cycle.length - 1
+        });
+        return true;
+      }
+
+      if (visited.has(file)) {
+        return false;
+      }
+
+      visited.add(file);
+      recursionStack.add(file);
+      path.push(file);
+
+      // Get dependencies
+      const deps = this.db!.prepare(`
+        SELECT DISTINCT import_path FROM imports WHERE source_file = ?
+      `).all(file) as Array<{ import_path: string }>;
+
+      for (const dep of deps) {
+        // Only check local files (skip node_modules)
+        if (!dep.import_path.includes('node_modules') && !dep.import_path.startsWith('@')) {
+          detectCycle(dep.import_path, [...path]);
+        }
+      }
+
+      recursionStack.delete(file);
+      return false;
+    };
+
+    // Check each file
+    for (const { file_path } of allFiles) {
+      if (!visited.has(file_path)) {
+        detectCycle(file_path, []);
+      }
+    }
+
+    return cycles;
+  }
+
+  /**
+   * Get impact analysis for a file
+   * Returns all files that transitively depend on this file (recursive dependents)
+   */
+  async getImpactAnalysis(filePath: string, maxDepth: number = 5): Promise<Array<{
+    filePath: string;
+    depth: number;
+    path: string[];
+  }>> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    const impacted: Array<{ filePath: string; depth: number; path: string[] }> = [];
+    const visited = new Set<string>();
+
+    const traverse = (file: string, depth: number, path: string[]) => {
+      if (depth > maxDepth || visited.has(file)) {
+        return;
+      }
+
+      visited.add(file);
+
+      // Get files that import this file
+      const dependents = this.db!.prepare(`
+        SELECT DISTINCT source_file FROM imports WHERE import_path LIKE ?
+      `).all(`%${file}%`) as Array<{ source_file: string }>;
+
+      for (const dep of dependents) {
+        impacted.push({
+          filePath: dep.source_file,
+          depth: depth + 1,
+          path: [...path, dep.source_file]
+        });
+
+        // Recursively traverse
+        traverse(dep.source_file, depth + 1, [...path, dep.source_file]);
+      }
+    };
+
+    traverse(filePath, 0, [filePath]);
+
+    return impacted;
   }
 
   /**
