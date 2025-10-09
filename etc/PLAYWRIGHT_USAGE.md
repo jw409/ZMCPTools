@@ -12,17 +12,19 @@
 - **Fast**: Uses accessibility tree, not pixel-based input
 - **LLM-friendly**: Structured data, no vision models needed
 - **Deterministic**: Avoids ambiguity of screenshot-based approaches
-- **Project-local**: Configured in `.claude/mcp_config.json` (not global `~/.claude`)
+- **Agent-only**: Available to spawned agents, not global Claude Code sessions
 
 **Integration**: Git submodule at `external/playwright-mcp`
+
+**Availability**: Agents can configure on-demand in their context, not loaded globally
 
 ---
 
 ## Configuration
 
-**Location**: `.claude/mcp_config.json` (project-local)
+**Scope**: Agent-only (not loaded in global Claude Code sessions)
 
-**Current Setup**:
+**Recommended Agent Setup**:
 ```json
 {
   "mcpServers": {
@@ -52,12 +54,11 @@
 - **Video**: `--save-video=1280x720` (record all interactions)
 - **Output**: `/home/jw/dev/game1/var/playwright-output` (traces, screenshots, videos)
 
-**Modify Configuration**:
-```bash
-# Edit project-local config
-cat .claude/mcp_config.json
-
-# Restart Claude Code to apply changes
+**Agent Configuration**:
+```typescript
+// Agents can configure playwright-mcp in their context
+// Not loaded globally to avoid session pollution
+// Use only when browser automation is needed
 ```
 
 ---
@@ -615,6 +616,8 @@ for (const file of html_files) {
 
 **Last Updated**: 2025-10-09
 
-**Status**: Active - playwright-mcp integrated as git submodule, configured in project-local .claude/mcp_config.json
+**Status**: Active - playwright-mcp integrated as git submodule, available to agents on-demand (not globally loaded)
 
 **Authority**: Authoritative guide for playwright-mcp usage in ZMCPTools project
+
+**Note**: Not loaded in Claude Code sessions by default. Agents can configure when browser automation is needed.
