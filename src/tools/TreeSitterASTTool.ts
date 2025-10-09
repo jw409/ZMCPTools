@@ -992,20 +992,15 @@ export class TreeSitterASTTool {
 
     try {
       // Try cache first for cacheable operations
-      const cacheableOps = ['parse', 'extract_symbols', 'extract_imports', 'extract_exports', 'get_structure'];
+      // NOTE: 'parse' operation is NOT cacheable because it depends on query parameters
+      // (compact, use_symbol_table, max_depth, include_semantic_hash, etc.)
+      // Caching would return wrong results for different query parameter combinations
+      const cacheableOps = ['extract_symbols', 'extract_imports', 'extract_exports', 'get_structure'];
       if (cacheableOps.includes(operation)) {
         const cached = await this.astCache.get(args.file_path);
         if (cached) {
           // Cache hit - return cached data for the requested operation
           switch (operation) {
-            case 'parse':
-            case 'ast_parse':
-              return {
-                success: true,
-                language: cached.language,
-                ...cached.parseResult,
-                _cached: true
-              };
             case 'extract_symbols':
             case 'ast_extract_symbols':
               return {
@@ -1108,7 +1103,8 @@ export class TreeSitterASTTool {
           result.ast = this.simplifyAST(parseResult.tree.rootNode);
         }
 
-        cacheData.parseResult = result;
+        // NOTE: Don't cache parse results - they depend on query parameters
+        // cacheData.parseResult = result;
         return result;
       }
 
