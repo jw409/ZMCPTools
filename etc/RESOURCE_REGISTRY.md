@@ -1,7 +1,7 @@
 # MCP Resource Registry
 
 **AUTO-GENERATED** from source code by `npm run generate:docs`
-Last generated: 2025-10-09T06:26:36.217Z
+Last generated: 2025-10-09T18:51:03.272Z
 
 ## Available MCP Resources
 
@@ -23,6 +23,10 @@ MCP Resources provide 97% token reduction compared to tools for read-only operat
 | URI Template | Description |
 |--------------|-------------|
 | `project://*/structure` | Get project directory tree with smart ignore patterns (use project://{path}/structure?max_depth=5&exclude=node_modules) |
+| `project://*/dependencies` | Get direct dependencies (imports) for a source file from symbol graph cache (use project://{file_path}/dependencies). Fast SQLite lookup using indexed import tracking. |
+| `project://*/dependents` | Get reverse dependencies (files that import this file) from symbol graph cache (use project://{file_path}/dependents). Fast SQLite lookup for impact analysis. |
+| `project://*/circular-deps` | Detect circular dependency chains in the project using DFS graph traversal (use project://./circular-deps). Helps identify problematic import cycles. |
+| `project://*/impact-analysis` | Analyze impact of changes to a file via recursive dependency traversal (use project://{file_path}/impact-analysis?max_depth=5). Shows all files affected by modifications. |
 
 ### Knowledge Graph
 
@@ -50,7 +54,7 @@ MCP Resources provide 97% token reduction compared to tools for read-only operat
 
 ---
 
-**Total Resources**: 16
+**Total Resources**: 20
 
 ### Log Rotation
 

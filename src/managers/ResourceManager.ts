@@ -17,6 +17,7 @@ import { PathUtils } from "../utils/pathUtils.js";
 import { TreeSitterASTTool } from "../tools/TreeSitterASTTool.js";
 import { TreeSummaryService } from "../services/TreeSummaryService.js";
 import { StoragePathResolver } from "../services/StoragePathResolver.js";
+import { getSymbolGraphIndexer } from "../services/SymbolGraphIndexer.js";
 import { readdir, stat, readFile } from "fs/promises";
 import { join, resolve } from "path";
 import { homedir } from "os";
@@ -206,6 +207,55 @@ export class ResourceManager {
             "path": "project path (. for current directory)",
             "max_depth": "maximum directory depth (default: 5)",
             "exclude": "comma-separated exclude patterns (default: node_modules,dist,.git)"
+          }
+        }
+      },
+      {
+        uriTemplate: "project://*/dependencies",
+        name: "File Dependencies",
+        description:
+          "Get direct dependencies (imports) for a source file from symbol graph cache (use project://{file_path}/dependencies). Fast SQLite lookup using indexed import tracking.",
+        mimeType: "application/json",
+        _meta: {
+          "params": {
+            "file_path": "relative path to source file (in URI path)"
+          }
+        }
+      },
+      {
+        uriTemplate: "project://*/dependents",
+        name: "File Dependents",
+        description:
+          "Get reverse dependencies (files that import this file) from symbol graph cache (use project://{file_path}/dependents). Fast SQLite lookup for impact analysis.",
+        mimeType: "application/json",
+        _meta: {
+          "params": {
+            "file_path": "relative path to source file (in URI path)"
+          }
+        }
+      },
+      {
+        uriTemplate: "project://*/circular-deps",
+        name: "Circular Dependencies",
+        description:
+          "Detect circular dependency chains in the project using DFS graph traversal (use project://./circular-deps). Helps identify problematic import cycles.",
+        mimeType: "application/json",
+        _meta: {
+          "params": {
+            "path": "project path (. for current directory)"
+          }
+        }
+      },
+      {
+        uriTemplate: "project://*/impact-analysis",
+        name: "Impact Analysis",
+        description:
+          "Analyze impact of changes to a file via recursive dependency traversal (use project://{file_path}/impact-analysis?max_depth=5). Shows all files affected by modifications.",
+        mimeType: "application/json",
+        _meta: {
+          "params": {
+            "file_path": "relative path to source file (in URI path)",
+            "max_depth": "maximum traversal depth (default: 5)"
           }
         }
       },
@@ -1789,6 +1839,175 @@ export class ResourceManager {
           )
         };
       }
+    } else if (aspect === "dependencies") {
+      // Get direct dependencies (imports) for a file
+      try {
+        const indexer = getSymbolGraphIndexer();
+        await indexer.initialize(this.repositoryPath);
+
+        const dependencies = await indexer.getFileDependencies(resolvedPath);
+
+        return {
+          uri: `project://${path}`,
+          mimeType: "application/json",
+          text: JSON.stringify(
+            {
+              file_path: resolvedPath,
+              dependencies,
+              total: dependencies.length,
+              timestamp: new Date().toISOString()
+            },
+            null,
+            2
+          )
+        };
+      } catch (error) {
+        return {
+          uri: `project://${path}`,
+          mimeType: "application/json",
+          text: JSON.stringify(
+            {
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "Failed to get file dependencies",
+              file_path: resolvedPath,
+              aspect
+            },
+            null,
+            2
+          )
+        };
+      }
+    } else if (aspect === "dependents") {
+      // Get reverse dependencies (files that import this file)
+      try {
+        const indexer = getSymbolGraphIndexer();
+        await indexer.initialize(this.repositoryPath);
+
+        const dependents = await indexer.getFileDependents(resolvedPath);
+
+        return {
+          uri: `project://${path}`,
+          mimeType: "application/json",
+          text: JSON.stringify(
+            {
+              file_path: resolvedPath,
+              dependents,
+              total: dependents.length,
+              impact_note: "These files import the specified file and may be affected by changes",
+              timestamp: new Date().toISOString()
+            },
+            null,
+            2
+          )
+        };
+      } catch (error) {
+        return {
+          uri: `project://${path}`,
+          mimeType: "application/json",
+          text: JSON.stringify(
+            {
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "Failed to get file dependents",
+              file_path: resolvedPath,
+              aspect
+            },
+            null,
+            2
+          )
+        };
+      }
+    } else if (aspect === "circular-deps") {
+      // Detect circular dependency chains
+      try {
+        const indexer = getSymbolGraphIndexer();
+        await indexer.initialize(this.repositoryPath);
+
+        const cycles = await indexer.detectCircularDependencies();
+
+        return {
+          uri: `project://${path}`,
+          mimeType: "application/json",
+          text: JSON.stringify(
+            {
+              project_path: resolvedPath,
+              circular_dependencies: cycles,
+              total_cycles: cycles.length,
+              severity: cycles.length > 0 ? "warning" : "ok",
+              note: cycles.length > 0
+                ? "Circular dependencies found - consider refactoring to break cycles"
+                : "No circular dependencies detected",
+              timestamp: new Date().toISOString()
+            },
+            null,
+            2
+          )
+        };
+      } catch (error) {
+        return {
+          uri: `project://${path}`,
+          mimeType: "application/json",
+          text: JSON.stringify(
+            {
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "Failed to detect circular dependencies",
+              project_path: resolvedPath,
+              aspect
+            },
+            null,
+            2
+          )
+        };
+      }
+    } else if (aspect === "impact-analysis") {
+      // Recursive impact analysis (all affected files)
+      const maxDepth = parseInt(searchParams.get("max_depth") || "5");
+
+      try {
+        const indexer = getSymbolGraphIndexer();
+        await indexer.initialize(this.repositoryPath);
+
+        const impactedFiles = await indexer.getImpactAnalysis(resolvedPath, maxDepth);
+
+        return {
+          uri: `project://${path}`,
+          mimeType: "application/json",
+          text: JSON.stringify(
+            {
+              file_path: resolvedPath,
+              max_depth: maxDepth,
+              impacted_files: impactedFiles,
+              total_impacted: impactedFiles.length,
+              note: "Files shown in dependency order - changes to the target file may affect these files",
+              timestamp: new Date().toISOString()
+            },
+            null,
+            2
+          )
+        };
+      } catch (error) {
+        return {
+          uri: `project://${path}`,
+          mimeType: "application/json",
+          text: JSON.stringify(
+            {
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "Failed to perform impact analysis",
+              file_path: resolvedPath,
+              aspect
+            },
+            null,
+            2
+          )
+        };
+      }
     } else {
       return {
         uri: `project://${path}`,
@@ -1796,7 +2015,7 @@ export class ResourceManager {
         text: JSON.stringify(
           {
             error: `Unknown project aspect: ${aspect}`,
-            valid_aspects: ["structure"],
+            valid_aspects: ["structure", "dependencies", "dependents", "circular-deps", "impact-analysis"],
             usage: "project://{path}/{aspect}?params"
           },
           null,
