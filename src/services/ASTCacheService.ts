@@ -109,7 +109,7 @@ export class ASTCacheService {
         file_hash TEXT NOT NULL,
         last_modified TEXT NOT NULL,  -- ISO timestamp
         language TEXT NOT NULL,
-        parse_result TEXT NOT NULL,   -- JSON serialized AST
+        parse_result TEXT,            -- JSON serialized AST (nullable - not all operations cache full AST)
         symbols TEXT,                 -- JSON array of symbols
         imports TEXT,                 -- JSON array of imports
         exports TEXT,                 -- JSON array of exports
@@ -239,7 +239,7 @@ export class ASTCacheService {
         data.fileHash,
         data.lastModified.toISOString(),
         data.language,
-        JSON.stringify(data.parseResult),
+        data.parseResult ? JSON.stringify(data.parseResult) : null,
         data.symbols ? JSON.stringify(data.symbols) : null,
         data.imports ? JSON.stringify(data.imports) : null,
         data.exports ? JSON.stringify(data.exports) : null,

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { entityTypeSchema, relationshipTypeSchema } from '../knowledge-graph.js';
+import { entityTypeSchema, relationshipTypeSchema, partitionSchema, getValidEntityTypesForPartition } from '../knowledge-graph.js';
 
 // ===============================================
 // Knowledge Graph Tool Request Schemas
@@ -8,19 +8,32 @@ import { entityTypeSchema, relationshipTypeSchema } from '../knowledge-graph.js'
 export const StoreKnowledgeMemorySchema = z.object({
   repository_path: z.string().min(1).describe("The absolute path to the repository where the knowledge entity should be stored"),
   agent_id: z.string().min(1).describe("The ID of the agent storing this knowledge entity"),
-  entity_type: entityTypeSchema.describe("The type of entity being stored (e.g., 'function', 'class', 'concept', 'file', 'bug', 'feature', 'person', 'organization', 'technology', 'pattern', 'insight', 'question', 'decision', 'requirement', 'test', 'documentation', 'api', 'database', 'configuration', 'deployment', 'performance', 'security', 'error', 'warning', 'todo', 'note', 'example', 'tutorial', 'best_practice', 'anti_pattern', 'code_smell', 'refactor', 'optimization', 'dependency', 'service', 'component', 'module', 'library', 'framework', 'tool', 'script', 'command', 'variable', 'constant', 'enum', 'interface', 'type', 'schema', 'model', 'view', 'controller', 'route', 'middleware', 'plugin', 'extension', 'theme', 'style', 'asset', 'resource', 'data', 'event', 'listener', 'handler', 'callback', 'promise', 'async', 'sync', 'thread', 'process', 'memory', 'storage', 'cache', 'session', 'cookie', 'token', 'auth', 'permission', 'role', 'user', 'group', 'setting', 'config', 'env', 'flag', 'feature_flag', 'experiment', 'metric', 'log', 'trace', 'debug', 'info', 'warn', 'error', 'fatal', 'success', 'failure', 'retry', 'timeout', 'rate_limit', 'quota', 'limit', 'threshold', 'rule', 'policy', 'standard', 'guideline', 'convention', 'protocol', 'format', 'encoding', 'compression', 'encryption', 'hash', 'checksum', 'signature', 'certificate', 'key', 'secret', 'password', 'credential', 'identity', 'profile', 'account', 'subscription', 'plan', 'tier', 'level', 'rank', 'score', 'rating', 'review', 'feedback', 'comment', 'message', 'notification', 'alert', 'reminder', 'task', 'job', 'queue', 'batch', 'stream', 'pipeline', 'workflow', 'process', 'procedure', 'method', 'algorithm', 'structure', 'pattern', 'template', 'prototype', 'mock', 'stub', 'fake', 'spy', 'double', 'fixture', 'seed', 'migration', 'rollback', 'upgrade', 'downgrade', 'patch', 'hotfix', 'release', 'version', 'branch', 'tag', 'commit', 'merge', 'rebase', 'cherry_pick', 'stash', 'diff', 'conflict', 'resolution', 'other')"),
+  partition: partitionSchema.describe("Knowledge partition: dom0 (core), talent (skills/experience), project (code/bugs), session (progress), whiteboard (search results)"),
+  entity_type: z.string().describe("Entity type - valid types depend on partition. Core (all): file, concept, agent, tool, task, requirement, insight. Project adds: repository, dependency, feature, bug, test, documentation, function, class, error, solution, pattern, configuration. Talent adds: skill, experience, goal. Session adds: progress, decision. Whiteboard only: search_result, query, insight"),
   entity_name: z.string().min(1).describe("The name or identifier of the knowledge entity"),
   entity_description: z.string().optional().describe("A detailed description of the knowledge entity and its purpose"),
   importance_score: z.number().min(0).max(1).default(0.5).describe("The importance score of this entity (0.0 to 1.0, where 1.0 is most important)"),
   confidence_score: z.number().min(0).max(1).default(0.7).describe("The confidence score for this entity's accuracy (0.0 to 1.0, where 1.0 is most confident)"),
   properties: z.record(z.string(), z.string()).optional().describe("Additional properties and metadata for the entity as key-value pairs")
+}).superRefine((data, ctx) => {
+  // Validate entity_type is valid for the specified partition
+  const validTypes = getValidEntityTypesForPartition(data.partition);
+  if (!validTypes.includes(data.entity_type)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.invalid_enum_value,
+      message: `Invalid entity type "${data.entity_type}" for partition "${data.partition}". Valid types: ${validTypes.join(', ')}`,
+      path: ['entity_type'],
+      received: data.entity_type,
+      options: validTypes as string[]
+    });
+  }
 }).describe("Store a knowledge entity in the knowledge graph for a specific repository. Use this to capture important information, insights, concepts, or any other knowledge that should be preserved and linked to other entities. The entity will be stored with vector embeddings for semantic search.");
 
 export const CreateRelationshipSchema = z.object({
   repository_path: z.string().min(1).describe("The absolute path to the repository where the relationship should be created"),
   from_entity_id: z.string().min(1).describe("The ID of the source entity in the relationship"),
   to_entity_id: z.string().min(1).describe("The ID of the target entity in the relationship"),
-  relationship_type: relationshipTypeSchema.describe("The type of relationship between the entities (e.g., 'depends_on', 'implements', 'extends', 'uses', 'calls', 'contains', 'part_of', 'similar_to', 'related_to', 'conflicts_with', 'replaces', 'references', 'documents', 'tests', 'configures', 'deploys', 'monitors', 'validates', 'triggers', 'handles', 'processes', 'stores', 'retrieves', 'transforms', 'aggregates', 'filters', 'sorts', 'groups', 'joins', 'merges', 'splits', 'compresses', 'encrypts', 'decrypts', 'hashes', 'signs', 'verifies', 'authenticates', 'authorizes', 'logs', 'traces', 'debugs', 'profiles', 'benchmarks', 'optimizes', 'refactors', 'migrates', 'upgrades', 'downgrades', 'patches', 'releases', 'versions', 'branches', 'tags', 'commits', 'merges', 'rebases', 'cherry_picks', 'stashes', 'diffs', 'conflicts', 'resolves', 'other')"),
+  relationship_type: relationshipTypeSchema.describe("Relationship type (43 types: agent_*, task_*, code relationships like imports/extends/calls, error_*, pattern_*, knowledge relationships like relates_to/depends_on/conflicts_with, discovery relationships like learned_from/applied_to)"),
   strength: z.number().min(0).max(1).default(0.7).describe("The strength of the relationship (0.0 to 1.0, where 1.0 is strongest)"),
   confidence: z.number().min(0).max(1).default(0.7).describe("The confidence in the relationship's accuracy (0.0 to 1.0, where 1.0 is most confident)"),
   context: z.string().optional().describe("Additional context or description about the relationship"),

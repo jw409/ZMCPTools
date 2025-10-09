@@ -131,8 +131,36 @@ ZMCPTools previously included 10 browser-related tools (browser automation + AI 
 
 | Tool Name | Description |
 |-----------|-------------|
-| `mcp__zmcp-tools__store_knowledge_memory` | Store a knowledge entity with creation and immediate embedding |
+| `mcp__zmcp-tools__store_knowledge_memory` | Store a knowledge entity with partition-constrained types. **Requires `partition` field** to prevent NxM explosion |
 | `mcp__zmcp-tools__create_knowledge_relationship` | Create a directional relationship between two entities |
+
+#### Partition-Constrained Entity Types
+
+**Problem**: 22 entity types × 5 partitions = 110 invalid combinations
+
+**Solution**: Each partition has valid entity types enforced at runtime:
+
+| Partition | Valid Entity Types | Use Case |
+|-----------|-------------------|----------|
+| **dom0** (core) | `file`, `concept`, `agent`, `tool`, `task`, `requirement`, `insight` | Universal types valid everywhere |
+| **project** | Core + `repository`, `dependency`, `feature`, `bug`, `test`, `documentation`, `function`, `class`, `error`, `solution`, `pattern`, `configuration` | Code analysis and software artifacts |
+| **talent** | Core + `skill`, `experience`, `goal` | Skills, experience tracking |
+| **session** | Core + `progress`, `decision` | Ephemeral session state |
+| **whiteboard** | `search_result`, `query`, `insight` only | Async search results (no core types) |
+
+**Example - Valid**:
+```typescript
+{ partition: 'project', entity_type: 'repository' }     // ✅
+{ partition: 'talent', entity_type: 'skill' }           // ✅
+{ partition: 'whiteboard', entity_type: 'search_result' } // ✅
+```
+
+**Example - Invalid** (runtime error):
+```typescript
+{ partition: 'whiteboard', entity_type: 'repository' }
+// ❌ Error: Invalid entity type "repository" for partition "whiteboard".
+//          Valid types: search_result, query, insight
+```
 
 ### Management & Cleanup (3 tools)
 

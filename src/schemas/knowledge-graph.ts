@@ -3,7 +3,64 @@ import { sqliteTable, text, real, integer, index } from 'drizzle-orm/sqlite-core
 import { relations, sql } from 'drizzle-orm';
 import { createInsertSchema, createSelectSchema, createUpdateSchema } from 'drizzle-zod';
 
-// Entity types in the knowledge graph
+// ===============================================
+// Partition-Constrained Entity Type Schemas
+// ===============================================
+
+// Partition types
+export const partitionSchema = z.enum(['dom0', 'talent', 'project', 'session', 'whiteboard']);
+
+// 1. Core Entity Types (Universal - valid across all partitions)
+export const coreEntityTypeSchema = z.enum([
+  'file',
+  'concept',
+  'agent',
+  'tool',
+  'task',
+  'requirement',
+  'insight'
+]);
+
+// 2. Project-Specific Entity Types
+export const projectEntityTypeSchema = z.enum([
+  ...coreEntityTypeSchema.options,
+  'repository',
+  'dependency',
+  'feature',
+  'bug',
+  'test',
+  'documentation',
+  'function',
+  'class',
+  'error',
+  'solution',
+  'pattern',
+  'configuration'
+]);
+
+// 3. Talent-Specific Entity Types
+export const talentEntityTypeSchema = z.enum([
+  ...coreEntityTypeSchema.options,
+  'skill',
+  'experience',
+  'goal'
+]);
+
+// 4. Session-Specific Entity Types
+export const sessionEntityTypeSchema = z.enum([
+  ...coreEntityTypeSchema.options,
+  'progress',
+  'decision'
+]);
+
+// 5. Whiteboard-Specific Entity Types (async search results)
+export const whiteboardEntityTypeSchema = z.enum([
+  'search_result',
+  'query',
+  'insight'
+]);
+
+// Legacy unified schema (for backward compatibility)
 export const entityTypeSchema = z.enum([
   'agent',
   'task',
@@ -94,6 +151,51 @@ export const confidenceSchema = z.enum([
 // Entity properties schema
 export const entityPropertiesSchema = z.record(z.string(), z.unknown()).optional();
 export const relationshipPropertiesSchema = z.record(z.string(), z.unknown()).optional();
+
+// ===============================================
+// Partition-Constrained Validation
+// ===============================================
+
+/**
+ * Get valid entity types for a given partition
+ */
+export function getValidEntityTypesForPartition(partition: z.infer<typeof partitionSchema>): readonly string[] {
+  switch (partition) {
+    case 'project':
+      return projectEntityTypeSchema.options;
+    case 'talent':
+      return talentEntityTypeSchema.options;
+    case 'session':
+      return sessionEntityTypeSchema.options;
+    case 'whiteboard':
+      return whiteboardEntityTypeSchema.options;
+    case 'dom0':
+    default:
+      return coreEntityTypeSchema.options;
+  }
+}
+
+/**
+ * Partition-constrained entity schema with runtime validation
+ * Prevents NxM explosion by validating entity_type is valid for the specified partition
+ */
+export const partitionConstrainedEntitySchema = z.object({
+  partition: partitionSchema,
+  entity_type: z.string(),
+  // ... other fields added by consumers
+}).superRefine((data, ctx) => {
+  const validTypes = getValidEntityTypesForPartition(data.partition);
+
+  if (!validTypes.includes(data.entity_type)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.invalid_enum_value,
+      message: `Invalid entity type "${data.entity_type}" for partition "${data.partition}". Valid types: ${validTypes.join(', ')}`,
+      path: ['entity_type'],
+      received: data.entity_type,
+      options: validTypes as string[]
+    });
+  }
+});
 
 // Drizzle table definitions
 export const knowledgeEntities = sqliteTable('knowledge_entities', {

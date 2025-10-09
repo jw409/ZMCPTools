@@ -205,18 +205,30 @@ export class RealFileIndexingService {
       const content = await fs.readFile(filePath, 'utf-8');
       const fileStats = await fs.stat(filePath);
 
-      // Parse the file to extract symbols using TreeSitterASTTool
-      const parseResult = await this.treeParser.executeByToolName('ast_extract_symbols', {
-        file_path: filePath,
-        language: 'auto'
-      });
+      const ext = path.extname(filePath).toLowerCase();
+      let language = 'unknown';
+      let symbols: any[] = [];
 
-      if (!parseResult.success) {
-        throw new Error(parseResult.error || 'Failed to parse file');
+      // For markdown, JSON, YAML, TXT files - just index content without symbols
+      const textOnlyFormats = ['.md', '.txt', '.json', '.yaml', '.yml'];
+      if (textOnlyFormats.includes(ext)) {
+        language = ext.substring(1); // Remove leading dot
+      } else {
+        // For code files, parse to extract symbols using TreeSitterASTTool
+        const parseResult = await this.treeParser.executeByToolName('ast_extract_symbols', {
+          file_path: filePath,
+          language: 'auto'
+        });
+
+        if (!parseResult.success) {
+          // If parsing fails, still index the content without symbols
+          language = ext.substring(1) || 'unknown';
+          logger.debug(`Failed to parse ${filePath}, indexing content only`);
+        } else {
+          language = parseResult.language || 'unknown';
+          symbols = parseResult.symbols || [];
+        }
       }
-
-      const language = parseResult.language || 'unknown';
-      const symbols = parseResult.symbols || [];
 
       // Track language statistics
       if (!stats.languages[language]) {

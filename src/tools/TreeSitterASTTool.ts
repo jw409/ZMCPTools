@@ -461,12 +461,41 @@ export class TreeSitterASTTool {
    */
   async extractSymbols(tree: any, language: string): Promise<any[]> {
     // Python uses pre-extracted symbols from subprocess parser
-    if (language === 'python' && tree.symbols && tree.symbols.symbols) {
-      return tree.symbols.symbols.map((sym: any) => ({
-        name: sym.name,
-        kind: sym.kind || sym.type,
-        location: this.compactLocation(sym.line || 0, sym.col || 0, sym.line || 0, sym.col || 0)
-      }));
+    if (language === 'python' && tree.symbols) {
+      const symbols: any[] = [];
+
+      // Extract functions
+      if (tree.symbols.functions) {
+        symbols.push(...tree.symbols.functions.map((sym: any) => ({
+          name: sym.name,
+          kind: sym.type || 'function',
+          location: this.compactLocation(sym.line || 0, sym.col || 0, sym.line || 0, sym.col || 0)
+        })));
+      }
+
+      // Extract classes with their methods as children
+      if (tree.symbols.classes) {
+        symbols.push(...tree.symbols.classes.map((sym: any) => {
+          const classSymbol: any = {
+            name: sym.name,
+            kind: sym.type || 'class',
+            location: this.compactLocation(sym.line || 0, sym.col || 0, sym.line || 0, sym.col || 0)
+          };
+
+          // Add methods as children if present
+          if (sym.methods && sym.methods.length > 0) {
+            classSymbol.children = sym.methods.map((method: string) => ({
+              name: method,
+              kind: 'method',
+              location: '0:0-0:0' // Method positions not available in Python AST walker
+            }));
+          }
+
+          return classSymbol;
+        }));
+      }
+
+      return symbols;
     }
 
     // TypeScript/JavaScript - build hierarchical structure
@@ -629,10 +658,10 @@ export class TreeSitterASTTool {
     // Python uses a different tree format (from subprocess parser)
     if (language === 'python') {
       if (tree.symbols && tree.symbols.imports) {
-        // Python AST parser already extracted imports
+        // Python AST parser already extracted imports as array of import objects
         return tree.symbols.imports.map((imp: any) => {
-          // Return the full module path
-          return imp.module || imp.from_module || imp.name || '';
+          // Return the module path (handles both 'import x' and 'from x import y')
+          return imp.module || '';
         }).filter((imp: string) => imp.length > 0);
       }
       return imports;
@@ -675,6 +704,27 @@ export class TreeSitterASTTool {
 
   async extractExports(tree: any, language: string): Promise<string[]> {
     const exports: string[] = [];
+
+    // Python uses pre-extracted exports from subprocess parser
+    if (language === 'python') {
+      if (tree.symbols && tree.symbols.exports && tree.symbols.exports.length > 0) {
+        return tree.symbols.exports;
+      }
+      // If no __all__ defined, return public functions and classes
+      const publicSymbols: string[] = [];
+      if (tree.symbols.functions) {
+        publicSymbols.push(...tree.symbols.functions
+          .filter((f: any) => f.is_exported)
+          .map((f: any) => f.name));
+      }
+      if (tree.symbols.classes) {
+        publicSymbols.push(...tree.symbols.classes
+          .filter((c: any) => c.is_exported)
+          .map((c: any) => c.name));
+      }
+      return publicSymbols;
+    }
+
     const cursor = tree.walk();
 
     const findNameInChildren = (node: any): string | null => {
