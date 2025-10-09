@@ -301,11 +301,13 @@ export class ResourceManager {
         uriTemplate: "logs://*/files",
         name: "Log Files",
         description:
-          "📄 LIST LOG FILES: Get all log files in a specific directory (e.g., `logs://agent-123/files`). Returns filenames, sizes, timestamps. Use to identify relevant logs before reading content (recent errors, specific operations).",
+          "📄 LIST LOG FILES (PAGINATED): Get log files with pagination. **Params**: `?limit=100&offset=0`. Default limit: 100, sorted by modified time (newest first). Returns: files array, total, hasMore, nextOffset. Example: `logs://crashes/files?limit=50&offset=0`",
         mimeType: "application/json",
         _meta: {
           "params": {
-            "dirname": "name of the log directory to list files from"
+            "dirname": "name of the log directory to list files from",
+            "limit": "max files to return (default: 100)",
+            "offset": "skip N files (default: 0)"
           }
         }
       },
@@ -313,12 +315,20 @@ export class ResourceManager {
         uriTemplate: "logs://*/content",
         name: "Log File Content",
         description:
-          "📖 READ LOG CONTENT: Get full content of specific log file (e.g., `logs://agent-123/content?file=errors.log`). Use for debugging, error analysis, or reviewing agent execution history. Supports text/plain logs with timestamps and stack traces.",
+          "📖 GREP LOG CONTENT (PAGINATED): Search/filter log content with regex + pagination. **Required**: `?file=error.log`. **Optional**: `pattern=CUDA` (regex), `case_insensitive=true`, `line_numbers=true`, `A=3` (after), `B=3` (before), `C=3` (context), `limit=1000`, `offset=0`. Example: `logs://crashes/content?file=agent.log&pattern=error&case_insensitive=true&line_numbers=true&C=2&limit=100`",
         mimeType: "text/plain",
         _meta: {
           "params": {
             "dirname": "name of the log directory",
-            "file": "name of the log file to read content from"
+            "file": "log file name (required)",
+            "pattern": "regex pattern to match",
+            "case_insensitive": "case-insensitive matching",
+            "line_numbers": "show line numbers",
+            "A": "context lines after match",
+            "B": "context lines before match",
+            "C": "context lines around match",
+            "limit": "max lines to return (default: 1000)",
+            "offset": "skip N matched lines (default: 0)"
           }
         }
       },
@@ -372,7 +382,7 @@ export class ResourceManager {
         if (scheme === "logs" && path.endsWith("/files")) {
           const dirname = path.replace("/files", "");
           if (dirname) {
-            return await this.getLogFiles(dirname);
+            return await this.getLogFiles(dirname, searchParams);
           }
         }
 
@@ -1042,10 +1052,14 @@ export class ResourceManager {
     }
   }
 
-  private async getLogFiles(dirname: string): Promise<TextResourceContents> {
+  private async getLogFiles(dirname: string, searchParams?: URLSearchParams): Promise<TextResourceContents> {
     try {
       const dirPath = this.getLogsPath(dirname);
       const entries = await readdir(dirPath, { withFileTypes: true });
+
+      // Pagination parameters
+      const limit = parseInt(searchParams?.get("limit") || "100");
+      const offset = parseInt(searchParams?.get("offset") || "0");
 
       const files = [];
 
@@ -1063,6 +1077,13 @@ export class ResourceManager {
         }
       }
 
+      // Sort by modified time (newest first)
+      const sortedFiles = files.sort((a, b) => b.modified.localeCompare(a.modified));
+
+      // Apply pagination
+      const paginatedFiles = sortedFiles.slice(offset, offset + limit);
+      const hasMore = offset + limit < sortedFiles.length;
+
       return {
         uri: `logs://${dirname}/files`,
         mimeType: "application/json",
@@ -1070,8 +1091,12 @@ export class ResourceManager {
           {
             directory: dirname,
             path: dirPath,
-            files: files.sort((a, b) => b.modified.localeCompare(a.modified)),
+            files: paginatedFiles,
             total: files.length,
+            limit,
+            offset,
+            hasMore,
+            nextOffset: hasMore ? offset + limit : undefined,
             timestamp: new Date().toISOString(),
           },
           null,
@@ -1120,10 +1145,91 @@ export class ResourceManager {
       const filePath = join(dirPath, filename);
       const content = await readFile(filePath, "utf8");
 
+      // Grep/filter parameters
+      const pattern = searchParams.get("pattern");
+      const caseInsensitive = searchParams.get("case_insensitive") === "true";
+      const lineNumbers = searchParams.get("line_numbers") === "true";
+      const contextBefore = parseInt(searchParams.get("B") || "0");
+      const contextAfter = parseInt(searchParams.get("A") || "0");
+      const contextAround = parseInt(searchParams.get("C") || "0");
+
+      // Pagination parameters
+      const limit = parseInt(searchParams.get("limit") || "1000");
+      const offset = parseInt(searchParams.get("offset") || "0");
+
+      let lines = content.split("\n");
+      let matchedLines: Array<{lineNum: number, content: string, isContext?: boolean}> = [];
+
+      if (pattern) {
+        // Create regex from pattern
+        const flags = caseInsensitive ? "i" : "";
+        const regex = new RegExp(pattern, flags);
+
+        const beforeLines = contextAround || contextBefore;
+        const afterLines = contextAround || contextAfter;
+
+        // Track which lines to include
+        const linesToInclude = new Set<number>();
+
+        // Find matches and mark context lines
+        lines.forEach((line, idx) => {
+          if (regex.test(line)) {
+            // Mark match line
+            linesToInclude.add(idx);
+
+            // Mark context lines
+            for (let i = Math.max(0, idx - beforeLines); i < idx; i++) {
+              linesToInclude.add(i);
+            }
+            for (let i = idx + 1; i <= Math.min(lines.length - 1, idx + afterLines); i++) {
+              linesToInclude.add(i);
+            }
+          }
+        });
+
+        // Build matched lines array
+        const sortedLines = Array.from(linesToInclude).sort((a, b) => a - b);
+        matchedLines = sortedLines.map(idx => ({
+          lineNum: idx + 1,
+          content: lines[idx],
+          isContext: !regex.test(lines[idx])
+        }));
+
+      } else {
+        // No pattern, return all lines
+        matchedLines = lines.map((line, idx) => ({
+          lineNum: idx + 1,
+          content: line
+        }));
+      }
+
+      // Apply pagination
+      const paginatedLines = matchedLines.slice(offset, offset + limit);
+      const hasMore = offset + limit < matchedLines.length;
+
+      // Format output
+      let formattedText = "";
+      if (lineNumbers) {
+        formattedText = paginatedLines.map(l =>
+          `${l.lineNum}:${l.isContext ? "-" : ""} ${l.content}`
+        ).join("\n");
+      } else {
+        formattedText = paginatedLines.map(l => l.content).join("\n");
+      }
+
+      // Add metadata footer
+      const metadata = [
+        `\n---`,
+        `Matches: ${matchedLines.length}`,
+        `Showing: ${offset + 1}-${Math.min(offset + limit, matchedLines.length)}`,
+        hasMore ? `More available: use ?offset=${offset + limit}` : 'End of results',
+        pattern ? `Pattern: ${pattern}${caseInsensitive ? ' (case-insensitive)' : ''}` : 'No filter'
+      ].join('\n');
+
       return {
-        uri: `logs://${dirname}/content?file=${filename}`,
+        uri: `logs://${dirname}/content?file=${filename}${pattern ? `&pattern=${pattern}` : ''}`,
         mimeType: "text/plain",
-        text: content,
+        text: formattedText + metadata,
       };
     } catch (error) {
       return {
@@ -1538,6 +1644,23 @@ export class ResourceManager {
       // Determine MIME type based on aspect
       const mimeType =
         aspect === "structure" ? "text/markdown" : "application/json";
+
+      // Check if operation failed (has errors)
+      if (result.success === false || result.errors) {
+        return {
+          uri: `file://${path}`,
+          mimeType: "application/json",
+          text: JSON.stringify(
+            {
+              uri: `file://${path}`,
+              language: result.language,
+              errors: result.errors || []
+            },
+            null,
+            2
+          ),
+        };
+      }
 
       // Build compact hierarchical output for symbols
       let outputData: any;

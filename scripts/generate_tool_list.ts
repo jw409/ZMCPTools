@@ -231,7 +231,15 @@ MCP Resources provide 97% token reduction compared to tools for read-only operat
     md += `\n`;
   }
 
-  md += `---\n\n**Total Resources**: ${resources.length}\n`;
+  md += `---\n\n**Total Resources**: ${resources.length}\n\n`;
+
+  // Add log rotation documentation
+  md += `### Log Rotation\n\n`;
+  md += `**Automatic archiving**: Run \`npm run logs:rotate\` or \`npm run logs:rotate:dry-run\`\n`;
+  md += `- Archives logs older than 7 days to \`var/harvest/archived_logs/\`\n`;
+  md += `- Purges archived logs older than 90 days\n`;
+  md += `- Configure: \`--days=N --keep-archives-days=N\`\n`;
+  md += `- Safe for scavenger/teacher talent modules (archives preserved)\n`;
 
   writeFileSync('etc/RESOURCE_REGISTRY.md', md);
   console.log('✅ Generated etc/RESOURCE_REGISTRY.md');

@@ -1,7 +1,7 @@
 # MCP Resource Registry
 
 **AUTO-GENERATED** from source code by `npm run generate:docs`
-Last generated: 2025-10-09T06:07:23.151Z
+Last generated: 2025-10-09T06:26:36.217Z
 
 ## Available MCP Resources
 
@@ -45,9 +45,17 @@ MCP Resources provide 97% token reduction compared to tools for read-only operat
 | URI Template | Description |
 |--------------|-------------|
 | `logs://list` | 📂 BROWSE LOG DIRECTORIES: List all log directories in ~/.mcptools/logs/ organized by agent, session, or service type. Use to discover available logs before drilling down to specific files. Returns directory names and file counts. |
-| `logs://*/files` | 📄 LIST LOG FILES: Get all log files in a specific directory (e.g., `logs://agent-123/files`). Returns filenames, sizes, timestamps. Use to identify relevant logs before reading content (recent errors, specific operations). |
-| `logs://*/content` | 📖 READ LOG CONTENT: Get full content of specific log file (e.g., `logs://agent-123/content?file=errors.log`). Use for debugging, error analysis, or reviewing agent execution history. Supports text/plain logs with timestamps and stack traces. |
+| `logs://*/files` | 📄 LIST LOG FILES (PAGINATED): Get log files with pagination. **Params**: `?limit=100&offset=0`. Default limit: 100, sorted by modified time (newest first). Returns: files array, total, hasMore, nextOffset. Example: `logs://crashes/files?limit=50&offset=0` |
+| `logs://*/content` | 📖 GREP LOG CONTENT (PAGINATED): Search/filter log content with regex + pagination. **Required**: `?file=error.log`. **Optional**: `pattern=CUDA` (regex), `case_insensitive=true`, `line_numbers=true`, `A=3` (after), `B=3` (before), `C=3` (context), `limit=1000`, `offset=0`. Example: `logs://crashes/content?file=agent.log&pattern=error&case_insensitive=true&line_numbers=true&C=2&limit=100` |
 
 ---
 
 **Total Resources**: 16
+
+### Log Rotation
+
+**Automatic archiving**: Run `npm run logs:rotate` or `npm run logs:rotate:dry-run`
+- Archives logs older than 7 days to `var/harvest/archived_logs/`
+- Purges archived logs older than 90 days
+- Configure: `--days=N --keep-archives-days=N`
+- Safe for scavenger/teacher talent modules (archives preserved)

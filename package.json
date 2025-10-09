@@ -53,6 +53,8 @@
     "db:push": "drizzle-kit push --config=./drizzle.config.ts",
     "db:studio": "drizzle-kit studio --config=./drizzle.config.ts",
     "db:drop": "drizzle-kit drop --config=./drizzle.config.ts",
+    "logs:rotate": "tsx src/cli/rotate-logs.ts",
+    "logs:rotate:dry-run": "tsx src/cli/rotate-logs.ts --dry-run",
     "install:deps": "pnpm install --frozen-lockfile",
     "install:global": "pnpm build && pnpm link --global && echo '\\n✅ Global link created. Run: zmcp-tools install'",
     "uninstall:global": "zmcp-tools uninstall && pnpm unlink --global",

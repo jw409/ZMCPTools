@@ -250,6 +250,80 @@ export class TreeSitterASTTool {
     }
   }
 
+  /**
+   * Parse JSON file with safeguards against large files and malformed JSON
+   */
+  private async parseJSON(filePath: string, content: string): Promise<ParseResult> {
+    const MAX_JSON_SIZE = 10 * 1024 * 1024; // 10MB limit
+
+    // Check file size
+    if (content.length > MAX_JSON_SIZE) {
+      return {
+        success: false,
+        language: 'json',
+        errors: [{
+          type: 'file_too_large',
+          message: `JSON file exceeds maximum size of ${MAX_JSON_SIZE / (1024 * 1024)}MB (${(content.length / (1024 * 1024)).toFixed(2)}MB). JSON AST parsing is limited to prevent memory issues.`,
+          startPosition: { row: 0, column: 0 },
+          endPosition: { row: 0, column: 0 }
+        }]
+      };
+    }
+
+    try {
+      const parsed = JSON.parse(content);
+
+      // Create a minimal tree structure for diagnostics
+      // JSON doesn't have symbols/imports/exports, only structure validation
+      return {
+        success: true,
+        language: 'json',
+        tree: {
+          rootNode: {
+            type: 'document',
+            startPosition: { row: 0, column: 0 },
+            endPosition: { row: content.split('\n').length - 1, column: 0 },
+            childCount: 0,
+            children: [],
+            text: 'Valid JSON document'
+          },
+          walk: () => ({
+            currentNode: { type: 'document' },
+            gotoFirstChild: () => false,
+            gotoNextSibling: () => false,
+            gotoParent: () => false
+          })
+        },
+        errors: undefined
+      };
+    } catch (error) {
+      // Parse JSON error to extract line/column
+      let line = 0;
+      let column = 0;
+      let errorMessage = error instanceof Error ? error.message : 'Invalid JSON';
+
+      // Try to extract position from error message (e.g., "Unexpected token } in JSON at position 123")
+      const posMatch = errorMessage.match(/at position (\d+)/);
+      if (posMatch && content) {
+        const position = parseInt(posMatch[1]);
+        const beforeError = content.substring(0, position);
+        line = (beforeError.match(/\n/g) || []).length;
+        column = position - beforeError.lastIndexOf('\n') - 1;
+      }
+
+      return {
+        success: false,
+        language: 'json',
+        errors: [{
+          type: 'json_parse_error',
+          message: `JSON parse error: ${errorMessage}`,
+          startPosition: { row: line, column: column },
+          endPosition: { row: line, column: column }
+        }]
+      };
+    }
+  }
+
   private supportsLanguage(language: string): boolean {
     // For now, only TypeScript/JavaScript are fully supported
     // Other languages will return basic structure
@@ -958,10 +1032,14 @@ export class TreeSitterASTTool {
               };
             case 'get_structure':
             case 'ast_get_structure':
+              // If structure not in cache, fall through to recompute
+              if (!cached.structure) {
+                break; // Exit switch to recompute
+              }
               return {
                 success: true,
                 language: cached.language,
-                structure: cached.structure || '',
+                structure: cached.structure,
                 _cached: true
               };
           }
@@ -1342,10 +1420,20 @@ export class TreeSitterASTTool {
     };
 
     // Extract name for named nodes
-    const nameNode = node.childForFieldName?.('name');
-    if (nameNode) {
+    let nameNode = node.childForFieldName?.('name');
+
+    // Fallback to findNameInChildren for TS/JS nodes (childForFieldName is stubbed for TS compiler API)
+    if (!nameNode) {
+      const foundName = this.findNameInChildren(node);
+      if (foundName) {
+        compactNode.name = foundName;
+        nameNode = { text: foundName }; // Create stub node for consistency
+      }
+    } else {
       compactNode.name = nameNode.text;
-    } else if (node.type === 'import_statement' || node.type === 'import_from_statement') {
+    }
+
+    if (node.type === 'import_statement' || node.type === 'import_from_statement') {
       // For imports, get the module/source
       const sourceNode = node.childForFieldName?.('source') || node.childForFieldName?.('module_name');
       if (sourceNode) {
