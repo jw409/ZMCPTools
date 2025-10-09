@@ -33,7 +33,7 @@
   ],
   "preferGlobal": true,
   "scripts": {
-    "build": "tsup",
+    "build": "npm run generate:docs && tsup",
     "postbuild": "chmod +x dist/server/index.js dist/cli/index.js dist/talent-server/index.js || true",
     "generate:docs": "tsx scripts/generate_tool_list.ts",
     "dev": "tsx src/index.ts",

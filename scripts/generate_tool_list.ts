@@ -187,8 +187,74 @@ See [GitHub Issue #35](https://github.com/jw409/ZMCPTools/issues/35) for migrati
   md += `**Token optimization**: Resources use ~30 tokens vs ~200 tokens for equivalent tools\n`;
   md += `**Total savings**: ~13,000+ tokens in system prompts vs tool-based approach\n`;
 
-  writeFileSync('TOOL_LIST.md', md);
-  console.log('✅ Generated TOOL_LIST.md');
+  // Write to etc/ directory
+  writeFileSync('etc/TOOL_LIST.md', md);
+  console.log('✅ Generated etc/TOOL_LIST.md');
+
+  // Generate RESOURCE_REGISTRY.md
+  await generateResourceRegistry(resources);
+
+  // Generate AGENT_TOOL_LIST.md (simplified for agent contexts)
+  await generateAgentToolList(activeTools);
+}
+
+async function generateResourceRegistry(resources: Resource[]) {
+  const resourcesByCategory = groupBy(resources, 'category');
+
+  let md = `# MCP Resource Registry
+
+**AUTO-GENERATED** from source code by \`npm run generate:docs\`
+Last generated: ${new Date().toISOString()}
+
+## Available MCP Resources
+
+MCP Resources provide 97% token reduction compared to tools for read-only operations.
+
+`;
+
+  for (const [category, categoryResources] of resourcesByCategory) {
+    md += `### ${category}\n\n`;
+    md += `| URI Template | Description |\n`;
+    md += `|--------------|-------------|\n`;
+
+    for (const resource of categoryResources) {
+      md += `| \`${resource.uriTemplate}\` | ${resource.description} |\n`;
+    }
+    md += `\n`;
+  }
+
+  md += `---\n\n**Total Resources**: ${resources.length}\n`;
+
+  writeFileSync('etc/RESOURCE_REGISTRY.md', md);
+  console.log('✅ Generated etc/RESOURCE_REGISTRY.md');
+}
+
+async function generateAgentToolList(tools: Tool[]) {
+  const toolsByCategory = groupBy(tools, 'category');
+
+  let md = `# Agent Tool List
+
+**AUTO-GENERATED** from source code by \`npm run generate:docs\`
+Last generated: ${new Date().toISOString()}
+
+Simplified tool reference for agent contexts (removes verbose descriptions).
+
+## Available Tools by Category
+
+`;
+
+  for (const [category, categoryTools] of toolsByCategory) {
+    md += `### ${category} (${categoryTools.length})\n\n`;
+    for (const tool of categoryTools.sort((a, b) => a.name.localeCompare(b.name))) {
+      md += `- \`${tool.name}\`\n`;
+    }
+    md += `\n`;
+  }
+
+  md += `---\n\n**Total Tools**: ${tools.length}\n`;
+
+  writeFileSync('etc/AGENT_TOOL_LIST.md', md);
+  console.log('✅ Generated etc/AGENT_TOOL_LIST.md');
 }
 
 generateToolList().catch(console.error);

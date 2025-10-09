@@ -11,7 +11,9 @@
 | Document | Location | Purpose | Last Updated |
 |----------|----------|---------|--------------|
 | **Main README** | `README.md` | Project overview, quickstart | Check file |
-| **Tool List** | `TOOL_LIST.md` | Complete MCP tool catalog | Auto-generated |
+| **Tool List** | `etc/TOOL_LIST.md` | Complete MCP tool catalog | Auto-generated |
+| **Agent Tool List** | `etc/AGENT_TOOL_LIST.md` | Tool catalog for agent contexts | Auto-generated |
+| **Resource Registry** | `etc/RESOURCE_REGISTRY.md` | MCP resource catalog | Auto-generated |
 | **CLAUDE.md** | `CLAUDE.md` | Bootloader for agent context | 2025-10-08 |
 
 ### Architecture & Strategy
@@ -20,6 +22,24 @@
 |----------|----------|---------|--------------|
 | **Embedding Strategy** | `etc/EMBEDDING_STRATEGY.md` | GPU/CPU embedding model selection, LanceDB architecture | 2025-10-03 |
 | **GitHub Issues Guide** | `etc/GITHUB_ISSUES.md` | Labels, issue creation, workflow integration | 2025-10-08 |
+
+### Design Decisions
+
+| Document | Location | Purpose | Last Updated |
+|----------|----------|---------|--------------|
+| **Embedding Model Selection** | `etc/decisions/EMBEDDING_MODEL_SELECTION.md` | Why Gemma3-300M for embeddings | Check file |
+| **Resources vs Tools** | `etc/decisions/RESOURCES_VS_TOOLS_DECISION.md` | When to use MCP resources vs tools | Check file |
+| **Browser Tools Archive** | `etc/decisions/WHY_ARCHIVED_LEGACY_BROWSER_TOOLS.md` | Why we migrated to Playwright MCP | Check file |
+| **AST Storage Architecture** | `etc/decisions/AST_STORAGE_ARCHITECTURE.md` | Code symbol storage design | Check file |
+
+### Test Plans & Validation
+
+| Document | Location | Purpose | Last Updated |
+|----------|----------|---------|--------------|
+| **GPU Embedding Tests** | `etc/test-plans/GPU_EMBEDDING_TEST_CRITERIA.md` | GPU embedding test criteria | Check file |
+| **Phase 5 Test Plan** | `etc/test-plans/TEST_PLAN_PHASE5.md` | Phase 5 test plan | Check file |
+| **Collaborative Agent Validation** | `etc/test-plans/VALIDATION_PROTOCOL_COLLABORATIVE_AGENTS.md` | Agent validation protocol | Check file |
+| **Reproducible Benchmarks** | `etc/test-plans/README_REPRODUCIBLE_BENCHMARK.md` | Benchmark setup guide | Check file |
 
 ### Development Workflows
 
@@ -59,7 +79,9 @@
 - **Embedding/Search**: → `etc/EMBEDDING_STRATEGY.md`
 - **GitHub Operations**: → `etc/GITHUB_ISSUES.md`
 - **Agent Workflow**: → `etc/AGENT_VERIFICATION_CHECKLIST.md`
-- **Tool Reference**: → `TOOL_LIST.md`
+- **Tool Reference**: → `etc/TOOL_LIST.md`
+- **Design Decisions**: → `etc/decisions/`
+- **Test Plans**: → `etc/test-plans/`
 
 ---
 
@@ -70,8 +92,10 @@
 **Purpose**: Long-term strategy, model selection, system design
 
 - `etc/EMBEDDING_STRATEGY.md` - GPU model choice (Gemma3), LanceDB patterns
-- Future: `etc/STORAGE_ARCHITECTURE.md` - SQLite vs LanceDB patterns
-- Future: `etc/MCP_RESOURCE_DESIGN.md` - Resource vs tool decision tree
+- `etc/decisions/EMBEDDING_MODEL_SELECTION.md` - Gemma3-300M selection rationale
+- `etc/decisions/RESOURCES_VS_TOOLS_DECISION.md` - Resource vs tool decision tree
+- `etc/decisions/AST_STORAGE_ARCHITECTURE.md` - Code symbol storage patterns
+- `etc/decisions/WHY_ARCHIVED_LEGACY_BROWSER_TOOLS.md` - Playwright migration rationale
 
 ### 🔧 Developer Workflows
 
@@ -79,13 +103,18 @@
 
 - `etc/AGENT_VERIFICATION_CHECKLIST.md` - Verify agent work (files changed, tests pass)
 - `etc/GITHUB_ISSUES.md` - Labels, issue creation, PR linking
-- Future: `etc/TESTING_STRATEGY.md` - Unit vs integration vs E2E
+- `etc/test-plans/VALIDATION_PROTOCOL_COLLABORATIVE_AGENTS.md` - Agent validation protocol
+- `etc/test-plans/GPU_EMBEDDING_TEST_CRITERIA.md` - GPU embedding test criteria
+- `etc/test-plans/TEST_PLAN_PHASE5.md` - Phase 5 test plan
+- `etc/test-plans/README_REPRODUCIBLE_BENCHMARK.md` - Benchmark setup guide
 
 ### 📚 Reference & Catalogs
 
 **Purpose**: Lookup tables, generated lists, API references
 
-- `TOOL_LIST.md` - Complete MCP tool catalog (auto-generated)
+- `etc/TOOL_LIST.md` - Complete MCP tool catalog (auto-generated)
+- `etc/AGENT_TOOL_LIST.md` - Tool catalog for agent contexts (auto-generated)
+- `etc/RESOURCE_REGISTRY.md` - MCP resource catalog (auto-generated)
 - Future: `etc/generated/SERVICE_PORTS.md` - Port assignments
 - Future: `etc/generated/MCP_RESOURCES.md` - Available MCP resources
 
@@ -158,9 +187,11 @@
 | Available GitHub labels? | `etc/GITHUB_ISSUES.md` → "Available Labels" section |
 | Which embedding model to use? | `etc/EMBEDDING_STRATEGY.md` → "Model Selection" section |
 | How to verify agent work? | `etc/AGENT_VERIFICATION_CHECKLIST.md` → "Verification Checklist" |
-| List of all MCP tools? | `TOOL_LIST.md` (auto-generated) |
+| List of all MCP tools? | `etc/TOOL_LIST.md` (auto-generated) |
 | Service port assignments? | `etc/generated/SERVICE_PORTS.md` (if exists) |
 | How to create GitHub issue? | `etc/GITHUB_ISSUES.md` → "Issue Creation Protocol" |
+| Design decision rationale? | `etc/decisions/` (by topic) |
+| Test criteria for feature? | `etc/test-plans/` (by feature) |
 
 ### "How do I...?"
 
@@ -169,8 +200,10 @@
 | Create a GitHub issue | `etc/GITHUB_ISSUES.md` → "Issue Creation Protocol" |
 | Verify agent completed work | `etc/AGENT_VERIFICATION_CHECKLIST.md` → "Post-Agent Verification Protocol" |
 | Choose embedding model | `etc/EMBEDDING_STRATEGY.md` → "Model Selection: Gemma3-300M" |
-| Add new MCP tool | `TOOL_LIST.md` → Check pattern, then implement |
+| Add new MCP tool | `etc/TOOL_LIST.md` → Check pattern, then implement |
 | Debug semantic search | `etc/EMBEDDING_STRATEGY.md` → "Troubleshooting" |
+| Understand design decision | `etc/decisions/` → Find relevant decision doc |
+| Find test criteria | `etc/test-plans/` → Find relevant test plan |
 
 ---
 
@@ -180,7 +213,9 @@
 
 | File | Generated By | Update Frequency | Usage |
 |------|--------------|------------------|-------|
-| `TOOL_LIST.md` | Build process | On code change | MCP tool reference |
+| `etc/TOOL_LIST.md` | Build process | On code change | MCP tool reference |
+| `etc/AGENT_TOOL_LIST.md` | Build process | On code change | Agent tool catalog |
+| `etc/RESOURCE_REGISTRY.md` | Build process | On code change | MCP resource registry |
 | `etc/generated/SERVICE_PORTS.md` | Post-commit hook | Every commit | Port discovery |
 | `etc/generated/MCP_RESOURCES.md` | Runtime discovery | On server start | Resource catalog |
 
@@ -270,7 +305,7 @@ gh issue create --label "enhancement"
 
 ---
 
-**Last Updated**: 2025-10-08 (Initial creation)
+**Last Updated**: 2025-10-08 (Reorganized with etc/decisions/ and etc/test-plans/ subdirs)
 
 **Status**: Living document - update whenever new docs added
 
