@@ -123,6 +123,7 @@
 **Purpose**: End-user documentation
 
 - `README.md` - Quickstart, installation, usage examples
+- `etc/PLAYWRIGHT_USAGE.md` - Browser automation via playwright-mcp (2025-10-09)
 - Future: `docs/SEMANTIC_SEARCH_GUIDE.md` - How to use semantic search
 - Future: `docs/CODE_ACQUISITION_GUIDE.md` - External repo indexing
 
@@ -190,6 +191,7 @@
 | List of all MCP tools? | `etc/TOOL_LIST.md` (auto-generated) |
 | Service port assignments? | `etc/generated/SERVICE_PORTS.md` (if exists) |
 | How to create GitHub issue? | `etc/GITHUB_ISSUES.md` → "Issue Creation Protocol" |
+| Browser automation usage? | `etc/PLAYWRIGHT_USAGE.md` → Full playwright-mcp guide |
 | Design decision rationale? | `etc/decisions/` (by topic) |
 | Test criteria for feature? | `etc/test-plans/` (by feature) |
 
@@ -202,6 +204,7 @@
 | Choose embedding model | `etc/EMBEDDING_STRATEGY.md` → "Model Selection: Gemma3-300M" |
 | Add new MCP tool | `etc/TOOL_LIST.md` → Check pattern, then implement |
 | Debug semantic search | `etc/EMBEDDING_STRATEGY.md` → "Troubleshooting" |
+| Automate browser interactions | `etc/PLAYWRIGHT_USAGE.md` → "Usage Patterns" + Examples |
 | Understand design decision | `etc/decisions/` → Find relevant decision doc |
 | Find test criteria | `etc/test-plans/` → Find relevant test plan |
 
@@ -305,7 +308,7 @@ gh issue create --label "enhancement"
 
 ---
 
-**Last Updated**: 2025-10-08 (Reorganized with etc/decisions/ and etc/test-plans/ subdirs)
+**Last Updated**: 2025-10-09 (Added PLAYWRIGHT_USAGE.md for browser automation)
 
 **Status**: Living document - update whenever new docs added
 
