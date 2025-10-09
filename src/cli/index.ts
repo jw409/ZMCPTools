@@ -1,6 +1,5 @@
 import { Command } from "commander";
 import path from "path";
-import os from "os";
 import { fileURLToPath } from "url";
 import { McpToolsServer } from "../server/McpServer.js";
 import { DatabaseManager } from "../database/index.js";
@@ -10,14 +9,15 @@ import {
   CommunicationService,
   MemoryService,
 } from "../services/index.js";
+import { pathResolver } from "../utils/pathResolver.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const program = new Command();
 
-// Default data directory
-const DEFAULT_DATA_DIR = path.join(os.homedir(), ".mcptools", "data");
+// Default data directory - uses pathResolver for project-local support (issue #6)
+const DEFAULT_DATA_DIR = path.dirname(pathResolver.getDatabasePath());
 
 // Colors for console output
 const colors = {

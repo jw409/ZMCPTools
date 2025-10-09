@@ -9,14 +9,11 @@ import { McpToolsServer } from './server/McpServer.js';
 import { CrashHandler, wrapMainServer } from './utils/crashHandler.js';
 import path from 'path';
 import './TEST_LOCAL_VERSION.js';
-import os from 'os';
+import { pathResolver } from './utils/pathResolver.js';
 
 // Export key components for testing and external use
 export { ClaudeProcess, ClaudeSpawner, ProcessReaper } from './process/index.js';
 export type { ClaudeSpawnConfig } from './process/index.js';
-
-// Default configuration
-const DEFAULT_DATA_DIR = path.join(os.homedir(), '.mcptools', 'data');
 
 async function mainServer() {
   // Parse command line arguments for transport options
@@ -29,9 +26,12 @@ async function mainServer() {
   const httpPort = (portIndex !== -1 && args[portIndex + 1]) ? parseInt(args[portIndex + 1]) : 4269;
   const httpHost = (hostIndex !== -1 && args[hostIndex + 1]) ? args[hostIndex + 1] : '127.0.0.1';
 
-  // Get data directory from environment or use default
-  const dataDir = process.env.MCPTOOLS_DATA_DIR || DEFAULT_DATA_DIR;
-  const databasePath = path.join(dataDir, 'claude_mcp_tools.db');
+  // Get database path using pathResolver (supports project-local via issue #6 fix)
+  // MCPTOOLS_DATA_DIR env var still supported for backward compatibility
+  const databasePath = process.env.MCPTOOLS_DATA_DIR
+    ? path.join(process.env.MCPTOOLS_DATA_DIR, 'claude_mcp_tools.db')
+    : pathResolver.getDatabasePath();
+  const dataDir = path.dirname(databasePath);
 
   // MCP servers must not output to stdout - using stderr for startup messages
   process.stderr.write('🚀 Starting ZMCPTools TypeScript Server...\n');

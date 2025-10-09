@@ -4,6 +4,7 @@ import path from 'path';
 import os from 'os';
 import net from 'net';
 import { getTsxCommand, getNodeVersion, supportsImportFlag } from '../utils/nodeCompatibility.js';
+import { pathResolver } from '../utils/pathResolver.js';
 
 // Colors for console output
 const colors = {
@@ -19,11 +20,12 @@ const colors = {
   dim: '\x1b[2m'
 };
 
-// Installation paths
+// Installation paths - use pathResolver for legacy global paths (issue #6)
+// Note: These are READ-ONLY legacy paths for backward compatibility only
 const INSTALL_PATHS = {
-  DATA_DIR: path.join(os.homedir(), '.mcptools', 'data'),
-  LOGS_DIR: path.join(os.homedir(), '.mcptools', 'logs'),
-  GLOBAL_DIR: path.join(os.homedir(), '.mcptools'),
+  DATA_DIR: pathResolver.getUserDataPath(),  // Legacy global path
+  LOGS_DIR: pathResolver.getLogsDirectory(), // Legacy global path
+  GLOBAL_DIR: pathResolver.getGlobalDirectory(), // Legacy global path
   CLAUDE_DIR: path.join(os.homedir(), '.claude'),
 };
 
@@ -439,7 +441,8 @@ async function addMcpServer(packageManager?: { name: string; installCommand: str
   
   try {
     // Use stdio transport (no OAuth required for local development)
-    const mcpCommand = `claude mcp add claude-mcp-tools -s local -e MCPTOOLS_DATA_DIR="${path.join(os.homedir(), '.mcptools', 'data')}" -- claude-mcp-server`;
+    // Note: MCPTOOLS_DATA_DIR env var preserved for backward compatibility (issue #6)
+    const mcpCommand = `claude mcp add claude-mcp-tools -s local -e MCPTOOLS_DATA_DIR="${INSTALL_PATHS.DATA_DIR}" -- claude-mcp-server`;
     
     try {
       // Try to add the server
@@ -468,7 +471,7 @@ async function addMcpServer(packageManager?: { name: string; installCommand: str
     
   } catch (error) {
     logError(`Failed to add MCP server: ${error}`);
-    logWarning(`You can manually add it with: claude mcp add claude-mcp-tools -s local -e MCPTOOLS_DATA_DIR="${path.join(os.homedir(), '.mcptools', 'data')}" -- claude-mcp-server`);
+    logWarning(`You can manually add it with: claude mcp add claude-mcp-tools -s local -e MCPTOOLS_DATA_DIR="${INSTALL_PATHS.DATA_DIR}" -- claude-mcp-server`);
     return false;
   }
 }
@@ -821,7 +824,7 @@ For any new complex task:
 4. ✅ \`join_room("task-coordination")\` - Monitor progress
 5. ✅ \`store_knowledge_memory()\` - Document learnings throughout
 
-**Data Location**: \`~/.mcptools/data/\` (SQLite databases with agent coordination, shared memory, and knowledge graphs)
+**Data Location**: Project-local var/db/ or global ~/.mcptools/data/ (SQLite databases with agent coordination, shared memory, and knowledge graphs). Set ZMCP_USE_LOCAL_DB=true for project isolation.
 
 🎯 **Core Principle**: Always use multi-agent orchestration for complex tasks. Single agents are for investigation and simple operations only.
 <!-- zzZMCPToolsTypescriptzz END -->`;
@@ -982,7 +985,7 @@ export async function install(options: { globalOnly?: boolean; projectOnly?: boo
   } else {
     console.log(`│ • MCP server: claude-mcp-tools (direct command)   │`);
   }
-  console.log(`│ • Data storage: ~/.mcptools/data/                 │`);
+  console.log(`│ • Data storage: project var/ or ~/.mcptools/data/ │`);
   if (!options.globalOnly) {
     console.log(`│ • Project config: ./.claude/settings.local.json  │`);
     console.log(`│ • Project integration: ./CLAUDE.md               │`);

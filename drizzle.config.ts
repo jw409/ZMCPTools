@@ -1,12 +1,13 @@
 import { defineConfig } from 'drizzle-kit';
 import { join } from 'path';
-import { homedir } from 'os';
+import { StoragePathResolver } from './src/services/StoragePathResolver.js';
 
 // Get project root - works in both development and production
 const projectRoot = process.cwd();
 
-// Simplified: use global database path directly
-const dbPath = join(homedir(), '.mcptools', 'data', 'claude_mcp_tools.db');
+// Use StoragePathResolver for proper dom0/domU isolation (fixes GitHub issue #6)
+const storageConfig = StoragePathResolver.getStorageConfig({ preferLocal: true });
+const dbPath = StoragePathResolver.getSQLitePath(storageConfig, 'claude_mcp_tools');
 
 const config = defineConfig({
   schema: [
@@ -20,7 +21,7 @@ const config = defineConfig({
     join(projectRoot, 'src', 'schemas', 'scraping.ts'),
     join(projectRoot, 'src', 'schemas', 'tasks.ts'),
   ],
-  out: join(homedir(), '.mcptools', 'data', 'sqlite', 'migrations'),
+  out: join(StoragePathResolver.getBaseStoragePath(storageConfig), 'sqlite', 'migrations'),
   dialect: 'sqlite',
   dbCredentials: {
     url: dbPath,
