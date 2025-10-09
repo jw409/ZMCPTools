@@ -43,13 +43,6 @@ import type {
 
 import { DatabaseManager } from "../database/index.js";
 import { WebScrapingService } from "../services/WebScrapingService.js";
-import { ReportProgressTool } from "../tools/ReportProgressTool.js";
-import {
-  BrowserTools,
-  SessionConfigSchema,
-  SessionMetadataSchema,
-} from "../tools/BrowserTools.js";
-import { BrowserAIDOMTools } from "../tools/BrowserAIDOMTools.js";
 import {
   AgentService,
   KnowledgeGraphService,
@@ -88,11 +81,8 @@ export interface McpServerOptions {
 export class McpToolsServer {
   private mcpServer: Server;
   private db: DatabaseManager;
-  private browserTools: BrowserTools;
-  private browserAIDOMTools: BrowserAIDOMTools;
   private webScrapingService: WebScrapingService;
   private knowledgeGraphMcpTools: KnowledgeGraphMcpTools;
-  private reportProgressTool: ReportProgressTool;
   private resourceManager: ResourceManager;
   private promptManager: PromptManager;
   private lanceDBManager: LanceDBService;
@@ -318,14 +308,7 @@ export class McpToolsServer {
     );
 
     // Initialize tools
-    this.browserTools = new BrowserTools(
-      knowledgeGraphService,
-      this.repositoryPath,
-      this.db
-    );
-    this.browserAIDOMTools = new BrowserAIDOMTools(this.db);
     this.knowledgeGraphMcpTools = new KnowledgeGraphMcpTools(this.db);
-    this.reportProgressTool = new ReportProgressTool(this.db);
 
     // REMOVED deprecated tool initialization:
     // - fileOperationsService, treeSummaryService (deprecated - use MCP resources)
@@ -548,28 +531,19 @@ export class McpToolsServer {
 
   public getAvailableTools(): McpTool[] {
     return [
-      // Browser automation (5 tools)
-      ...this.browserTools.getTools(),
-
-      // Browser AI DOM navigation (5 tools)
-      ...this.browserAIDOMTools.getTools(),
-
-      // Knowledge graph core + GPU (13 tools total per TOOL_LIST.md)
-      // - Core: store/create/search/find (4 tools)
-      // - GPU: search_gpu/status/reindex (3 tools)
-      // - Mgmt: update/prune/compact/export/wipe (6 tools)
+      // Knowledge graph core + GPU (10 tools total)
+      // - Core: store/create (2 tools)
+      // - GPU: search_gpu/status/switch_mode (3 tools)
+      // - Mgmt: update/prune/compact/export/wipe (5 tools)
       ...this.knowledgeGraphMcpTools.getTools(),
       ...gpuKnowledgeTools,
 
-      // Progress reporting (1 tool)
-      ...this.reportProgressTool.getTools(),
-
-      // REMOVED - NOT in TOOL_LIST.md (saves ~7k tokens):
+      // REMOVED - NOT in TOOL_LIST.md:
+      // - Browser tools (10 tools): Use external/playwright-mcp submodule instead
+      // - reportProgressTool: Moved to agent-only context (not global)
       // - analysisMcpTools: DEPRECATED (moved to MCP resources)
       // - treeSummaryTools: DEPRECATED (moved to MCP resources)
-      // - hybridSearchTools: Undocumented
-      // - unifiedSearchTools: Undocumented
-      // - codeAcquisitionTools: Undocumented
+      // - hybridSearchTools, unifiedSearchTools, codeAcquisitionTools: Undocumented
 
       // NOTE: Agent orchestration, communication, plan management removed
       // Will be re-added via claude-agent-sdk integration

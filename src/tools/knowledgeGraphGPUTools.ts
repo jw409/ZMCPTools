@@ -36,13 +36,7 @@ const SwitchEmbeddingModeSchema = z.object({
  */
 export const searchKnowledgeGraphGPU: Tool = {
   name: 'search_knowledge_graph_gpu',
-  description: `GPU semantic search with Gemma3-768D embeddings (~10x faster than baseline).
-
-**Requires**: Embedding service at GPU_EMBEDDING_SERVICE_URL (default: http://localhost:8765). Local: systemctl --user start embedding-service. **Fails if GPU unavailable** - use baseline search_knowledge_graph for CPU fallback.
-
-**Params**: use_bm25 (default false, experimental), model (reserved for future - currently fixed gemma3), use_reranker (deferred).
-
-**Returns**: Entity results + metadata (model_used: 'gemma3', dimensions: 768).`,
+  description: 'GPU semantic search with auto-fallback. See TOOL_LIST.md',
   inputSchema: zodToJsonSchema(SearchKnowledgeGraphGPUSchema) as any,
 
   async handler({ repository_path, query, limit, threshold, entity_types, include_relationships }) {
@@ -98,9 +92,7 @@ export const searchKnowledgeGraphGPU: Tool = {
  */
 export const getEmbeddingStatus: Tool = {
   name: 'get_embedding_status',
-  description: `GPU service diagnostics at configured endpoint (default localhost:8765).
-
-**Returns**: service health, active model, VRAM usage, **project-local LanceDB collection status** (which collections exist at repository_path/var/storage/lancedb/, vector counts, model compatibility). Use to verify GPU before operations or debug collection issues.`,
+  description: 'GPU service diagnostics and LanceDB status. See TOOL_LIST.md',
   inputSchema: zodToJsonSchema(GetEmbeddingStatusSchema) as any,
 
   async handler({ repository_path }) {
@@ -186,19 +178,7 @@ export const getEmbeddingStatus: Tool = {
  */
 export const switchEmbeddingMode: Tool = {
   name: 'switch_embedding_mode',
-  description: `Switch between different embedding models for quality/performance trade-offs.
-
-**Available models**:
-- **qwen3**: Qwen3-0.6B, 1024 dimensions, best quality (0.705 score), requires GPU
-- **gemma3**: EmbeddingGemma-300M, 768 dimensions, balanced, requires GPU
-- **minilm**: MiniLM-L6-v2, 384 dimensions, CPU fallback, basic quality
-
-**When to use**:
-- Switch to qwen3 for highest quality semantic search
-- Use gemma3 for balanced performance/quality
-- Use minilm when GPU unavailable or for basic searches
-
-Note: Switching models may require re-indexing existing collections for consistency.`,
+  description: 'Switch embedding models (qwen3/gemma3/minilm) for A/B testing. See TOOL_LIST.md',
   inputSchema: zodToJsonSchema(SwitchEmbeddingModeSchema) as any,
 
   async handler({ repository_path, model }) {

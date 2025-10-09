@@ -22,14 +22,19 @@ discovery:
 
 ## Discovery Protocol
 
+**Progressive discovery** (load on demand, not upfront):
+1. Read `TOOL_LIST.md` to see available tools
+2. Call specific tools when needed
+3. Full documentation in TOOL_LIST.md (not in tool registration)
+
 **MCP Resources** (primary):
 - `ListMcpResourcesTool` - See available resources
 - `ReadMcpResourceTool` - Read specific resources
 
 **Documentation & References** (authoritative):
-- `cat etc/META_DOCUMENTATION_MAP.md` - Documentation index (start here)
+- `cat TOOL_LIST.md` - MCP tool catalog (READ FIRST for tool discovery)
+- `cat etc/META_DOCUMENTATION_MAP.md` - Documentation index
 - `cat etc/GITHUB_ISSUES.md` - GitHub labels & issue protocol
-- `cat TOOL_LIST.md` - MCP tool catalog
 
 ## Core Patterns
 

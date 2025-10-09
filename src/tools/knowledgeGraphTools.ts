@@ -73,14 +73,14 @@ export class KnowledgeGraphMcpTools {
     return [
       {
         name: 'store_knowledge_memory',
-        description: 'Store a knowledge graph memory with entity creation',
+        description: 'Store knowledge entity with embedding. See TOOL_LIST.md',
         inputSchema: zodToJsonSchema(StoreKnowledgeMemorySchema) as any,
         outputSchema: zodToJsonSchema(StoreKnowledgeMemoryResponseSchema) as any,
         handler: this.storeKnowledgeMemory.bind(this)
       },
       {
         name: 'create_knowledge_relationship',
-        description: 'Create a relationship between two entities in the knowledge graph',
+        description: 'Create relationship between entities. See TOOL_LIST.md',
         inputSchema: zodToJsonSchema(CreateRelationshipSchema) as any,
         outputSchema: zodToJsonSchema(CreateKnowledgeRelationshipResponseSchema) as any,
         handler: this.createKnowledgeRelationship.bind(this)
@@ -90,35 +90,35 @@ export class KnowledgeGraphMcpTools {
       // See ResourceManager.ts for the new resource-based implementations
       {
         name: 'prune_knowledge_memory',
-        description: 'Remove low-authority entities and flag potential conflicts for review. Removes entities below authority threshold (importance × confidence), finds similar entity pairs (high embedding similarity) for LLM contradiction review, matches pollution patterns. Params: min_authority (default 0.3), flag_similar_for_review (default true), similarity_threshold (0.75), dry_run (default true). Returns: entities_pruned[], conflict_candidates[{entity_a, entity_b, similarity}], source_files_referenced[].',
+        description: 'Remove low-authority entities and pollution. See TOOL_LIST.md',
         inputSchema: zodToJsonSchema(PruneMemorySchema) as any,
         outputSchema: zodToJsonSchema(PruneMemoryResponseSchema) as any,
         handler: this.pruneKnowledgeMemory.bind(this)
       },
       {
         name: 'compact_knowledge_memory',
-        description: 'Remove duplicate entities and optionally merge highly similar entities to reduce graph pollution. Params: remove_duplicates (default true), merge_similar (default false - conservative), similarity_threshold (0.7-1.0, default 0.95), preserve_relationships (default true). Returns: duplicates_removed, entities_merged, relationships_preserved, space_saved.',
+        description: 'Remove duplicates and merge similar entities. See TOOL_LIST.md',
         inputSchema: zodToJsonSchema(CompactMemorySchema) as any,
         outputSchema: zodToJsonSchema(CompactMemoryResponseSchema) as any,
         handler: this.compactKnowledgeMemory.bind(this)
       },
       {
         name: 'update_knowledge_entity',
-        description: 'Update entity metadata or content with optional re-embedding. Updates: importance_score, confidence_score, entity_type, entity_name, entity_description, properties. Re-embedding: Auto if description changes, or force with re_embed=true. Requires GPU if re-embedding. Params: entity_id (required), updates{} (fields to change), re_embed (bool, default auto). Returns: entity_updated, re_embedded (bool).',
+        description: 'Update entity metadata with optional re-embedding. See TOOL_LIST.md',
         inputSchema: zodToJsonSchema(UpdateKnowledgeEntitySchema) as any,
         outputSchema: zodToJsonSchema(UpdateKnowledgeEntityResponseSchema) as any,
         handler: this.updateKnowledgeEntity.bind(this)
       },
       {
         name: 'export_knowledge_graph',
-        description: 'Export the entire knowledge graph to a file or return the data. Use this before wiping to backup existing knowledge. Params: output_format (json/jsonl/csv), include_embeddings (bool, default false), output_file (optional path). Returns: total_entities, total_relationships, data_size, output_file or data.',
+        description: 'Export knowledge graph to file or return data. See TOOL_LIST.md',
         inputSchema: zodToJsonSchema(ExportKnowledgeGraphSchema) as any,
         outputSchema: zodToJsonSchema(ExportKnowledgeGraphResponseSchema) as any,
         handler: this.exportKnowledgeGraph.bind(this)
       },
       {
         name: 'wipe_knowledge_graph',
-        description: 'Completely wipe all knowledge graph data for a repository. DESTRUCTIVE operation - removes all entities, relationships, and insights. Requires explicit confirm=true. Params: confirm (bool, default false - safety), backup_first (bool, default true). Returns: entities_removed, relationships_removed, backup_file.',
+        description: 'DESTRUCTIVE: Wipe all knowledge graph data. See TOOL_LIST.md',
         inputSchema: zodToJsonSchema(WipeKnowledgeGraphSchema) as any,
         outputSchema: zodToJsonSchema(WipeKnowledgeGraphResponseSchema) as any,
         handler: this.wipeKnowledgeGraph.bind(this)
