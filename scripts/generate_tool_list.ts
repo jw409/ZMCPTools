@@ -60,36 +60,44 @@ async function extractTools(): Promise<Tool[]> {
 
 async function extractResources(): Promise<Resource[]> {
   const resources: Resource[] = [];
-  const resourceFiles = await glob('src/resources/**/*.ts');
 
-  for (const file of resourceFiles) {
-    const content = readFileSync(file, 'utf-8');
+  // Resources are defined in ResourceManager.ts listResources() method
+  const resourceManagerPath = 'src/managers/ResourceManager.ts';
+  const content = readFileSync(resourceManagerPath, 'utf-8');
 
-    // Extract resource URI templates
-    const uriMatches = content.matchAll(/uri:\s*['"]([^'"]+)['"]/g);
-    const descMatches = content.matchAll(/description:\s*['"]([^'"]+)['"]/g);
+  // Extract resource definitions from the listResources() return array
+  // Pattern: uriTemplate: "scheme://pattern"
+  const uriMatches = content.matchAll(/uriTemplate:\s*["']([^"']+)["']/g);
+  const nameMatches = content.matchAll(/name:\s*["']([^"']+)["']/g);
+  const descMatches = content.matchAll(/description:\s*\n?\s*["']([^"']+)["']/g);
 
-    const uris = Array.from(uriMatches).map(m => m[1]);
-    const descs = Array.from(descMatches).map(m => m[1]);
+  const uris = Array.from(uriMatches).map(m => m[1]);
+  const names = Array.from(nameMatches);
+  const descs = Array.from(descMatches);
 
-    // Infer category from URI scheme
-    uris.forEach((uri, i) => {
-      const scheme = uri.split('://')[0];
-      const category = scheme === 'file' ? 'File Analysis' :
-                      scheme === 'project' ? 'Project Analysis' :
-                      scheme === 'knowledge' ? 'Knowledge Graph' :
-                      scheme === 'agents' ? 'Agents' :
-                      scheme === 'vector' ? 'Vectors' :
-                      scheme === 'logs' ? 'Logs' :
-                      'Other';
+  // Match URIs with their descriptions (they appear in order in the code)
+  uris.forEach((uri, i) => {
+    const scheme = uri.split('://')[0];
+    const category = scheme === 'file' ? 'File Analysis' :
+                    scheme === 'project' ? 'Project Analysis' :
+                    scheme === 'knowledge' ? 'Knowledge Graph' :
+                    scheme === 'agents' ? 'Agent Management' :
+                    scheme === 'vector' ? 'Vector Search' :
+                    scheme === 'logs' ? 'Logging' :
+                    scheme === 'communication' ? 'Communication' :
+                    scheme === 'scraping' ? 'Web Scraping' :
+                    scheme === 'docs' ? 'Documentation' :
+                    'Other';
 
-      resources.push({
-        uriTemplate: uri,
-        category,
-        description: descs[i] || 'No description'
-      });
+    // Get description (it follows the uriTemplate in the code)
+    const desc = descs[i]?.[1] || names[i]?.[1] || 'No description';
+
+    resources.push({
+      uriTemplate: uri,
+      category,
+      description: desc
     });
-  }
+  });
 
   return resources;
 }
