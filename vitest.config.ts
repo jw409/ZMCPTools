@@ -9,6 +9,15 @@ export default defineConfig({
     testTimeout: 30000, // 30 second max per test
     hookTimeout: 10000, // 10 second max for setup/teardown
     teardownTimeout: 5000,
+    // Limit parallelism to prevent test hangs (#41)
+    maxConcurrency: 16,
+    pool: 'threads',
+    poolOptions: {
+      threads: {
+        maxThreads: 16,
+        minThreads: 1
+      }
+    },
     // Disable watch mode by default (use test:ui explicitly)
     watch: false,
     coverage: {
