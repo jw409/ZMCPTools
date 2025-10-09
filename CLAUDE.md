@@ -13,6 +13,8 @@ authoritative:
 rules:
   prefer_resources: MCP resources over tools (97% token reduction)
   gpu_search: Port 8765 required for semantic search
+patterns:
+  explore_project: "project://./structure (not find/ls)"
 discovery:
   mcp: ListMcpResourcesTool → ReadMcpResourceTool
   tools: cat ZMCPTools/etc/TOOL_LIST.md

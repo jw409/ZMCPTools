@@ -3,7 +3,7 @@
 This document provides a comprehensive reference for all MCP tools and resources available in ZMCPTools.
 
 ⚠️  **AUTO-GENERATED** from source code by `npm run generate:docs`
-Last generated: 2025-10-09T05:42:07.032Z
+Last generated: 2025-10-09T05:51:37.595Z
 
 ## ⚡ Token Optimization Notice
 
@@ -43,7 +43,6 @@ See [GitHub Issue #35](https://github.com/jw409/ZMCPTools/issues/35) for migrati
 | Resource URI Template | Description | Query Parameters |
 |----------------------|-------------|------------------|
 | `project://*/structure` | Get project directory tree with smart ignore patterns (use project://{path}/structure?max_depth=5&exclude=node_modules) | - |
-| `project://*/summary` | Get AI-optimized project overview with README, package info, git status (use project://{path}/summary?include_readme=true&include_git=true&timeout_ms=3000) | - |
 
 ### Knowledge Graph Resources
 

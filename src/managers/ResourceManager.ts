@@ -209,22 +209,6 @@ export class ResourceManager {
           }
         }
       },
-      {
-        uriTemplate: "project://*/summary",
-        name: "Project Summary",
-        description:
-          "Get AI-optimized project overview with README, package info, git status (use project://{path}/summary?include_readme=true&include_git=true&timeout_ms=3000)",
-        mimeType: "application/json",
-        _meta: {
-          "params": {
-            "path": "project path (. for current directory)",
-            "include_readme": "include README.md content (default: true)",
-            "include_package_info": "include package.json/setup.py info (default: true)",
-            "include_git_info": "include git branch/status (default: true)",
-            "timeout_ms": "timeout in milliseconds for file operations (default: 3000, max: 10000)"
-          }
-        }
-      },
       // Knowledge Graph Resources (replaces 3 tools - saves 570 tokens)
       {
         uriTemplate: "knowledge://search",
@@ -1965,55 +1949,6 @@ export class ResourceManager {
           )
         };
       }
-    } else if (aspect === "summary") {
-      const includeReadme = searchParams.get("include_readme") !== "false";
-      const includePackageInfo =
-        searchParams.get("include_package_info") !== "false";
-      const includeGitInfo = searchParams.get("include_git_info") !== "false";
-
-      // Parse timeout with max limit of 10 seconds
-      let timeoutMs = parseInt(searchParams.get("timeout_ms") || "3000");
-      if (timeoutMs > 10000) {
-        timeoutMs = 10000;
-      }
-      if (timeoutMs < 100) {
-        timeoutMs = 100;
-      }
-
-      try {
-        const summary = await this.treeSummaryService.generateProjectSummary(
-          resolvedPath,
-          {
-            includeReadme,
-            includePackageInfo,
-            includeGitInfo,
-            timeoutMs
-          }
-        );
-
-        return {
-          uri: `project://${path}`,
-          mimeType: "application/json",
-          text: JSON.stringify(summary, null, 2)
-        };
-      } catch (error) {
-        return {
-          uri: `project://${path}`,
-          mimeType: "application/json",
-          text: JSON.stringify(
-            {
-              error:
-                error instanceof Error
-                  ? error.message
-                  : "Failed to generate project summary",
-              project_path: resolvedPath,
-              aspect
-            },
-            null,
-            2
-          )
-        };
-      }
     } else {
       return {
         uri: `project://${path}`,
@@ -2021,7 +1956,7 @@ export class ResourceManager {
         text: JSON.stringify(
           {
             error: `Unknown project aspect: ${aspect}`,
-            valid_aspects: ["structure", "summary"],
+            valid_aspects: ["structure"],
             usage: "project://{path}/{aspect}?params"
           },
           null,

@@ -1,7 +1,7 @@
 # MCP Resource Registry
 
 **AUTO-GENERATED** from source code by `npm run generate:docs`
-Last generated: 2025-10-09T05:42:07.036Z
+Last generated: 2025-10-09T05:51:37.599Z
 
 ## Available MCP Resources
 
@@ -23,7 +23,6 @@ MCP Resources provide 97% token reduction compared to tools for read-only operat
 | URI Template | Description |
 |--------------|-------------|
 | `project://*/structure` | Get project directory tree with smart ignore patterns (use project://{path}/structure?max_depth=5&exclude=node_modules) |
-| `project://*/summary` | Get AI-optimized project overview with README, package info, git status (use project://{path}/summary?include_readme=true&include_git=true&timeout_ms=3000) |
 
 ### Knowledge Graph
 
@@ -59,4 +58,4 @@ MCP Resources provide 97% token reduction compared to tools for read-only operat
 
 ---
 
-**Total Resources**: 20
+**Total Resources**: 19
