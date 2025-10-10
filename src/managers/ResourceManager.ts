@@ -88,7 +88,16 @@ export class ResourceManager {
 
     this.agentService = new AgentService(this.db);
     this.communicationService = new CommunicationService(this.db);
-    const vectorService = new VectorSearchService(this.db);
+
+    // Vector search with project-local storage (fixes #6: venv isolation)
+    const vectorSearchConfig = {
+      projectPath: this.repositoryPath,
+      preferLocal: true,
+      embeddingModel: 'gemma_embed'  // TalentOS GPU embeddings
+    };
+    const vectorService = new VectorSearchService(this.db, vectorSearchConfig);
+    this.vectorSearchService = vectorService;
+
     this.knowledgeGraphService = new KnowledgeGraphService(this.db, vectorService);
     this.memoryService = new MemoryService(this.db);
     this.webScrapingService = new WebScrapingService(
@@ -96,7 +105,6 @@ export class ResourceManager {
       this.repositoryPath
     );
     this.documentationService = new DocumentationService(this.db);
-    this.vectorSearchService = new VectorSearchService(this.db);
     this.websiteRepository = new WebsiteRepository(this.db);
     this.websitePagesRepository = new WebsitePagesRepository(this.db);
     this.treeSitterASTTool = new TreeSitterASTTool();
@@ -259,17 +267,69 @@ export class ResourceManager {
           }
         }
       },
+      // Symbol Graph Cache Resources (Unix composability - query cached symbols)
+      {
+        uriTemplate: "symbols://list",
+        name: "Cached Symbol Files",
+        description:
+          "📂 LIST INDEXED FILES (PAGINATED): Get all files currently indexed in symbol graph cache (SQLite). Use to compare cached files vs actual project structure before indexing. Returns file paths, last indexed time, symbol counts. Instant SQLite query. **Params**: `?limit=100&cursor=<token>`. Default limit: 100, sorted by indexed time (newest first). Returns: nextCursor for pagination.",
+        mimeType: "application/json",
+        _meta: {
+          "params": {
+            "limit": "max files to return (default: 100)",
+            "cursor": "optional cursor token from previous response for pagination"
+          }
+        }
+      },
+      {
+        uriTemplate: "symbols://search",
+        name: "Symbol Search",
+        description:
+          "🔍 FIND SYMBOLS BY NAME/TYPE (PAGINATED): Search cached symbols by name and type (function, class, method, interface). Use `?name=foo&type=function&limit=50&cursor=<token>` to find specific symbols. Returns symbol definitions with file locations. Fast SQLite lookup. **Pagination**: Default limit 50, use nextCursor for more results.",
+        mimeType: "application/json",
+        _meta: {
+          "params": {
+            "name": "symbol name to search for (partial match)",
+            "type": "symbol type filter (function, class, method, interface, variable)",
+            "limit": "max results (default: 50)",
+            "cursor": "optional cursor token from previous response for pagination"
+          }
+        }
+      },
+      {
+        uriTemplate: "symbols://file/*",
+        name: "File Symbols (Cached)",
+        description:
+          "📄 GET SYMBOLS FROM CACHE: Get all symbols for a specific file from cache (use symbols://file/{path}). Returns cached symbol definitions without reparsing. Instant SQLite lookup. Compare with file://{path}/symbols (live parse) to verify freshness.",
+        mimeType: "application/json",
+        _meta: {
+          "params": {
+            "path": "relative path to source file (in URI path)"
+          }
+        }
+      },
+      {
+        uriTemplate: "symbols://stats",
+        name: "Symbol Graph Statistics",
+        description:
+          "📊 INDEX HEALTH CHECK: Get symbol graph cache statistics - total files indexed, symbols extracted, cache hit rate, embedding coverage, last update times. Use to verify indexing completed and check what's searchable. Instant SQLite query.",
+        mimeType: "application/json",
+        _meta: {
+          "params": {}
+        }
+      },
       // Knowledge Graph Resources (replaces 3 tools - saves 570 tokens)
       {
         uriTemplate: "knowledge://search",
         name: "Knowledge Graph Search",
         description:
-          "🔍 SEARCH BEFORE IMPLEMENTING: Search GitHub issues, architecture docs, implementation patterns, and prior solutions. Contains: ZMCPTools issues, TalentOS architecture (CLAUDE.md, etc/*.md, docs/*.md), design decisions, and known solutions. Use for: finding prior work, understanding architecture, discovering existing solutions, checking if feature exists. GPU-accelerated semantic + BM25 hybrid search. Example: knowledge://search?query=resource+migration+MCP&limit=5",
+          "🔍 SEARCH BEFORE IMPLEMENTING (PAGINATED): Search GitHub issues, architecture docs, implementation patterns, and prior solutions. Contains: ZMCPTools issues, TalentOS architecture (CLAUDE.md, etc/*.md, docs/*.md), design decisions, and known solutions. Use for: finding prior work, understanding architecture, discovering existing solutions, checking if feature exists. GPU-accelerated semantic + BM25 hybrid search. **Pagination**: Default limit 10, use cursor for more results. Example: knowledge://search?query=resource+migration+MCP&limit=10&cursor=<token>",
         mimeType: "application/json",
         _meta: {
           "params": {
             "query": "what to search for (e.g., 'authentication pattern', 'embedding service')",
             "limit": "max results (default: 10, try 5-20)",
+            "cursor": "optional cursor token from previous response for pagination",
             "threshold": "similarity threshold 0-1 (default: 0.7, lower = more results)",
             "use_bm25": "keyword search (default: true, good for exact terms)",
             "use_embeddings": "semantic search (default: true, good for concepts)",
@@ -404,6 +464,11 @@ export class ResourceManager {
     // Handle project:// resources with dynamic paths
     if (scheme === "project") {
       return await this.getProjectResource(path, searchParams);
+    }
+
+    // Handle symbols:// resources with dynamic paths
+    if (scheme === "symbols") {
+      return await this.getSymbolsResource(path, searchParams);
     }
 
     const resourceKey = `${scheme}://${path}`;
@@ -1375,6 +1440,7 @@ export class ResourceManager {
   ): Promise<TextResourceContents> {
     const query = searchParams.get("query");
     const limit = parseInt(searchParams.get("limit") || "10");
+    const cursor = searchParams.get("cursor");
     const threshold = parseFloat(searchParams.get("threshold") || "0.0");
     const useBm25 = searchParams.get("use_bm25") !== "false"; // default true
     const useEmbeddings = searchParams.get("use_embeddings") !== "false"; // default true
@@ -1397,24 +1463,47 @@ export class ResourceManager {
     }
 
     try {
+      // Parse cursor for position information
+      let startPosition = 0;
+      if (cursor) {
+        try {
+          const cursorData = CursorManager.decode(cursor);
+          startPosition = cursorData.position || 0;
+        } catch (error) {
+          throw new Error('Invalid cursor parameter');
+        }
+      }
+
       // Use IndexedKnowledgeSearch for direct search of indexed_knowledge.json
       const { IndexedKnowledgeSearch } = await import('../services/IndexedKnowledgeSearch.js');
       console.log('[ResourceManager] Creating IndexedKnowledgeSearch with path:', this.repositoryPath);
       const searchService = new IndexedKnowledgeSearch(this.repositoryPath);
 
-      console.log('[ResourceManager] Calling search with query:', query, 'options:', { limit, useBm25, useEmbeddings });
-      const results = await searchService.search(query, {
-        limit,
+      // Fetch more results to support pagination
+      const fetchLimit = startPosition + limit * 2;
+      console.log('[ResourceManager] Calling search with query:', query, 'options:', { limit: fetchLimit, useBm25, useEmbeddings });
+      const allResults = await searchService.search(query, {
+        limit: fetchLimit,
         useBm25,
         useSemanticSearch: useEmbeddings,
         bm25Weight,
         semanticWeight,
         minScoreThreshold: threshold
       });
-      console.log('[ResourceManager] Search returned', results.length, 'results');
+      console.log('[ResourceManager] Search returned', allResults.length, 'results');
+
+      // Apply cursor-based pagination
+      const endPosition = startPosition + limit;
+      const paginatedResults = allResults.slice(startPosition, endPosition);
+
+      // Generate next cursor if more results exist
+      let nextCursor: string | undefined;
+      if (allResults.length > endPosition) {
+        nextCursor = CursorManager.createPositionCursor(endPosition);
+      }
 
       // Format results for knowledge:// resource
-      const formattedResults = results.map(r => ({
+      const formattedResults = paginatedResults.map(r => ({
         id: r.document.id,
         type: r.document.type,
         title: r.document.title || r.document.relative_path || r.document.id,
@@ -1439,7 +1528,9 @@ export class ResourceManager {
           {
             query,
             results: formattedResults,
-            total: formattedResults.length,
+            nextCursor,
+            limit,
+            total: allResults.length,
             search_params: { useBm25, useEmbeddings, threshold, bm25Weight, semanticWeight },
             timestamp: new Date().toISOString(),
           },
@@ -2017,6 +2108,229 @@ export class ResourceManager {
             error: `Unknown project aspect: ${aspect}`,
             valid_aspects: ["structure", "dependencies", "dependents", "circular-deps", "impact-analysis"],
             usage: "project://{path}/{aspect}?params"
+          },
+          null,
+          2
+        )
+      };
+    }
+  }
+
+  /**
+   * Handle symbols:// resource URIs for symbol graph cache queries
+   * URI format: symbols://{aspect}?params
+   * Examples:
+   *   - symbols://list
+   *   - symbols://search?name=foo&type=function
+   *   - symbols://file/{path}
+   *   - symbols://stats
+   */
+  private async getSymbolsResource(
+    path: string,
+    searchParams: URLSearchParams
+  ): Promise<TextResourceContents> {
+    try {
+      const indexer = getSymbolGraphIndexer();
+      await indexer.initialize(this.repositoryPath);
+
+      // Handle symbols://list - all indexed files (with cursor pagination)
+      if (path === "list") {
+        const limit = parseInt(searchParams.get("limit") || "100");
+        const cursor = searchParams.get("cursor");
+
+        // Parse cursor for position information
+        let startPosition = 0;
+        if (cursor) {
+          try {
+            const cursorData = CursorManager.decode(cursor);
+            startPosition = cursorData.position || 0;
+          } catch (error) {
+            throw new Error('Invalid cursor parameter');
+          }
+        }
+
+        const files = await indexer.getIndexedFiles();
+
+        // Sort by indexed_at time for consistent cursor pagination
+        const sortedFiles = files.sort((a, b) =>
+          new Date(b.indexed_at || 0).getTime() - new Date(a.indexed_at || 0).getTime()
+        );
+
+        // Apply cursor-based pagination
+        const endPosition = startPosition + limit;
+        const paginatedFiles = sortedFiles.slice(startPosition, endPosition);
+
+        // Generate next cursor if more results exist
+        let nextCursor: string | undefined;
+        if (endPosition < sortedFiles.length) {
+          nextCursor = CursorManager.createPositionCursor(endPosition);
+        }
+
+        return {
+          uri: "symbols://list",
+          mimeType: "application/json",
+          text: JSON.stringify(
+            {
+              repository_path: this.repositoryPath,
+              indexed_files: paginatedFiles.map(f => ({
+                file_path: f.file_path,
+                indexed_at: f.indexed_at,
+                symbol_count: f.symbol_count || 0,
+                has_embeddings: f.has_embeddings || false
+              })),
+              nextCursor,
+              limit,
+              total: sortedFiles.length,
+              timestamp: new Date().toISOString()
+            },
+            null,
+            2
+          )
+        };
+      }
+
+      // Handle symbols://search?name=foo&type=function - search symbols (with cursor pagination)
+      if (path === "search") {
+        const name = searchParams.get("name") || "";
+        const type = searchParams.get("type") || undefined;
+        const limit = parseInt(searchParams.get("limit") || "50");
+        const cursor = searchParams.get("cursor");
+
+        // Parse cursor for position information
+        let startPosition = 0;
+        if (cursor) {
+          try {
+            const cursorData = CursorManager.decode(cursor);
+            startPosition = cursorData.position || 0;
+          } catch (error) {
+            throw new Error('Invalid cursor parameter');
+          }
+        }
+
+        // Get more results than limit to determine if more exist
+        const fetchLimit = startPosition + limit * 2;
+        const allSymbols = await indexer.searchSymbols(name, type, fetchLimit);
+
+        // Apply cursor-based pagination
+        const endPosition = startPosition + limit;
+        const paginatedSymbols = allSymbols.slice(startPosition, endPosition);
+
+        // Generate next cursor if more results exist
+        let nextCursor: string | undefined;
+        if (allSymbols.length > endPosition) {
+          nextCursor = CursorManager.createPositionCursor(endPosition);
+        }
+
+        return {
+          uri: `symbols://search?name=${name}${type ? `&type=${type}` : ""}&limit=${limit}`,
+          mimeType: "application/json",
+          text: JSON.stringify(
+            {
+              query: { name, type, limit },
+              symbols: paginatedSymbols.map(s => ({
+                name: s.name,
+                type: s.type,
+                file_path: s.file_path,
+                start_line: s.start_line,
+                end_line: s.end_line,
+                signature: s.signature
+              })),
+              nextCursor,
+              limit,
+              total: allSymbols.length,
+              timestamp: new Date().toISOString()
+            },
+            null,
+            2
+          )
+        };
+      }
+
+      // Handle symbols://stats - index statistics
+      if (path === "stats") {
+        const stats = await indexer.getStats();
+
+        return {
+          uri: "symbols://stats",
+          mimeType: "application/json",
+          text: JSON.stringify(
+            {
+              repository_path: this.repositoryPath,
+              total_files: stats.totalFiles,
+              files_with_embeddings: stats.filesWithEmbeddings,
+              total_symbols: stats.totalSymbols || 0,
+              cache_hit_rate: stats.cacheHitRate || 0,
+              last_indexed: stats.lastIndexed || null,
+              embedding_coverage: stats.filesWithEmbeddings / Math.max(stats.totalFiles, 1),
+              timestamp: new Date().toISOString()
+            },
+            null,
+            2
+          )
+        };
+      }
+
+      // Handle symbols://file/{path} - symbols for specific file
+      if (path.startsWith("file/")) {
+        const filePath = path.replace("file/", "");
+        const resolvedPath = resolve(this.repositoryPath, filePath);
+
+        const symbols = await indexer.getFileSymbols(resolvedPath);
+        const fileInfo = await indexer.getFileInfo(resolvedPath);
+
+        return {
+          uri: `symbols://file/${filePath}`,
+          mimeType: "application/json",
+          text: JSON.stringify(
+            {
+              file_path: resolvedPath,
+              indexed_at: fileInfo?.indexed_at || null,
+              has_embeddings: fileInfo?.has_embeddings || false,
+              symbols: symbols.map(s => ({
+                name: s.name,
+                type: s.type,
+                start_line: s.start_line,
+                end_line: s.end_line,
+                signature: s.signature
+              })),
+              total: symbols.length,
+              note: "Cached symbols - compare with file://{path}/symbols for live parse",
+              timestamp: new Date().toISOString()
+            },
+            null,
+            2
+          )
+        };
+      }
+
+      // Unknown symbols:// resource
+      return {
+        uri: `symbols://${path}`,
+        mimeType: "application/json",
+        text: JSON.stringify(
+          {
+            error: `Unknown symbols resource: ${path}`,
+            valid_resources: ["list", "search", "stats", "file/{path}"],
+            usage: "symbols://{resource}?params"
+          },
+          null,
+          2
+        )
+      };
+
+    } catch (error) {
+      return {
+        uri: `symbols://${path}`,
+        mimeType: "application/json",
+        text: JSON.stringify(
+          {
+            error:
+              error instanceof Error
+                ? error.message
+                : "Failed to access symbol graph cache",
+            path,
+            repository_path: this.repositoryPath,
+            timestamp: new Date().toISOString()
           },
           null,
           2

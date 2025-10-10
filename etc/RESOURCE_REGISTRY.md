@@ -1,7 +1,7 @@
 # MCP Resource Registry
 
 **AUTO-GENERATED** from source code by `npm run generate:docs`
-Last generated: 2025-10-09T18:51:03.272Z
+Last generated: 2025-10-10T04:05:34.350Z
 
 ## Available MCP Resources
 
@@ -28,11 +28,20 @@ MCP Resources provide 97% token reduction compared to tools for read-only operat
 | `project://*/circular-deps` | Detect circular dependency chains in the project using DFS graph traversal (use project://./circular-deps). Helps identify problematic import cycles. |
 | `project://*/impact-analysis` | Analyze impact of changes to a file via recursive dependency traversal (use project://{file_path}/impact-analysis?max_depth=5). Shows all files affected by modifications. |
 
+### Other
+
+| URI Template | Description |
+|--------------|-------------|
+| `symbols://list` | 📂 LIST INDEXED FILES (PAGINATED): Get all files currently indexed in symbol graph cache (SQLite). Use to compare cached files vs actual project structure before indexing. Returns file paths, last indexed time, symbol counts. Instant SQLite query. **Params**: `?limit=100&cursor=<token>`. Default limit: 100, sorted by indexed time (newest first). Returns: nextCursor for pagination. |
+| `symbols://search` | 🔍 FIND SYMBOLS BY NAME/TYPE (PAGINATED): Search cached symbols by name and type (function, class, method, interface). Use `?name=foo&type=function&limit=50&cursor=<token>` to find specific symbols. Returns symbol definitions with file locations. Fast SQLite lookup. **Pagination**: Default limit 50, use nextCursor for more results. |
+| `symbols://file/*` | 📄 GET SYMBOLS FROM CACHE: Get all symbols for a specific file from cache (use symbols://file/{path}). Returns cached symbol definitions without reparsing. Instant SQLite lookup. Compare with file://{path}/symbols (live parse) to verify freshness. |
+| `symbols://stats` | 📊 INDEX HEALTH CHECK: Get symbol graph cache statistics - total files indexed, symbols extracted, cache hit rate, embedding coverage, last update times. Use to verify indexing completed and check what |
+
 ### Knowledge Graph
 
 | URI Template | Description |
 |--------------|-------------|
-| `knowledge://search` | 🔍 SEARCH BEFORE IMPLEMENTING: Search GitHub issues, architecture docs, implementation patterns, and prior solutions. Contains: ZMCPTools issues, TalentOS architecture (CLAUDE.md, etc/*.md, docs/*.md), design decisions, and known solutions. Use for: finding prior work, understanding architecture, discovering existing solutions, checking if feature exists. GPU-accelerated semantic + BM25 hybrid search. Example: knowledge://search?query=resource+migration+MCP&limit=5 |
+| `knowledge://search` | 🔍 SEARCH BEFORE IMPLEMENTING (PAGINATED): Search GitHub issues, architecture docs, implementation patterns, and prior solutions. Contains: ZMCPTools issues, TalentOS architecture (CLAUDE.md, etc/*.md, docs/*.md), design decisions, and known solutions. Use for: finding prior work, understanding architecture, discovering existing solutions, checking if feature exists. GPU-accelerated semantic + BM25 hybrid search. **Pagination**: Default limit 10, use cursor for more results. Example: knowledge://search?query=resource+migration+MCP&limit=10&cursor=<token> |
 | `knowledge://entity/*/related` | 📊 DISCOVER CONNECTIONS: Find entities related to a specific entity via graph traversal. Use after finding an entity via search to discover: related issues, connected docs, dependency chains, implementation patterns, similar solutions. Example: knowledge://entity/issue-35/related?limit=5&min_strength=0.6 finds docs/issues related to issue #35 |
 | `knowledge://status` | 📈 KNOWLEDGE GRAPH HEALTH: Get statistics about indexed content - total entities, relationships, quality metrics, entity types, index freshness. Use to: verify indexing completed, check what |
 
@@ -54,7 +63,7 @@ MCP Resources provide 97% token reduction compared to tools for read-only operat
 
 ---
 
-**Total Resources**: 20
+**Total Resources**: 24
 
 ### Log Rotation
 
