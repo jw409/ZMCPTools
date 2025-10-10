@@ -339,17 +339,51 @@ export class BM25Service {
   }
 
   /**
-   * Preprocess text for better indexing
+   * Preprocess text for better indexing (CODE-AWARE)
+   *
+   * Handles code-specific patterns:
+   * - Splits camelCase/PascalCase: RealFileIndexingService → real file indexing service
+   * - Splits underscores/hyphens: gpu_embedding → gpu embedding
+   * - Preserves path structure: src/services/File.ts → src services file ts
+   * - Handles dot notation: object.method → object method
    */
   private preprocessText(text: string): string {
-    // Remove excessive whitespace and normalize
-    let processed = text
-      .replace(/\s+/g, ' ')  // Normalize whitespace
-      .replace(/[^\w\s-]/g, ' ')  // Remove special chars except hyphens
-      .toLowerCase()
-      .trim();
+    let processed = text;
 
-    // Limit document length
+    // 1. Split camelCase and PascalCase into separate words
+    // First handle acronyms: XMLParser → XML Parser (uppercase followed by uppercase+lowercase)
+    processed = processed.replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2');
+
+    // Then handle standard camelCase: EmbeddingService → Embedding Service
+    processed = processed.replace(/([a-z])([A-Z])/g, '$1 $2');
+
+    // Handle lowercase-to-number transitions: file2 → file 2
+    processed = processed.replace(/([a-z])([0-9])/g, '$1 $2');
+
+    // 2. Split on underscores and hyphens (common in code)
+    // gpu_embedding_service → gpu embedding service
+    // my-component → my component
+    processed = processed.replace(/[_-]/g, ' ');
+
+    // 3. Split on forward slashes (file paths)
+    // src/services/File.ts → src services File ts
+    processed = processed.replace(/\//g, ' ');
+
+    // 4. Split on dots (method calls, file extensions)
+    // object.method → object method
+    // file.ts → file ts
+    processed = processed.replace(/\./g, ' ');
+
+    // 5. Remove remaining special chars (but words are already split)
+    processed = processed.replace(/[^\w\s]/g, ' ');
+
+    // 6. Normalize whitespace
+    processed = processed.replace(/\s+/g, ' ');
+
+    // 7. Lowercase and trim
+    processed = processed.toLowerCase().trim();
+
+    // 8. Limit document length
     const words = processed.split(/\s+/);
     if (words.length > this.config.max_terms_per_doc) {
       processed = words.slice(0, this.config.max_terms_per_doc).join(' ');
@@ -359,14 +393,12 @@ export class BM25Service {
   }
 
   /**
-   * Preprocess search query
+   * Preprocess search query (uses same code-aware logic as documents)
    */
   private preprocessQuery(query: string): string {
-    // Basic query preprocessing
-    return query
-      .replace(/[^\w\s-"]/g, ' ')  // Remove special chars except quotes and hyphens
-      .replace(/\s+/g, ' ')
-      .trim();
+    // Use the same preprocessing as documents for consistent matching
+    // This ensures "file indexing" matches "FileIndexing" in code
+    return this.preprocessText(query);
   }
 
   /**
