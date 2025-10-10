@@ -72,6 +72,27 @@ export class SimpleASTTool {
   async parse(filePath: string, language?: string): Promise<ParseResult> {
     try {
       const content = await fs.readFile(filePath, 'utf-8');
+      return this.parseFromContent(content, filePath, language);
+    } catch (error) {
+      return {
+        success: false,
+        language: 'unknown',
+        errors: [{
+          type: 'read_error',
+          message: error instanceof Error ? error.message : 'Failed to read file',
+          line: 0,
+          column: 0
+        }]
+      };
+    }
+  }
+
+  /**
+   * Parse source code from content (no file I/O)
+   * Useful for benchmarking or when content is already in memory
+   */
+  parseFromContent(content: string, filePath: string, language?: string): ParseResult {
+    try {
       const detectedLanguage = language || this.detectLanguage(filePath);
 
       // For now, only support TypeScript/JavaScript
@@ -84,7 +105,7 @@ export class SimpleASTTool {
         };
       }
 
-      // Parse with TypeScript compiler
+      // Parse with TypeScript compiler (lightweight - no full program creation)
       const sourceFile = ts.createSourceFile(
         filePath,
         content,
@@ -92,46 +113,22 @@ export class SimpleASTTool {
         true
       );
 
-      const errors: ParseError[] = [];
-
-      // Check for syntax errors
-      const syntacticDiagnostics = ts.getPreEmitDiagnostics(
-        ts.createProgram([filePath], {
-          noEmit: true,
-          allowJs: true,
-          checkJs: false
-        })
-      );
-
-      syntacticDiagnostics.forEach(diagnostic => {
-        if (diagnostic.file && diagnostic.start !== undefined) {
-          const { line, character } = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start);
-          errors.push({
-            type: 'syntax_error',
-            message: ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'),
-            line: line + 1,
-            column: character + 1
-          });
-        }
-      });
-
       // Create compact tree
       const compactTree = this.createCompactTree(sourceFile);
 
       return {
-        success: errors.length === 0,
+        success: true,
         language: detectedLanguage,
         tree: sourceFile,
-        compactTree,
-        errors: errors.length > 0 ? errors : undefined
+        compactTree
       };
     } catch (error) {
       return {
         success: false,
         language: 'unknown',
         errors: [{
-          type: 'read_error',
-          message: error instanceof Error ? error.message : 'Failed to read file',
+          type: 'parse_error',
+          message: error instanceof Error ? error.message : 'Failed to parse content',
           line: 0,
           column: 0
         }]

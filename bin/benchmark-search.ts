@@ -149,8 +149,8 @@ async function buildSymbolIndex(): Promise<Map<string, FileSymbolIndex>> {
     }
 
     try {
-      const fullPath = join(repositoryPath, file.path);
-      const parseResult = await astTool.parse(fullPath);
+      // Use parseFromContent to avoid file I/O (we already have content in memory!)
+      const parseResult = astTool.parseFromContent(file.content, file.path);
 
       if (!parseResult.success || !parseResult.tree) {
         continue;
@@ -436,8 +436,41 @@ async function searchWithMethod(
       console.error(`  ❌ Semantic search error:`, error);
     }
 
-  } else if (method === 'fts5' || method === 'hybrid' || method === 'reranked') {
-    // TODO: Implement other search methods
+  } else if (method === 'hybrid') {
+    // Hybrid search: Combine BM25 + semantic using Reciprocal Rank Fusion
+    const [bm25Results, semanticResults] = await Promise.all([
+      searchWithMethod('bm25', query, k * 2), // Get more candidates for fusion
+      searchWithMethod('semantic', query, k * 2)
+    ]);
+
+    // Reciprocal Rank Fusion (RRF)
+    const rrfScores = new Map<string, number>();
+    const K_RRF = 60; // RRF parameter
+
+    // Add BM25 scores
+    for (const result of bm25Results.results) {
+      const rrf = 1 / (K_RRF + result.rank);
+      rrfScores.set(result.file, (rrfScores.get(result.file) || 0) + rrf);
+    }
+
+    // Add semantic scores
+    for (const result of semanticResults.results) {
+      const rrf = 1 / (K_RRF + result.rank);
+      rrfScores.set(result.file, (rrfScores.get(result.file) || 0) + rrf);
+    }
+
+    // Sort by RRF score and return top K
+    const hybridResults = Array.from(rrfScores.entries())
+      .map(([file, score]) => ({ file, score, rank: 0 }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, k);
+
+    // Assign ranks
+    hybridResults.forEach((r, i) => r.rank = i + 1);
+    results.push(...hybridResults);
+
+  } else if (method === 'fts5' || method === 'reranked') {
+    // TODO: Implement FTS5 and reranker
     // For now, return empty results
   }
 
@@ -594,12 +627,11 @@ async function main() {
   // Run benchmarks for each method
   const methods: Array<'bm25' | 'symbol_bm25' | 'fts5' | 'semantic' | 'hybrid' | 'reranked'> = [
     'bm25',
-    'symbol_bm25',
-    // Skip slow methods for now
-    // 'fts5',
-    // 'semantic',
-    // 'hybrid',
-    // 'reranked'
+    'symbol_bm25',    // ✅ Enabled - now fast with parseFromContent (no file I/O!)
+    'semantic',       // ✅ Enabled - uses VectorSearchService with gemma_embed
+    'hybrid',         // ✅ Enabled - RRF fusion of BM25 + semantic
+    // 'fts5',        // ⏳ TODO: SQLite FTS5 implementation
+    // 'reranked'     // ⏳ TODO: qwen3-reranker integration (port 8765)
   ];
 
   const results: MethodBenchmarkResult[] = [];
