@@ -13,9 +13,11 @@
  *   tsx bin/benchmark-search.ts [--method METHOD] [--k K] [--output FILE]
  */
 
-import { readFile } from 'fs/promises';
+import { readFile, writeFile } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { glob } from 'glob';
+import { existsSync } from 'fs';
 import {
   calculateAllMetrics,
   aggregateMetrics,
@@ -24,6 +26,10 @@ import {
   type SearchResult,
   type MetricsResult
 } from './benchmark-metrics.js';
+import { IndexedKnowledgeSearch } from '../src/services/IndexedKnowledgeSearch.js';
+import { VectorSearchService } from '../src/services/VectorSearchService.js';
+import { DatabaseConnectionManager } from '../src/database/index.js';
+import { SimpleASTTool } from '../src/tools/SimpleASTTool.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -53,7 +59,7 @@ interface TestDataset {
 
 // Benchmark result for one method
 interface MethodBenchmarkResult {
-  method: 'bm25' | 'fts5' | 'semantic' | 'hybrid' | 'reranked';
+  method: 'bm25' | 'symbol_bm25' | 'fts5' | 'semantic' | 'hybrid' | 'reranked';
   overall: MetricsResult;
   by_query_type: {
     code: MetricsResult;
@@ -82,9 +88,282 @@ async function loadTestDataset(): Promise<TestDataset> {
   return JSON.parse(content);
 }
 
+// File corpus cache
+let fileCorpus: Array<{ path: string; content: string }> | null = null;
+
+// Symbol index cache for symbol-aware BM25
+interface FileSymbolIndex {
+  path: string;
+  symbols: string[];        // All symbols defined in file
+  exports: string[];        // Exported symbols
+  imports: string[];        // Imported symbols
+  classes: string[];        // Class names
+  functions: string[];      // Function names
+}
+let symbolIndex: Map<string, FileSymbolIndex> | null = null;
+
+// Services
+let vectorService: VectorSearchService | null = null;
+const BENCHMARK_COLLECTION = 'zmcptools_benchmark';
+let isIndexed = false;
+
 /**
- * Mock search function - placeholder for actual retrieval methods
- * TODO: Integrate with actual search services
+ * Build symbol index for all TypeScript files
+ */
+async function buildSymbolIndex(): Promise<Map<string, FileSymbolIndex>> {
+  if (symbolIndex) return symbolIndex;
+
+  const repositoryPath = join(__dirname, '..');
+  const cacheFile = join(repositoryPath, 'var/cache/symbol-index.json');
+
+  // Try loading from cache
+  if (existsSync(cacheFile)) {
+    try {
+      console.log(`  📦 Loading symbol index from cache...`);
+      const cached = JSON.parse(await readFile(cacheFile, 'utf-8'));
+      symbolIndex = new Map(Object.entries(cached));
+      console.log(`  ✅ Loaded ${symbolIndex.size} files from cache`);
+      return symbolIndex;
+    } catch (error) {
+      console.log(`  ⚠️  Cache load failed, rebuilding...`);
+    }
+  }
+
+  const corpus = await loadFileCorpus();
+  const astTool = new SimpleASTTool();
+  symbolIndex = new Map();
+
+  console.log(`  🔍 Building symbol index for ${corpus.length} files...`);
+
+  let indexed = 0;
+  let processed = 0;
+
+  for (const file of corpus) {
+    processed++;
+    if (processed % 50 === 0) {
+      console.log(`     Progress: ${processed}/${corpus.length} files...`);
+    }
+    // Only index TypeScript files
+    if (!file.path.match(/\.(ts|tsx|js|jsx)$/)) {
+      continue;
+    }
+
+    try {
+      const fullPath = join(repositoryPath, file.path);
+      const parseResult = await astTool.parse(fullPath);
+
+      if (!parseResult.success || !parseResult.tree) {
+        continue;
+      }
+
+      const symbols = await astTool.extractSymbols(parseResult.tree);
+      const exports = await astTool.extractExports(parseResult.tree);
+      const imports = await astTool.extractImports(parseResult.tree);
+
+      const classes = symbols.filter(s => s.type === 'class').map(s => s.name);
+      const functions = symbols.filter(s => s.type === 'function').map(s => s.name);
+      const allSymbolNames = symbols.map(s => s.name);
+
+      symbolIndex.set(file.path, {
+        path: file.path,
+        symbols: allSymbolNames,
+        exports,
+        imports,
+        classes,
+        functions
+      });
+
+      indexed++;
+    } catch (error) {
+      // Skip files that can't be parsed
+    }
+  }
+
+  console.log(`  ✅ Indexed ${indexed} TypeScript files with symbols`);
+
+  // Save to cache
+  try {
+    const cacheData = Object.fromEntries(symbolIndex.entries());
+    await writeFile(cacheFile, JSON.stringify(cacheData, null, 2));
+    console.log(`  💾 Saved index to cache`);
+  } catch (error) {
+    console.log(`  ⚠️  Failed to save cache: ${error}`);
+  }
+
+  return symbolIndex;
+}
+
+/**
+ * Load file corpus (all .ts and .md files in ZMCPTools)
+ */
+async function loadFileCorpus(): Promise<Array<{ path: string; content: string }>> {
+  if (fileCorpus) return fileCorpus;
+
+  const repositoryPath = join(__dirname, '..');
+  const files = await glob('**/*.{ts,md}', {
+    cwd: repositoryPath,
+    ignore: ['node_modules/**', 'dist/**', '.git/**', 'test-*/**']
+  });
+
+  fileCorpus = [];
+  for (const file of files) {
+    try {
+      const content = await readFile(join(repositoryPath, file), 'utf-8');
+      fileCorpus.push({ path: file, content });
+    } catch (error) {
+      // Skip files that can't be read
+    }
+  }
+
+  return fileCorpus;
+}
+
+/**
+ * Initialize and index corpus into LanceDB for semantic search
+ */
+async function ensureVectorIndex(): Promise<void> {
+  if (isIndexed && vectorService) return;
+
+  const corpus = await loadFileCorpus();
+
+  // Initialize vector service
+  const dbManager = await DatabaseConnectionManager.getInstance();
+  vectorService = new VectorSearchService(dbManager, {
+    embeddingModel: 'gemma_embed'
+  });
+
+  await vectorService.initialize();
+
+  // Create collection
+  await vectorService.getOrCreateCollection(BENCHMARK_COLLECTION, {
+    description: 'ZMCPTools file corpus for benchmarking',
+    created_at: new Date().toISOString()
+  });
+
+  // Index documents
+  const documents = corpus.map(file => ({
+    id: file.path,
+    content: file.content,
+    metadata: { path: file.path }
+  }));
+
+  console.log(`  📦 Indexing ${documents.length} files into LanceDB...`);
+  const result = await vectorService.addDocuments(BENCHMARK_COLLECTION, documents);
+
+  if (result.success) {
+    console.log(`  ✅ Indexed ${result.addedCount} files`);
+    isIndexed = true;
+  } else {
+    console.error(`  ❌ Indexing failed: ${result.error}`);
+  }
+}
+
+/**
+ * Simple BM25 scoring
+ */
+function bm25Score(query: string, document: string): number {
+  const queryTerms = query.toLowerCase().split(/\s+/);
+  const docText = document.toLowerCase();
+
+  let score = 0;
+  for (const term of queryTerms) {
+    if (docText.includes(term)) {
+      const termCount = (docText.match(new RegExp(term, 'g')) || []).length;
+      score += termCount / (termCount + 1); // Diminishing returns
+    }
+  }
+
+  return score / queryTerms.length;
+}
+
+/**
+ * Symbol-aware BM25 scoring
+ * Boosts files that DEFINE symbols matching query vs files that only IMPORT them
+ */
+function symbolAwareBM25Score(
+  query: string,
+  filePath: string,
+  content: string,
+  symbolInfo?: FileSymbolIndex
+): number {
+  const queryTerms = query.toLowerCase().split(/\s+/).filter(t => t.length > 2);
+
+  // Base score from naive BM25
+  let score = bm25Score(query, content) * 0.3; // Reduce weight of content matching
+
+  if (!symbolInfo) {
+    // Fallback to naive BM25 for non-TypeScript files
+    return score;
+  }
+
+  // File path matching boost (e.g., "ResourceManager" query → "ResourceManager.ts")
+  const fileName = filePath.split('/').pop()?.toLowerCase() || '';
+  for (const term of queryTerms) {
+    if (fileName.includes(term)) {
+      score += 2.0; // Strong signal
+    }
+  }
+
+  // Extract symbol names from exports (format: "export class Foo" → "Foo")
+  const exportedSymbols = symbolInfo.exports
+    .map(exp => {
+      const match = exp.match(/export\s+(?:class|function|interface|const|let|var)\s+(\w+)/);
+      return match ? match[1].toLowerCase() : '';
+    })
+    .filter(s => s.length > 0);
+
+  // Exported symbol matching (strongest signal - this file DEFINES the symbol)
+  for (const term of queryTerms) {
+    if (exportedSymbols.some(exp => exp.includes(term) || term.includes(exp))) {
+      score += 3.0; // Very strong signal
+    }
+  }
+
+  // Class/function definition matching (strong signal)
+  const definedSymbols = [
+    ...symbolInfo.classes.map(c => c.toLowerCase()),
+    ...symbolInfo.functions.map(f => f.toLowerCase())
+  ];
+
+  for (const term of queryTerms) {
+    if (definedSymbols.some(sym => sym.includes(term) || term.includes(sym))) {
+      score += 1.5; // Strong signal
+    }
+  }
+
+  // All symbols matching (medium signal)
+  const allSymbols = symbolInfo.symbols.map(s => s.toLowerCase());
+  for (const term of queryTerms) {
+    if (allSymbols.some(sym => sym.includes(term) || term.includes(sym))) {
+      score += 0.5; // Medium signal
+    }
+  }
+
+  // Import penalty (file only imports the symbol, doesn't define it)
+  const importedSymbols = symbolInfo.imports.map(i => i.toLowerCase());
+  let hasDefinition = false;
+  let hasImport = false;
+
+  for (const term of queryTerms) {
+    if (exportedSymbols.some(exp => exp.includes(term)) ||
+        definedSymbols.some(sym => sym.includes(term))) {
+      hasDefinition = true;
+    }
+    if (importedSymbols.some(imp => imp.includes(term))) {
+      hasImport = true;
+    }
+  }
+
+  // If file only imports but doesn't define, apply penalty
+  if (hasImport && !hasDefinition && exportedSymbols.length === 0) {
+    score *= 0.3; // Heavy penalty for import-only files
+  }
+
+  return score;
+}
+
+/**
+ * Search using different retrieval methods
  */
 async function searchWithMethod(
   method: string,
@@ -93,20 +372,85 @@ async function searchWithMethod(
 ): Promise<{ results: SearchResult[]; latency_ms: number }> {
   const startTime = performance.now();
 
-  // Placeholder: Return mock results
-  // TODO: Replace with actual search implementation
-  const mockResults: SearchResult[] = [];
+  const corpus = await loadFileCorpus();
+  const results: SearchResult[] = [];
+
+  if (method === 'symbol_bm25') {
+    // Symbol-aware BM25 search
+    const index = await buildSymbolIndex();
+
+    const scored = corpus.map(file => {
+      const symbolInfo = index.get(file.path);
+      return {
+        file: file.path,
+        score: symbolAwareBM25Score(query, file.path, file.content, symbolInfo),
+        rank: 0
+      };
+    }).filter(r => r.score > 0);
+
+    scored.sort((a, b) => b.score - a.score);
+    scored.forEach((r, i) => r.rank = i + 1);
+    results.push(...scored.slice(0, k));
+
+  } else if (method === 'bm25') {
+    // BM25 text search
+    const scored = corpus.map(file => ({
+      file: file.path,
+      score: bm25Score(query, file.content),
+      rank: 0
+    })).filter(r => r.score > 0);
+
+    scored.sort((a, b) => b.score - a.score);
+
+    // Assign ranks
+    scored.forEach((r, i) => r.rank = i + 1);
+
+    results.push(...scored.slice(0, k));
+
+  } else if (method === 'semantic') {
+    // Semantic search using VectorSearchService
+    await ensureVectorIndex();
+
+    if (!vectorService) {
+      console.error('  ❌ Vector service not available');
+      return { results: [], latency_ms: 0 };
+    }
+
+    try {
+      const searchResults = await vectorService.searchSimilar(
+        BENCHMARK_COLLECTION,
+        query,
+        k,
+        0.0 // No threshold - we want all results for benchmarking
+      );
+
+      // Map to SearchResult format
+      searchResults.forEach((r, i) => {
+        results.push({
+          file: r.metadata?.path || r.id,
+          score: r.similarity,
+          rank: i + 1
+        });
+      });
+    } catch (error) {
+      console.error(`  ❌ Semantic search error:`, error);
+    }
+
+  } else if (method === 'fts5' || method === 'hybrid' || method === 'reranked') {
+    // TODO: Implement other search methods
+    // For now, return empty results
+  }
 
   const latency_ms = performance.now() - startTime;
 
-  return { results: mockResults, latency_ms };
+  return { results, latency_ms };
 }
 
 /**
  * Run benchmark for a single method across all queries
  */
 async function benchmarkMethod(
-  method: 'bm25' | 'fts5' | 'semantic' | 'hybrid' | 'reranked',
+  method: 'bm25' | 'symbol_bm25' | 'fts5' | 'semantic' | 'hybrid' | 'reranked',
   dataset: TestDataset,
   k: number = 10
 ): Promise<MethodBenchmarkResult> {
@@ -248,12 +592,14 @@ async function main() {
   const k = 10; // Evaluate at K=10
 
   // Run benchmarks for each method
-  const methods: Array<'bm25' | 'fts5' | 'semantic' | 'hybrid' | 'reranked'> = [
+  const methods: Array<'bm25' | 'symbol_bm25' | 'fts5' | 'semantic' | 'hybrid' | 'reranked'> = [
     'bm25',
-    'fts5',
-    'semantic',
-    'hybrid',
-    'reranked'
+    'symbol_bm25',
+    // Skip slow methods for now
+    // 'fts5',
+    // 'semantic',
+    // 'hybrid',
+    // 'reranked'
   ];
 
   const results: MethodBenchmarkResult[] = [];
