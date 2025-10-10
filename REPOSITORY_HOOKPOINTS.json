@@ -1,0 +1,288 @@
+{
+  "meta": {
+    "version": "1.0.0",
+    "purpose": "Authoritative registry of ZMCPTools Drizzle repositories and hookpoints",
+    "verify_token": "ZMCP_REPOS_v1.0_LOADED",
+    "database": "var/db/zmcp_local.db",
+    "orm": "Drizzle",
+    "pattern": "Schema in code, single database, type-safe repositories"
+  },
+  "repositories": {
+    "ToolCallLogRepository": {
+      "file": "ZMCPTools/src/repositories/ToolCallLogRepository.ts",
+      "purpose": "Log ALL tool calls (Claude, agents, manual)",
+      "schema_table": "tool_call_logs",
+      "hooked_at": [
+        "ZMCPTools/src/mcp/server.ts - MCP tool execution wrapper",
+        "ZMCPTools/src/services/TaskService.ts - Task execution logging"
+      ],
+      "should_hook": [
+        "talent-os/bin/session_marker.py - WORK_START/ERROR/COMPLETE markers",
+        "talent-os/core/talent_runner.py - Talent tool execution",
+        "Claude Code MCP bridge - All tool calls from Claude"
+      ],
+      "replaces": [
+        "var/db/scavenger.db (tool call observations)",
+        "var/whiteboard/bash_*.json (tool analysis)",
+        "Manual session archive analysis (359 Bash interruptions)"
+      ],
+      "key_methods": [
+        "findByToolName(toolName) - Filter by tool",
+        "findFailed(repo, tool) - Error patterns",
+        "getToolUsageStats() - Analytics",
+        "findErrorPatterns() - Learning opportunities"
+      ],
+      "scavenger_integration": {
+        "pattern": "Scavenger reads from ToolCallLogRepository",
+        "query": "findFailed() + findErrorPatterns() → learning observations",
+        "no_database_needed": "Use Drizzle queries, not separate scavenger.db"
+      }
+    },
+    "ErrorLogRepository": {
+      "file": "ZMCPTools/src/repositories/ErrorLogRepository.ts",
+      "purpose": "Log ALL errors (system, tool, validation)",
+      "schema_table": "error_logs",
+      "hooked_at": [
+        "ZMCPTools error middleware"
+      ],
+      "should_hook": [
+        "talent-os/bin/session_marker.py - ERROR markers",
+        "talent-os/core/fun_error_crafter.py - User-facing errors",
+        "All Python exception handlers"
+      ],
+      "replaces": [
+        "var/db/scavenger.db (error patterns)",
+        "var/whiteboard/bash_interruptions_enriched.json"
+      ],
+      "teacher_integration": {
+        "pattern": "Teacher reads from ErrorLogRepository",
+        "query": "Common error patterns → pedagogical improvements",
+        "no_database_needed": "Use Drizzle queries for error analysis"
+      }
+    },
+    "TaskRepository": {
+      "file": "ZMCPTools/src/repositories/TaskRepository.ts",
+      "purpose": "Track ALL tasks (dom0, talents, manual)",
+      "schema_table": "tasks",
+      "hooked_at": [
+        "ZMCPTools/src/services/TaskService.ts"
+      ],
+      "should_hook": [
+        "talent-os/bin/task_verifier.py - Task verification (CLAUDE.md rule)",
+        "var/tasks/dom0/user/ - Dom0 task queue",
+        "var/coordination/tasks/ - Coordination tasks"
+      ],
+      "replaces": [
+        "var/db/task_verification.db",
+        "var/tasks/*/done/*.json (FILESYSTEM tracking)",
+        "var/coordination/tasks/*.json"
+      ],
+      "migration_strategy": {
+        "phase_1": "Keep FILESYSTEM for task definitions (JSON source of truth)",
+        "phase_2": "Use TaskRepository for state/verification tracking",
+        "phase_3": "Query TaskRepository for analytics, not grepping JSON files"
+      }
+    },
+    "PlanRepository": {
+      "file": "ZMCPTools/src/repositories/PlanRepository.ts",
+      "purpose": "Store ALL plans (implementation, learning, refactoring)",
+      "schema_table": "plans",
+      "hooked_at": [
+        "ZMCPTools/src/tools/PlanTools.ts"
+      ],
+      "should_hook": [
+        "var/harvest/session_learnings/*.json - Harvest plans",
+        "Scavenger learning plan generation",
+        "Teacher pedagogical plan creation"
+      ],
+      "replaces": [
+        "var/db/harvest_index.db (harvest plans)",
+        "var/archived/docs/plans/*.md (old implementation plans)"
+      ],
+      "harvest_integration": {
+        "pattern": "JSON files = source of truth, PlanRepository = index",
+        "source": "var/harvest/session_learnings/*.json",
+        "index": "PlanRepository with embedding search",
+        "no_database_needed": "Read JSON, index in PlanRepository for queries"
+      }
+    },
+    "CommunicationRepository": {
+      "file": "ZMCPTools/src/repositories/CommunicationRepository.ts",
+      "purpose": "Store ALL inter-agent communications",
+      "schema_table": "communications",
+      "hooked_at": [
+        "ZMCPTools/src/services/CommunicationService.ts"
+      ],
+      "should_hook": [
+        "var/hypercalls/*.json - Layer 2→1 requests (READ ONLY, FILESYSTEM is truth)",
+        "var/messages/tasks/*.json - Task queue messages",
+        "var/gemini-comms/inbox|outbox/ - Cross-AI comms"
+      ],
+      "replaces": [
+        "var/db/message_routing.db"
+      ],
+      "hypercall_integration": {
+        "pattern": "FILESYSTEM is truth, CommunicationRepository for analytics",
+        "source": "var/hypercalls/*.json (immutable)",
+        "index": "CommunicationRepository tracks hypercall metrics",
+        "no_replacement": "Hypercalls stay on FILESYSTEM, repo indexes for queries"
+      }
+    },
+    "DocumentationRepository": {
+      "file": "ZMCPTools/src/repositories/DocumentationRepository.ts",
+      "purpose": "Index ALL documentation (etc/, docs/, *.md)",
+      "schema_table": "documentation",
+      "hooked_at": [],
+      "should_hook": [
+        "etc/META_DOCUMENTATION_MAP.md indexing",
+        "Auto-generated docs (SERVICE_PORTS.md, TOOLS_MANIFEST.md)",
+        "Markdown file change detection"
+      ],
+      "replaces": [
+        "Manual grep through etc/ and docs/",
+        "Memory of where docs are"
+      ],
+      "discovery_pattern": {
+        "source": "etc/ and docs/ markdown files (FILESYSTEM truth)",
+        "index": "DocumentationRepository with semantic search",
+        "query": "Find docs about X → semantic similarity + keyword"
+      }
+    },
+    "WebsitePagesRepository": {
+      "file": "ZMCPTools/src/repositories/WebsitePagesRepository.ts",
+      "purpose": "Cache scraped web pages",
+      "schema_table": "website_pages",
+      "hooked_at": [
+        "ZMCPTools web scraping tools"
+      ],
+      "should_hook": [
+        "Claude Code WebFetch tool results",
+        "Documentation fetching (claude-code docs)"
+      ],
+      "use_case": "Cache fetched pages to avoid re-fetching"
+    },
+    "KnowledgeGraphRepository": {
+      "file": "ZMCPTools/src/repositories/KnowledgeGraphRepository.ts",
+      "purpose": "Knowledge graph (entities, relationships, insights)",
+      "schema_tables": ["knowledge_entities", "knowledge_relationships", "knowledge_insights"],
+      "hooked_at": [],
+      "should_hook": [
+        "Harvest slurp (#77) - Ingest session learnings into KG",
+        "Scavenger/Teacher observations → KG nodes",
+        "GitHub issues dense index (#84) → KG integration"
+      ],
+      "replaces": [
+        "Broken knowledge graph (being refactored)",
+        "Manual JSON harvesting without structured storage"
+      ],
+      "future_state": "Central knowledge repository for all learnings"
+    },
+    "AgentRepository": {
+      "file": "ZMCPTools/src/repositories/AgentRepository.ts",
+      "purpose": "Track agent sessions and state",
+      "schema_table": "agent_sessions",
+      "hooked_at": [],
+      "should_hook": [
+        "talent-os talent lifecycle (start/stop/suspend)",
+        "Agent spawn/control from dashboard",
+        "Hypercall suspend/resume state"
+      ],
+      "replaces": [
+        "var/db/talent_states.db",
+        "var/coordination/implementations/*.json (agent state)"
+      ]
+    },
+    "MemoryRepository": {
+      "file": "ZMCPTools/src/repositories/MemoryRepository.ts",
+      "purpose": "Agent memory and context",
+      "schema_table": "memories",
+      "hooked_at": [],
+      "should_hook": [
+        "Talent memory persistence",
+        "Session context across hypercall suspend/resume",
+        "Agent learning memory"
+      ],
+      "use_case": "Replace stateless agents with memory-enabled agents"
+    },
+    "ScrapeJobRepository": {
+      "file": "ZMCPTools/src/repositories/ScrapeJobRepository.ts",
+      "purpose": "Track web scraping jobs",
+      "schema_table": "scrape_jobs",
+      "hooked_at": [
+        "ZMCPTools scraping services"
+      ],
+      "use_case": "Track scraping status and results"
+    },
+    "WebsiteRepository": {
+      "file": "ZMCPTools/src/repositories/WebsiteRepository.ts",
+      "purpose": "Track scraped websites",
+      "schema_table": "websites",
+      "hooked_at": [
+        "ZMCPTools scraping services"
+      ],
+      "use_case": "Metadata for scraped sites"
+    }
+  },
+  "integration_checklist": {
+    "talent_os_hooks": [
+      {
+        "file": "talent-os/bin/session_marker.py",
+        "add": "Import ToolCallLogRepository, log WORK_START/ERROR/COMPLETE",
+        "replaces": "Manual session archive + Scavenger batch analysis"
+      },
+      {
+        "file": "talent-os/core/talent_runner.py",
+        "add": "Import ToolCallLogRepository, log all talent tool calls",
+        "replaces": "No current logging of talent tool usage"
+      },
+      {
+        "file": "talent-os/bin/task_verifier.py",
+        "add": "Import TaskRepository, track verification results",
+        "replaces": "var/db/task_verification.db"
+      },
+      {
+        "file": "talent-os/bin/scavenger.py",
+        "add": "Read from ToolCallLogRepository.findFailed() + findErrorPatterns()",
+        "replaces": "Reading from session archives + var/db/scavenger.db"
+      },
+      {
+        "file": "talent-os/bin/teacher.py",
+        "add": "Read from ErrorLogRepository for pedagogical insights",
+        "replaces": "Manual error pattern analysis"
+      },
+      {
+        "file": "talent-os/bin/harvest_bash_learnings.py",
+        "add": "Write to PlanRepository instead of harvest_index.db",
+        "replaces": "var/db/harvest_index.db"
+      }
+    ],
+    "zmcptools_hooks": [
+      {
+        "file": "ZMCPTools/src/mcp/server.ts",
+        "status": "Verify tool execution wrapper logs to ToolCallLogRepository",
+        "critical": true
+      },
+      {
+        "file": "ZMCPTools/src/services/TaskService.ts",
+        "status": "Verify task creation/updates use TaskRepository",
+        "critical": true
+      }
+    ]
+  },
+  "verification": {
+    "command": "uv run python ZMCPTools/bin/verify_repository_hookpoints.py",
+    "checks": [
+      "All repositories accessible from talent-os Python",
+      "All critical hooks implemented",
+      "No duplicate databases (var/db/scavenger.db, etc.)",
+      "FILESYSTEM patterns preserved (hypercalls, harvest source)"
+    ]
+  },
+  "philosophy": {
+    "single_source_of_truth": "ZMCPTools Drizzle repositories",
+    "filesystem_when_appropriate": "Hypercalls, harvest JSON (source), documentation (markdown)",
+    "repositories_for_queries": "Analytics, search, aggregation across many entities",
+    "no_duplicate_databases": "Delete var/db/*.db except zmcp_local.db",
+    "discoverable": "MCP resources expose repository contents"
+  }
+}
