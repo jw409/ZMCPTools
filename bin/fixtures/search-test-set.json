@@ -1,0 +1,189 @@
+{
+  "description": "MTEB-style search benchmark test set for ZMCPTools",
+  "version": "1.0.0",
+  "corpus": "ZMCPTools (TypeScript + Markdown)",
+  "queries": [
+    {
+      "id": "code-001",
+      "type": "code",
+      "query": "ResourceManager readResource",
+      "description": "Find files implementing resource reading functionality",
+      "relevant_docs": [
+        { "file": "src/managers/ResourceManager.ts", "relevance": 3, "reason": "Primary implementation" },
+        { "file": "src/server/McpServer.ts", "relevance": 2, "reason": "Calls readResource" },
+        { "file": "etc/RESOURCE_REGISTRY.md", "relevance": 1, "reason": "Documentation" }
+      ]
+    },
+    {
+      "id": "code-002",
+      "type": "code",
+      "query": "VectorSearchService searchSimilar embeddings",
+      "description": "Find vector search implementation with embeddings",
+      "relevant_docs": [
+        { "file": "src/services/VectorSearchService.ts", "relevance": 3, "reason": "Primary implementation" },
+        { "file": "src/services/LanceDBService.ts", "relevance": 2, "reason": "LanceDB backend" },
+        { "file": "src/services/TalentOSEmbeddingFunction.ts", "relevance": 2, "reason": "Embedding generation" }
+      ]
+    },
+    {
+      "id": "code-003",
+      "type": "code",
+      "query": "SymbolGraphIndexer getIndexedFiles",
+      "description": "Find symbol graph cache query implementation",
+      "relevant_docs": [
+        { "file": "src/services/SymbolGraphIndexer.ts", "relevance": 3, "reason": "Primary implementation" },
+        { "file": "src/managers/ResourceManager.ts", "relevance": 2, "reason": "Uses symbol indexer" },
+        { "file": "src/tools/IndexSymbolGraphTool.ts", "relevance": 2, "reason": "Indexing tool" }
+      ]
+    },
+    {
+      "id": "code-004",
+      "type": "code",
+      "query": "CursorManager encode decode pagination",
+      "description": "Find cursor-based pagination implementation",
+      "relevant_docs": [
+        { "file": "src/managers/ResourceManager.ts", "relevance": 3, "reason": "Contains CursorManager class" },
+        { "file": "src/__tests__/resource-pagination.test.ts", "relevance": 2, "reason": "Test coverage" }
+      ]
+    },
+    {
+      "id": "code-005",
+      "type": "code",
+      "query": "DatabaseManager initialize drizzle",
+      "description": "Find database initialization logic",
+      "relevant_docs": [
+        { "file": "src/database/index.ts", "relevance": 3, "reason": "DatabaseManager implementation" },
+        { "file": "src/database/drizzle.ts", "relevance": 3, "reason": "Drizzle ORM setup" },
+        { "file": "src/server/McpServer.ts", "relevance": 1, "reason": "Database initialization" }
+      ]
+    },
+    {
+      "id": "conceptual-001",
+      "type": "conceptual",
+      "query": "MCP resource token optimization strategy",
+      "description": "Find documentation about resource-based token reduction",
+      "relevant_docs": [
+        { "file": "etc/TOOL_LIST.md", "relevance": 3, "reason": "Explains token optimization" },
+        { "file": "etc/RESOURCE_REGISTRY.md", "relevance": 3, "reason": "Resource registry with token info" },
+        { "file": "CLAUDE.md", "relevance": 2, "reason": "Resource usage guidance" },
+        { "file": "src/managers/ResourceManager.ts", "relevance": 1, "reason": "Implementation" }
+      ]
+    },
+    {
+      "id": "conceptual-002",
+      "type": "conceptual",
+      "query": "semantic search hybrid BM25 implementation",
+      "description": "Find hybrid search architecture documentation",
+      "relevant_docs": [
+        { "file": "src/services/VectorSearchService.ts", "relevance": 2, "reason": "Semantic search" },
+        { "file": "src/services/IndexedKnowledgeSearch.ts", "relevance": 3, "reason": "Hybrid BM25 + semantic" },
+        { "file": "CLAUDE.md", "relevance": 2, "reason": "Search architecture notes" }
+      ]
+    },
+    {
+      "id": "conceptual-003",
+      "type": "conceptual",
+      "query": "GPU embeddings TalentOS integration",
+      "description": "Find TalentOS GPU embedding integration documentation",
+      "relevant_docs": [
+        { "file": "src/services/TalentOSEmbeddingFunction.ts", "relevance": 3, "reason": "Integration implementation" },
+        { "file": "src/services/VectorSearchService.ts", "relevance": 2, "reason": "Uses GPU embeddings" },
+        { "file": "EMBEDDING_PERFORMANCE_REPORT.md", "relevance": 3, "reason": "Performance benchmarks" },
+        { "file": "CLAUDE.md", "relevance": 1, "reason": "Configuration notes" }
+      ]
+    },
+    {
+      "id": "conceptual-004",
+      "type": "conceptual",
+      "query": "project local storage venv isolation",
+      "description": "Find documentation about project-local storage patterns",
+      "relevant_docs": [
+        { "file": "src/services/StoragePathResolver.ts", "relevance": 3, "reason": "Storage path logic" },
+        { "file": "src/utils/pathResolver.ts", "relevance": 2, "reason": "Path resolution" },
+        { "file": "CLAUDE.md", "relevance": 1, "reason": "Mentions venv isolation" }
+      ]
+    },
+    {
+      "id": "conceptual-005",
+      "type": "conceptual",
+      "query": "AST parsing tree-sitter symbol extraction",
+      "description": "Find AST and symbol extraction documentation",
+      "relevant_docs": [
+        { "file": "src/tools/TreeSitterASTTool.ts", "relevance": 3, "reason": "AST parsing implementation" },
+        { "file": "src/tools/SimpleASTTool.ts", "relevance": 2, "reason": "Simple AST variant" },
+        { "file": "src/managers/ResourceManager.ts", "relevance": 2, "reason": "AST resource handlers" },
+        { "file": "etc/RESOURCE_REGISTRY.md", "relevance": 1, "reason": "AST resource docs" }
+      ]
+    },
+    {
+      "id": "mixed-001",
+      "type": "mixed",
+      "query": "knowledge graph search implementation IndexedKnowledgeSearch",
+      "description": "Find both implementation and conceptual docs for knowledge search",
+      "relevant_docs": [
+        { "file": "src/services/IndexedKnowledgeSearch.ts", "relevance": 3, "reason": "Implementation" },
+        { "file": "src/services/KnowledgeGraphService.ts", "relevance": 2, "reason": "Graph service" },
+        { "file": "src/managers/ResourceManager.ts", "relevance": 2, "reason": "Knowledge resource handlers" },
+        { "file": "etc/RESOURCE_REGISTRY.md", "relevance": 2, "reason": "Knowledge resource docs" },
+        { "file": "CLAUDE.md", "relevance": 1, "reason": "Search architecture" }
+      ]
+    },
+    {
+      "id": "mixed-002",
+      "type": "mixed",
+      "query": "LanceDB vector database initialization",
+      "description": "Find LanceDB setup and usage",
+      "relevant_docs": [
+        { "file": "src/services/LanceDBService.ts", "relevance": 3, "reason": "Service implementation" },
+        { "file": "src/services/VectorSearchService.ts", "relevance": 3, "reason": "Vector search using LanceDB" },
+        { "file": "EMBEDDING_PERFORMANCE_REPORT.md", "relevance": 2, "reason": "Performance notes" },
+        { "file": "CLAUDE.md", "relevance": 1, "reason": "Storage configuration" }
+      ]
+    },
+    {
+      "id": "mixed-003",
+      "type": "mixed",
+      "query": "MCP server resource registration listResources",
+      "description": "Find MCP resource registration mechanism",
+      "relevant_docs": [
+        { "file": "src/server/McpServer.ts", "relevance": 3, "reason": "Server implementation" },
+        { "file": "src/managers/ResourceManager.ts", "relevance": 3, "reason": "Resource manager with listResources" },
+        { "file": "etc/RESOURCE_REGISTRY.md", "relevance": 2, "reason": "Registry documentation" },
+        { "file": "etc/TOOL_LIST.md", "relevance": 1, "reason": "Tool list with resource info" }
+      ]
+    },
+    {
+      "id": "mixed-004",
+      "type": "mixed",
+      "query": "pagination cursor encoding base64",
+      "description": "Find pagination implementation details",
+      "relevant_docs": [
+        { "file": "src/managers/ResourceManager.ts", "relevance": 3, "reason": "CursorManager implementation" },
+        { "file": "src/__tests__/resource-pagination.test.ts", "relevance": 3, "reason": "Pagination tests" },
+        { "file": "etc/RESOURCE_REGISTRY.md", "relevance": 2, "reason": "Paginated resource docs" }
+      ]
+    },
+    {
+      "id": "mixed-005",
+      "type": "mixed",
+      "query": "file analysis symbols imports exports",
+      "description": "Find file analysis resource implementations",
+      "relevant_docs": [
+        { "file": "src/managers/ResourceManager.ts", "relevance": 3, "reason": "File resource handlers" },
+        { "file": "src/tools/TreeSitterASTTool.ts", "relevance": 3, "reason": "Symbol/import extraction" },
+        { "file": "etc/RESOURCE_REGISTRY.md", "relevance": 2, "reason": "File analysis docs" },
+        { "file": "src/services/SymbolGraphIndexer.ts", "relevance": 2, "reason": "Symbol caching" }
+      ]
+    }
+  ],
+  "metadata": {
+    "total_queries": 15,
+    "by_type": {
+      "code": 5,
+      "conceptual": 5,
+      "mixed": 5
+    },
+    "average_relevant_docs": 3.2,
+    "created_at": "2025-10-10T04:25:00Z"
+  }
+}
