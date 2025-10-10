@@ -27,6 +27,7 @@ import { EmbeddingClient } from './EmbeddingClient.js';
 import { LanceDBService } from './LanceDBService.js';
 import { Logger } from '../utils/logger.js';
 import { StoragePathResolver } from './StoragePathResolver.js';
+import { getPartitionClassifier, type PartitionInfo } from './PartitionClassifier.js';
 
 const logger = new Logger('symbol-graph-indexer');
 
@@ -43,6 +44,8 @@ export interface IndexedFileRecord {
   symbolCount: number;
   lastIndexedAt: number;
   indexVersion: number;
+  partitionId?: string;      // Knowledge partition (dom0, project, talent_*, etc.)
+  authorityScore?: number;   // Authority level 0.0-1.0 (higher = more authoritative)
 }
 
 export interface SymbolRecord {
@@ -94,6 +97,11 @@ export interface SearchResult {
   matchType: 'keyword' | 'semantic' | 'import';
   symbols?: SymbolRecord[];
   snippet?: string;
+  metadata?: {
+    originalScore?: number;
+    authorityScore?: number;
+    partition?: string;
+  };
 }
 
 // ============================================================================
@@ -128,6 +136,7 @@ export class SymbolGraphIndexer {
   ];
 
   // Indexable extensions (aligned with RealFileIndexingService)
+  // Phase 1: Added .md for full-text indexing
   private indexableExtensions = new Set([
     '.js', '.jsx', '.ts', '.tsx',
     '.py', '.pyi',
@@ -136,13 +145,28 @@ export class SymbolGraphIndexer {
     '.rs',
     '.php',
     '.html', '.htm',
-    '.css', '.scss'
+    '.css', '.scss',
+    '.md'  // Markdown files for FTS5 + semantic indexing
+  ]);
+
+  // Documentation file extensions (Phase 1: FTS5 indexing strategy)
+  private docsExtensions = new Set([
+    '.md', '.txt', '.rst', '.adoc'
   ]);
 
   constructor() {
     this.astTool = new TreeSitterASTTool();
     this.bm25Service = new BM25Service();
     this.embeddingClient = new EmbeddingClient();
+  }
+
+  /**
+   * Detect if file is documentation (FTS5) or code (AST)
+   * Phase 1: File type detection for dual-indexing strategy
+   */
+  private isDocumentationFile(filePath: string): boolean {
+    const ext = path.extname(filePath);
+    return this.docsExtensions.has(ext);
   }
 
   /**
@@ -254,6 +278,7 @@ export class SymbolGraphIndexer {
 
     const schema = `
       -- File index with mtime tracking (incremental indexing)
+      -- Phase 1: Added partition_id and authority_score for knowledge graph hierarchy
       CREATE TABLE IF NOT EXISTS indexed_files (
         file_path TEXT PRIMARY KEY,
         mtime INTEGER NOT NULL,
@@ -262,7 +287,9 @@ export class SymbolGraphIndexer {
         size INTEGER NOT NULL,
         symbol_count INTEGER DEFAULT 0,
         last_indexed_at INTEGER NOT NULL,
-        index_version INTEGER DEFAULT 1
+        index_version INTEGER DEFAULT 1,
+        partition_id TEXT,              -- Knowledge partition (dom0, project, talent_*, etc.)
+        authority_score REAL DEFAULT 0.35  -- Authority level 0.0-1.0 (higher = more authoritative)
       );
 
       -- Symbol table (extracted via TreeSitterASTTool)
@@ -306,8 +333,19 @@ export class SymbolGraphIndexer {
         FOREIGN KEY (file_path) REFERENCES indexed_files(file_path) ON DELETE CASCADE
       );
 
+      -- FTS5 full-text search (for markdown/docs - Phase 1)
+      -- Uses SQLite's built-in BM25 ranking via FTS5 extension
+      CREATE VIRTUAL TABLE IF NOT EXISTS fts5_documents
+      USING fts5(
+        file_path UNINDEXED,
+        content,
+        tokenize = 'porter unicode61'
+      );
+
       -- Indexes for performance
       CREATE INDEX IF NOT EXISTS idx_indexed_files_mtime ON indexed_files(mtime);
+      CREATE INDEX IF NOT EXISTS idx_indexed_files_partition ON indexed_files(partition_id);
+      CREATE INDEX IF NOT EXISTS idx_indexed_files_authority ON indexed_files(authority_score);
       CREATE INDEX IF NOT EXISTS idx_symbols_file_path ON symbols(file_path);
       CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(name);
       CREATE INDEX IF NOT EXISTS idx_imports_source_file ON imports(source_file);
@@ -407,13 +445,23 @@ export class SymbolGraphIndexer {
   }
 
   /**
-   * Extract intent content for embeddings (docstrings + comments only, NO code)
+   * Extract intent content for embeddings
+   * Phase 1: Dual-indexing strategy
+   * - Code files: docstrings + comments only (NO code)
+   * - Markdown files: full text content
    */
   private async extractIntentContent(filePath: string): Promise<string> {
     const parts: string[] = [];
 
     try {
       const content = await fs.readFile(filePath, 'utf-8');
+
+      // Phase 1: For markdown/docs, return full text
+      if (this.isDocumentationFile(filePath)) {
+        return content.trim();
+      }
+
+      // For code files: extract docstrings + comments only
       const lines = content.split('\n');
 
       // Extract JSDoc/docstrings (simple heuristic)
@@ -450,6 +498,7 @@ export class SymbolGraphIndexer {
 
   /**
    * Index a single file
+   * Phase 1: Dual-indexing strategy (code via AST, markdown via FTS5)
    */
   private async indexFile(filePath: string, stats: IndexStats): Promise<void> {
     if (!this.db) {
@@ -471,53 +520,78 @@ export class SymbolGraphIndexer {
       const content = await fs.readFile(filePath, 'utf-8');
       const fileHash = this.hashContent(content);
 
-      // Parse symbols
-      const parseResult = await this.astTool.executeByToolName('ast_extract_symbols', {
-        file_path: filePath,
-        language: 'auto'
-      });
+      // Phase 1: Branch by file type (code vs docs)
+      const isDoc = this.isDocumentationFile(filePath);
 
-      if (!parseResult.success) {
-        throw new Error(parseResult.error || 'Failed to parse file');
-      }
+      let language: string;
+      let symbols: any[] = [];
+      let imports: any[] = [];
+      let exportedNames = new Set<string>();
+      let codeContent = '';
+      let intentContent = '';
 
-      const language = parseResult.language || 'unknown';
-      const symbols = parseResult.symbols || [];
+      if (isDoc) {
+        // Documentation file: No AST extraction
+        language = 'markdown';
+        intentContent = content.trim(); // Full text for semantic search
+        // codeContent remains empty (no BM25 indexing for docs)
+      } else {
+        // Code file: Full AST extraction
+        // Parse symbols
+        const parseResult = await this.astTool.executeByToolName('ast_extract_symbols', {
+          file_path: filePath,
+          language: 'auto'
+        });
 
-      // Get imports
-      const importsResult = await this.astTool.executeByToolName('ast_extract_imports', {
-        file_path: filePath,
-        language: 'auto'
-      });
-
-      const imports = importsResult.success ? (importsResult.imports || []) : [];
-
-      // Get exports to determine which symbols are exported
-      const exportsResult = await this.astTool.executeByToolName('ast_extract_exports', {
-        file_path: filePath,
-        language: 'auto'
-      });
-
-      const exportedNames = new Set<string>();
-      if (exportsResult.success && exportsResult.exports) {
-        for (const exp of exportsResult.exports) {
-          if (exp.name) exportedNames.add(exp.name);
+        if (!parseResult.success) {
+          throw new Error(parseResult.error || 'Failed to parse file');
         }
+
+        language = parseResult.language || 'unknown';
+        symbols = parseResult.symbols || [];
+
+        // Get imports
+        const importsResult = await this.astTool.executeByToolName('ast_extract_imports', {
+          file_path: filePath,
+          language: 'auto'
+        });
+
+        imports = importsResult.success ? (importsResult.imports || []) : [];
+
+        // Get exports to determine which symbols are exported
+        const exportsResult = await this.astTool.executeByToolName('ast_extract_exports', {
+          file_path: filePath,
+          language: 'auto'
+        });
+
+        if (exportsResult.success && exportsResult.exports) {
+          for (const exp of exportsResult.exports) {
+            if (exp.name) exportedNames.add(exp.name);
+          }
+        }
+
+        // Extract search content domains
+        codeContent = await this.extractCodeContent(filePath);
+        intentContent = await this.extractIntentContent(filePath);
       }
 
-      // Extract search content domains
-      const codeContent = await this.extractCodeContent(filePath);
-      const intentContent = await this.extractIntentContent(filePath);
+      // Classify file into knowledge partition (Phase 1)
+      const partitionInfo = getPartitionClassifier().classify(filePath);
+      logger.debug('Classified file', {
+        filePath: path.basename(filePath),
+        partition: partitionInfo.partition,
+        authority: partitionInfo.authority
+      });
 
       // Store in database (transaction for atomicity)
       const relativePath = path.relative(process.cwd(), filePath);
 
       this.db.transaction(() => {
-        // 1. Update indexed_files
+        // 1. Update indexed_files (with partition metadata)
         this.db!.prepare(`
           INSERT OR REPLACE INTO indexed_files
-          (file_path, mtime, file_hash, language, size, symbol_count, last_indexed_at, index_version)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          (file_path, mtime, file_hash, language, size, symbol_count, last_indexed_at, index_version, partition_id, authority_score)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           relativePath,
           fileStats.mtime.getTime(),
@@ -526,12 +600,15 @@ export class SymbolGraphIndexer {
           fileStats.size,
           symbols.length,
           Date.now(),
-          1
+          1,
+          partitionInfo.partition,
+          partitionInfo.authority
         );
 
-        // 2. Clear old symbols and imports
+        // 2. Clear old symbols, imports, and FTS5 entries
         this.db!.prepare('DELETE FROM symbols WHERE file_path = ?').run(relativePath);
         this.db!.prepare('DELETE FROM imports WHERE source_file = ?').run(relativePath);
+        this.db!.prepare('DELETE FROM fts5_documents WHERE file_path = ?').run(relativePath);
 
         // 3. Insert symbols (flatten hierarchical structure)
         const symbolStmt = this.db!.prepare(`
@@ -604,6 +681,17 @@ export class SymbolGraphIndexer {
           intentContent,
           0 // embedding_stored - will be set when embedding generated
         );
+
+        // 7. Phase 1: Store FTS5 document for markdown/docs
+        if (isDoc && intentContent.length > 0) {
+          this.db!.prepare(`
+            INSERT INTO fts5_documents (file_path, content)
+            VALUES (?, ?)
+          `).run(
+            relativePath,
+            intentContent
+          );
+        }
       })();
 
       // Index in BM25 service
@@ -635,10 +723,22 @@ export class SymbolGraphIndexer {
 
     try {
       // Get files where embedding_stored = 0 and embedding_text not empty
+      // Phase 1: Join with indexed_files to get partition metadata
       const pending = this.db.prepare(`
-        SELECT file_path, embedding_text FROM semantic_metadata
-        WHERE embedding_stored = 0 AND length(embedding_text) > 10
-      `).all() as Array<{ file_path: string; embedding_text: string }>;
+        SELECT
+          sm.file_path,
+          sm.embedding_text,
+          if.partition_id,
+          if.authority_score
+        FROM semantic_metadata sm
+        JOIN indexed_files if ON sm.file_path = if.file_path
+        WHERE sm.embedding_stored = 0 AND length(sm.embedding_text) > 10
+      `).all() as Array<{
+        file_path: string;
+        embedding_text: string;
+        partition_id: string;
+        authority_score: number;
+      }>;
 
       if (pending.length === 0) {
         logger.info('No pending embeddings to generate');
@@ -654,13 +754,15 @@ export class SymbolGraphIndexer {
       for (let i = 0; i < pending.length; i += batchSize) {
         const batch = pending.slice(i, i + batchSize);
 
-        // Prepare documents for LanceDB
+        // Prepare documents for LanceDB (Phase 1: with partition metadata)
         const documents = batch.map(row => ({
           id: row.file_path,
           content: row.embedding_text,
           metadata: {
             file_path: row.file_path,
-            indexed_at: new Date().toISOString()
+            indexed_at: new Date().toISOString(),
+            partition_id: row.partition_id,
+            authority_score: row.authority_score
           }
         }));
 
@@ -802,27 +904,48 @@ export class SymbolGraphIndexer {
 
   /**
    * Search using BM25 keyword search (code domain)
+   * Phase 1: Authority-weighted results (dom0 ranks higher than project)
    */
   async searchKeyword(query: string, limit: number = 10): Promise<SearchResult[]> {
-    const bm25Results = await this.bm25Service.search(query, limit);
+    // Get more results initially to allow for authority re-ranking
+    const bm25Results = await this.bm25Service.search(query, limit * 3);
 
-    return bm25Results.map(doc => {
+    const results = bm25Results.map(doc => {
       // Get symbols for this file
       const symbols = this.db!.prepare(`
         SELECT * FROM symbols WHERE file_path = ?
       `).all(doc.id) as SymbolRecord[];
 
+      // Get partition metadata for authority weighting
+      const fileInfo = this.db!.prepare(`
+        SELECT partition_id, authority_score FROM indexed_files WHERE file_path = ?
+      `).get(doc.id) as { partition_id: string; authority_score: number } | undefined;
+
+      const authorityScore = fileInfo?.authority_score || 0.35; // Default to project authority
+      const weightedScore = doc.score * authorityScore;
+
       return {
         filePath: doc.id,
-        score: doc.score,
+        score: weightedScore,
         matchType: 'keyword' as const,
-        symbols
+        symbols,
+        // Store original score and authority for debugging
+        metadata: {
+          originalScore: doc.score,
+          authorityScore,
+          partition: fileInfo?.partition_id || 'unknown'
+        }
       };
     });
+
+    // Sort by weighted score and return top N
+    results.sort((a, b) => b.score - a.score);
+    return results.slice(0, limit);
   }
 
   /**
    * Search using semantic embeddings (intent domain)
+   * Phase 1: Authority-weighted results (dom0 ranks higher than project)
    * Uses LanceDB vector search to find semantically similar files
    */
   async searchSemantic(query: string, limit: number = 10): Promise<SearchResult[]> {
@@ -832,29 +955,52 @@ export class SymbolGraphIndexer {
     }
 
     try {
-      // Search LanceDB using vector similarity
+      // Search LanceDB using vector similarity (get more results for re-ranking)
       const results = await this.lanceDBService.searchSimilar(
         this.COLLECTION_NAME,
         query,
-        limit,
+        limit * 3,
         0.3  // threshold - return results with >30% similarity
       );
 
-      // Map to SearchResult format
-      return results.map(result => {
+      // Map to SearchResult format with authority weighting
+      const searchResults = results.map(result => {
+        // DEBUG: Log raw LanceDB metadata
+        logger.debug('LanceDB result metadata', {
+          metadata: result.metadata,
+          hasFilePath: !!result.metadata.file_path,
+          metadataType: typeof result.metadata,
+          metadataKeys: Object.keys(result.metadata || {})
+        });
+
         // Get symbols for this file
         const symbols = this.db!.prepare(`
           SELECT * FROM symbols WHERE file_path = ?
         `).all(result.metadata.file_path) as SymbolRecord[];
 
+        // Authority score from LanceDB metadata (stored during indexing)
+        const authorityScore = result.metadata.authority_score || 0.35;
+        const weightedScore = result.score * authorityScore;
+
         return {
           filePath: result.metadata.file_path,
-          score: result.score,
+          score: weightedScore,
           matchType: 'semantic' as const,
           symbols,
-          snippet: result.content.substring(0, 200)
+          snippet: result.content.substring(0, 200),
+          // Store original score and authority for debugging
+          metadata: {
+            ...result.metadata,  // ✅ Preserve ALL LanceDB metadata (fixes #52)
+            originalScore: result.score,
+            authorityScore,
+            partition: result.metadata.partition_id || 'unknown'
+          }
         };
       });
+
+      // Sort by weighted score and return top N
+      searchResults.sort((a, b) => b.score - a.score);
+      return searchResults.slice(0, limit);
 
     } catch (error: any) {
       logger.error('Semantic search failed, falling back to keyword search', {
@@ -1062,22 +1208,201 @@ export class SymbolGraphIndexer {
   }
 
   /**
+   * Get all indexed files with metadata (for symbols:// resource)
+   */
+  async getIndexedFiles(): Promise<Array<{
+    file_path: string;
+    indexed_at: string;
+    symbol_count: number;
+    has_embeddings: boolean;
+  }>> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    const results = this.db.prepare(`
+      SELECT
+        if.file_path,
+        if.last_indexed_at,
+        if.symbol_count,
+        COALESCE(sm.embedding_stored, 0) as has_embeddings
+      FROM indexed_files if
+      LEFT JOIN semantic_metadata sm ON if.file_path = sm.file_path
+      ORDER BY if.last_indexed_at DESC
+    `).all() as Array<{
+      file_path: string;
+      last_indexed_at: number;
+      symbol_count: number;
+      has_embeddings: number;
+    }>;
+
+    return results.map(row => ({
+      file_path: row.file_path,
+      indexed_at: new Date(row.last_indexed_at).toISOString(),
+      symbol_count: row.symbol_count || 0,
+      has_embeddings: row.has_embeddings === 1
+    }));
+  }
+
+  /**
+   * Search symbols by name and optional type filter (for symbols:// resource)
+   */
+  async searchSymbols(name: string, type?: string, limit: number = 20): Promise<Array<{
+    name: string;
+    type: string;
+    file_path: string;
+    start_line: number;
+    end_line: number;
+    signature?: string;
+  }>> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    let query = `
+      SELECT name, type, file_path, location, signature
+      FROM symbols
+      WHERE name LIKE ?
+    `;
+    const params: any[] = [`%${name}%`];
+
+    if (type) {
+      query += ` AND type = ?`;
+      params.push(type);
+    }
+
+    query += ` ORDER BY name LIMIT ?`;
+    params.push(limit);
+
+    const results = this.db.prepare(query).all(...params) as Array<{
+      name: string;
+      type: string;
+      file_path: string;
+      location: string;
+      signature?: string;
+    }>;
+
+    return results.map(row => {
+      // Parse location format: "startLine:startCol-endLine:endCol"
+      const [start, end] = row.location.split('-');
+      const [startLine, startCol] = start.split(':').map(Number);
+      const [endLine, endCol] = end.split(':').map(Number);
+
+      return {
+        name: row.name,
+        type: row.type,
+        file_path: row.file_path,
+        start_line: startLine,
+        end_line: endLine,
+        signature: row.signature
+      };
+    });
+  }
+
+  /**
+   * Get symbols for a specific file from cache (for symbols:// resource)
+   */
+  async getFileSymbols(filePath: string): Promise<Array<{
+    name: string;
+    type: string;
+    start_line: number;
+    end_line: number;
+    signature?: string;
+  }>> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    // Normalize path to relative path
+    const relativePath = path.relative(this.projectPath, filePath);
+
+    const results = this.db.prepare(`
+      SELECT name, type, location, signature
+      FROM symbols
+      WHERE file_path = ?
+      ORDER BY location
+    `).all(relativePath) as Array<{
+      name: string;
+      type: string;
+      location: string;
+      signature?: string;
+    }>;
+
+    return results.map(row => {
+      // Parse location format: "startLine:startCol-endLine:endCol"
+      const [start, end] = row.location.split('-');
+      const [startLine, startCol] = start.split(':').map(Number);
+      const [endLine, endCol] = end.split(':').map(Number);
+
+      return {
+        name: row.name,
+        type: row.type,
+        start_line: startLine,
+        end_line: endLine,
+        signature: row.signature
+      };
+    });
+  }
+
+  /**
+   * Get file metadata from index (for symbols:// resource)
+   */
+  async getFileInfo(filePath: string): Promise<{
+    indexed_at: string;
+    has_embeddings: boolean;
+  } | null> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    // Normalize path to relative path
+    const relativePath = path.relative(this.projectPath, filePath);
+
+    const result = this.db.prepare(`
+      SELECT
+        if.last_indexed_at,
+        COALESCE(sm.embedding_stored, 0) as has_embeddings
+      FROM indexed_files if
+      LEFT JOIN semantic_metadata sm ON if.file_path = sm.file_path
+      WHERE if.file_path = ?
+    `).get(relativePath) as {
+      last_indexed_at: number;
+      has_embeddings: number;
+    } | undefined;
+
+    if (!result) {
+      return null;
+    }
+
+    return {
+      indexed_at: new Date(result.last_indexed_at).toISOString(),
+      has_embeddings: result.has_embeddings === 1
+    };
+  }
+
+  /**
    * Get statistics about indexed repository
    */
   async getStats(): Promise<{
     totalFiles: number;
+    filesWithEmbeddings: number;
     totalSymbols: number;
     totalImports: number;
     languages: Record<string, number>;
     cacheHitRate: number;
+    lastIndexed: string | null;
   }> {
     if (!this.db) {
       throw new Error('Database not initialized');
     }
 
     const totalFiles = (this.db.prepare('SELECT COUNT(*) as count FROM indexed_files').get() as { count: number }).count;
+    const filesWithEmbeddings = (this.db.prepare('SELECT COUNT(*) as count FROM semantic_metadata WHERE embedding_stored = 1').get() as { count: number }).count;
     const totalSymbols = (this.db.prepare('SELECT COUNT(*) as count FROM symbols').get() as { count: number }).count;
     const totalImports = (this.db.prepare('SELECT COUNT(*) as count FROM imports').get() as { count: number }).count;
+
+    const lastIndexedResult = this.db.prepare('SELECT MAX(last_indexed_at) as max_time FROM indexed_files').get() as { max_time: number | null };
+    const lastIndexed = lastIndexedResult.max_time ? new Date(lastIndexedResult.max_time).toISOString() : null;
 
     const languageStats = this.db.prepare(`
       SELECT language, COUNT(*) as count FROM indexed_files GROUP BY language
@@ -1090,10 +1415,12 @@ export class SymbolGraphIndexer {
 
     return {
       totalFiles,
+      filesWithEmbeddings,
       totalSymbols,
       totalImports,
       languages,
-      cacheHitRate: 0 // Will be calculated during next indexing run
+      cacheHitRate: 0, // Will be calculated during next indexing run
+      lastIndexed
     };
   }
 
