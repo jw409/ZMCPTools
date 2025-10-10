@@ -44,7 +44,6 @@ import type {
 import { DatabaseManager } from "../database/index.js";
 import { WebScrapingService } from "../services/WebScrapingService.js";
 import {
-  AgentService,
   KnowledgeGraphService,
   VectorSearchService,
 } from "../services/index.js";
@@ -60,6 +59,7 @@ import {
   FindRelatedEntitiesSchema,
 } from "../tools/knowledgeGraphTools.js";
 import { gpuKnowledgeTools } from "../tools/knowledgeGraphGPUTools.js";
+import { indexSymbolGraphTool } from "../tools/IndexSymbolGraphTool.js";
 import type { McpTool, McpProgressContext } from "../schemas/tools/index.js";
 
 // REMOVED unused imports (deprecated/undocumented tools):
@@ -296,12 +296,6 @@ export class McpToolsServer {
     });
 
     // Initialize services
-    const agentService = new AgentService(this.db);
-    const vectorService = new VectorSearchService(this.db);
-    const knowledgeGraphService = new KnowledgeGraphService(
-      this.db,
-      vectorService
-    );
     this.webScrapingService = new WebScrapingService(
       this.db,
       this.repositoryPath
@@ -537,6 +531,10 @@ export class McpToolsServer {
       // - Mgmt: update/prune/compact/export/wipe (5 tools)
       ...this.knowledgeGraphMcpTools.getTools(),
       ...gpuKnowledgeTools,
+
+      // Symbol graph indexing (1 tool)
+      // - index_symbol_graph: Flexible code indexing with Unix composability
+      indexSymbolGraphTool,
 
       // REMOVED - NOT in TOOL_LIST.md:
       // - Browser tools (10 tools): Use external/playwright-mcp submodule instead

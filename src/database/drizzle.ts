@@ -9,7 +9,6 @@ import { Logger } from '../utils/logger.js';
 import { pathResolver } from '../utils/pathResolver.js';
 import {
   allTables,
-  agentSessions,
   tasks,
   taskDependencies,
   memories,

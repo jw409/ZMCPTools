@@ -150,14 +150,14 @@ export class TalentOSEmbeddingFunction {
         embeddings.push(embedding);
 
       } catch (error) {
-        this.logger.error('Failed to generate embedding for text', {
+        this.logger.error('Failed to generate embedding for text - CRITICAL ERROR', {
           text: text.substring(0, 100),
-          error: error.message
+          error: error.message,
+          stack: error.stack
         });
 
-        // Create a fallback embedding to prevent complete failure
-        const fallbackEmbedding = this.createFallbackEmbedding(text);
-        embeddings.push(fallbackEmbedding);
+        // DO NOT use fallback - fail loudly so we can debug
+        throw new Error(`TalentOS embedding generation failed: ${error.message}`);
       }
     }
 
@@ -189,11 +189,12 @@ export class TalentOSEmbeddingFunction {
 
     const result = await response.json();
 
-    if (!result.embedding || !Array.isArray(result.embedding)) {
+    // API returns embeddings (plural) as array - extract first embedding
+    if (!result.embeddings || !Array.isArray(result.embeddings) || result.embeddings.length === 0) {
       throw new Error('Invalid embedding response from TalentOS service');
     }
 
-    return result.embedding;
+    return result.embeddings[0];
   }
 
   /**

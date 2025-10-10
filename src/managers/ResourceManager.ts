@@ -4,7 +4,6 @@ import type {
   TextResourceContents,
 } from "@modelcontextprotocol/sdk/types.js";
 import { DatabaseManager } from "../database/index.js";
-import { AgentService } from "../services/AgentService.js";
 import { CommunicationService } from "../services/CommunicationService.js";
 import { WebScrapingService } from "../services/WebScrapingService.js";
 import { DocumentationService } from "../services/DocumentationService.js";
@@ -67,7 +66,6 @@ class CursorManager {
 
 export class ResourceManager {
   private repositoryPath: string;
-  private agentService: AgentService;
   private communicationService: CommunicationService;
   private webScrapingService: WebScrapingService;
   private documentationService: DocumentationService;
@@ -86,7 +84,6 @@ export class ResourceManager {
       "ResourceManager"
     );
 
-    this.agentService = new AgentService(this.db);
     this.communicationService = new CommunicationService(this.db);
 
     // Vector search with project-local storage (fixes #6: venv isolation)

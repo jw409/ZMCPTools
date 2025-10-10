@@ -3,7 +3,7 @@
 This document provides a comprehensive reference for all MCP tools and resources available in ZMCPTools.
 
 ⚠️  **AUTO-GENERATED** from source code by `npm run generate:docs`
-Last generated: 2025-10-10T04:05:34.346Z
+Last generated: 2025-10-10T04:47:32.993Z
 
 ## ⚡ Token Optimization Notice
 

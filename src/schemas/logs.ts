@@ -2,7 +2,6 @@ import { z } from 'zod';
 import { sqliteTable, text, real } from 'drizzle-orm/sqlite-core';
 import { relations, sql } from 'drizzle-orm';
 import { createInsertSchema, createSelectSchema, createUpdateSchema } from 'drizzle-zod';
-import { agentSessions } from './agents';
 import { tasks } from './tasks';
 
 // Zod v4 schemas for validation
@@ -101,10 +100,6 @@ export const toolCallLogs = sqliteTable('tool_call_logs', {
 
 // Drizzle relations
 export const errorLogsRelations = relations(errorLogs, ({ one }) => ({
-  agent: one(agentSessions, {
-    fields: [errorLogs.agentId],
-    references: [agentSessions.id],
-  }),
   task: one(tasks, {
     fields: [errorLogs.taskId],
     references: [tasks.id],
@@ -112,10 +107,6 @@ export const errorLogsRelations = relations(errorLogs, ({ one }) => ({
 }));
 
 export const toolCallLogsRelations = relations(toolCallLogs, ({ one }) => ({
-  agent: one(agentSessions, {
-    fields: [toolCallLogs.agentId],
-    references: [agentSessions.id],
-  }),
   task: one(tasks, {
     fields: [toolCallLogs.taskId],
     references: [tasks.id],

@@ -1,6 +1,4 @@
 // Export all Zod v4 + Drizzle schemas
-export * from './agents';
-export * from './agent-metrics';
 export * from './communication';
 export * from './logs';
 export * from './memories';
@@ -21,25 +19,6 @@ export type {
   MemoryCategory,
   MemorySearch,
 } from './memories';
-
-export type {
-  // Agent types
-  AgentSession,
-  NewAgentSession,
-  AgentSessionUpdate,
-  AgentStatus,
-  AgentFilter,
-  AgentHeartbeat,
-} from './agents';
-
-export type {
-  // Agent metrics types
-  AgentMetrics,
-  NewAgentMetrics,
-  AgentMetricsUpdate,
-  AgentProcessSnapshot,
-  AgentHealthCheck,
-} from './agent-metrics';
 
 export type {
   // Task types
@@ -184,17 +163,6 @@ export {
   memorySearchSchema,
 } from './memories';
 
-export {
-  // Agent schemas
-  agentStatusSchema,
-  agentCapabilitiesSchema,
-  agentMetadataSchema,
-  insertAgentSessionSchema,
-  selectAgentSessionSchema,
-  updateAgentSessionSchema,
-  agentFilterSchema,
-  agentHeartbeatSchema,
-} from './agents';
 
 export {
   // Task schemas
@@ -337,7 +305,6 @@ export {
 
 // Re-export Drizzle table definitions
 export { memories } from './memories';
-export { agentSessions } from './agents';
 export { tasks, taskDependencies } from './tasks';
 export { plans } from './plans';
 export { chatRooms, chatMessages, roomParticipants } from './communication';
@@ -353,12 +320,6 @@ import {
   selectMemorySchema, 
   updateMemorySchema 
 } from './memories';
-import { 
-  agentSessions, 
-  insertAgentSessionSchema, 
-  selectAgentSessionSchema, 
-  updateAgentSessionSchema 
-} from './agents';
 import { 
   tasks, 
   taskDependencies, 
@@ -443,7 +404,6 @@ import {
 // Database schema collections for easier management
 export const allTables = {
   // Core tables
-  agentSessions,
   tasks,
   taskDependencies,
   plans,
@@ -478,7 +438,6 @@ export const allTables = {
 
 // Schema validation collections
 export const insertSchemas = {
-  agentSessions: insertAgentSessionSchema,
   tasks: insertTaskSchema,
   taskDependencies: insertTaskDependencySchema,
   plans: insertPlanSchema,
@@ -501,7 +460,6 @@ export const insertSchemas = {
 } as const;
 
 export const selectSchemas = {
-  agentSessions: selectAgentSessionSchema,
   tasks: selectTaskSchema,
   taskDependencies: selectTaskDependencySchema,
   plans: selectPlanSchema,
@@ -524,7 +482,6 @@ export const selectSchemas = {
 } as const;
 
 export const updateSchemas = {
-  agentSessions: updateAgentSessionSchema,
   tasks: updateTaskSchema,
   plans: updatePlanSchema,
   memories: updateMemorySchema,
@@ -543,7 +500,6 @@ export const updateSchemas = {
 // Database constants
 export const DATABASE_CONSTANTS = {
   // Default values
-  DEFAULT_AGENT_STATUS: 'active' as const,
   DEFAULT_TASK_STATUS: 'pending' as const,
   DEFAULT_MEMORY_CONFIDENCE: 0.8,
   DEFAULT_MEMORY_RELEVANCE: 1.0,
@@ -553,7 +509,6 @@ export const DATABASE_CONSTANTS = {
   DEFAULT_ERROR_SEVERITY: 'medium' as const,
   
   // Limits
-  MAX_AGENT_NAME_LENGTH: 200,
   MAX_TASK_DESCRIPTION_LENGTH: 2000,
   MAX_MEMORY_TITLE_LENGTH: 500,
   MAX_MESSAGE_LENGTH: 4000,

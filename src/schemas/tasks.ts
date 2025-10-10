@@ -2,7 +2,6 @@ import { z } from 'zod';
 import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
 import { relations, sql } from 'drizzle-orm';
 import { createInsertSchema, createSelectSchema, createUpdateSchema } from 'drizzle-zod';
-import { agentSessions } from './agents';
 
 // Zod v4 schemas for validation
 export const taskTypeSchema = z.enum([
@@ -62,10 +61,6 @@ export const taskDependencies = sqliteTable('task_dependencies', {
 
 // Drizzle relations
 export const tasksRelations = relations(tasks, ({ one, many }) => ({
-  assignedAgent: one(agentSessions, {
-    fields: [tasks.assignedAgentId],
-    references: [agentSessions.id],
-  }),
   parentTask: one(tasks, {
     fields: [tasks.parentTaskId],
     references: [tasks.id],

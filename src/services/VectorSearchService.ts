@@ -16,6 +16,9 @@ export interface VectorSearchConfig {
   chunkSize?: number;
   chunkOverlap?: number;
   temperature?: number;
+  // Dom0/DomU isolation (issue #6)
+  projectPath?: string;
+  preferLocal?: boolean;
 }
 
 export interface SearchDocument {
@@ -86,10 +89,15 @@ export class VectorSearchService {
     // Initialize LanceDB service with TalentOS integration
     this.lanceDB = new LanceDBService(this.db, {
       embeddingModel: this.config.embeddingModel,
-      dataPath: this.config.dataPath
+      dataPath: this.config.dataPath,
+      projectPath: this.config.projectPath,
+      preferLocal: this.config.preferLocal
     });
 
-    this.logger.info('VectorSearchService initialized with TalentOS GPU-aware embedding client');
+    this.logger.info('VectorSearchService initialized with TalentOS GPU-aware embedding client', {
+      projectPath: this.config.projectPath,
+      preferLocal: this.config.preferLocal
+    });
   }
 
   /**
@@ -135,7 +143,9 @@ export class VectorSearchService {
       // Re-initialize LanceDB with actual model
       this.lanceDB = new LanceDBService(this.db, {
         embeddingModel: this.config.embeddingModel,
-        dataPath: this.config.dataPath
+        dataPath: this.config.dataPath,
+        projectPath: this.config.projectPath,  // Preserve Dom0/DomU isolation settings
+        preferLocal: this.config.preferLocal    // Preserve project-local preference
       });
 
       const result = await this.lanceDB.initialize();

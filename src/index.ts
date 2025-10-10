@@ -11,10 +11,6 @@ import path from 'path';
 import './TEST_LOCAL_VERSION.js';
 import { pathResolver } from './utils/pathResolver.js';
 
-// Export key components for testing and external use
-export { ClaudeProcess, ClaudeSpawner, ProcessReaper } from './process/index.js';
-export type { ClaudeSpawnConfig } from './process/index.js';
-
 async function mainServer() {
   // Parse command line arguments for transport options
   const args = process.argv.slice(2);

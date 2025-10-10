@@ -75,7 +75,12 @@ async function main() {
 
     logger.info(`   Search time: ${semTime}ms`);
     semResults.slice(0, 3).forEach((result, idx) => {
-      logger.info(`   ${idx + 1}. ${result.filePath} (score: ${result.score.toFixed(3)})`);
+      const meta = result.metadata;
+      const authInfo = meta ? ` [${meta.partition}@${meta.authorityScore?.toFixed(2)}]` : '';
+      logger.info(`   ${idx + 1}. ${result.filePath}${authInfo} (weighted: ${result.score.toFixed(3)})`);
+      if (meta?.originalScore) {
+        logger.info(`      Original: ${meta.originalScore.toFixed(3)} × Authority: ${meta.authorityScore?.toFixed(2)} = ${result.score.toFixed(3)}`);
+      }
       if (result.snippet) {
         logger.info(`      "${result.snippet.substring(0, 80)}..."`);
       }
@@ -89,7 +94,12 @@ async function main() {
 
     logger.info(`   Search time: ${keyTime}ms`);
     keyResults.slice(0, 3).forEach((result, idx) => {
-      logger.info(`   ${idx + 1}. ${result.filePath} (score: ${result.score.toFixed(3)})`);
+      const meta = result.metadata;
+      const authInfo = meta ? ` [${meta.partition}@${meta.authorityScore?.toFixed(2)}]` : '';
+      logger.info(`   ${idx + 1}. ${result.filePath}${authInfo} (weighted: ${result.score.toFixed(3)})`);
+      if (meta?.originalScore) {
+        logger.info(`      Original: ${meta.originalScore.toFixed(3)} × Authority: ${meta.authorityScore?.toFixed(2)} = ${result.score.toFixed(3)}`);
+      }
     });
 
     // Analysis
@@ -120,6 +130,10 @@ async function main() {
   logger.info('\n🎯 Complementary strengths:');
   logger.info('   • Semantic: "What does this code DO?" (intent domain)');
   logger.info('   • Keyword: "WHERE is this symbol?" (code domain)');
+  logger.info('\n✨ Phase 1: Authority-Weighted Search:');
+  logger.info('   • Partition classification (dom0: 0.95, project: 0.35, whiteboard: 0.10)');
+  logger.info('   • Weighted scoring: similarity × authority_score');
+  logger.info('   • Constitutional files (CLAUDE.md, etc/) rank higher for same relevance');
 
   await indexer.close();
   logger.info('\n✓ Demo complete\n');

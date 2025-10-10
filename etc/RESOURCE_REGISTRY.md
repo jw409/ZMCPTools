@@ -1,7 +1,7 @@
 # MCP Resource Registry
 
 **AUTO-GENERATED** from source code by `npm run generate:docs`
-Last generated: 2025-10-10T04:05:34.350Z
+Last generated: 2025-10-10T04:47:32.997Z
 
 ## Available MCP Resources
 

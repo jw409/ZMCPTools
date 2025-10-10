@@ -1,5 +1,5 @@
 import { DatabaseManager } from '../database/index.js';
-import { AgentService, TaskService } from './index.js';
+import { TaskService } from './index.js';
 import { eventBus } from './EventBus.js';
 import { Logger } from '../utils/logger.js';
 import type { AgentStatus } from '../schemas/index.js';
@@ -33,12 +33,10 @@ export interface CompletionEvent {
  * Service for handling agent and task dependency waiting using EventBus
  */
 export class DependencyWaitingService {
-  private agentService: AgentService;
   private taskService: TaskService;
   private logger: Logger;
 
   constructor(private db: DatabaseManager) {
-    this.agentService = new AgentService(db);
     this.taskService = new TaskService(db);
     this.logger = new Logger('DependencyWaitingService');
   }
@@ -304,24 +302,9 @@ export class DependencyWaitingService {
    * Check current status of agent dependencies
    */
   private async checkCurrentDependencyStatus(dependsOn: string[]): Promise<Array<{ agentId: string; status: AgentStatus }>> {
-    const results: Array<{ agentId: string; status: AgentStatus }> = [];
-
-    for (const agentId of dependsOn) {
-      try {
-        const agent = await this.agentService.getAgent(agentId);
-        if (!agent) {
-          this.logger.warn('Dependency agent not found', { agentId });
-          results.push({ agentId, status: 'failed' as AgentStatus });
-        } else {
-          results.push({ agentId, status: agent.status });
-        }
-      } catch (error) {
-        this.logger.warn('Error checking agent status', { agentId, error });
-        results.push({ agentId, status: 'failed' as AgentStatus });
-      }
-    }
-
-    return results;
+    // Agent spawning removed - returning empty status
+    this.logger.warn('Agent spawning removed - dependency checks disabled');
+    return dependsOn.map(agentId => ({ agentId, status: 'failed' as AgentStatus }));
   }
 
   /**
@@ -450,29 +433,12 @@ export class DependencyWaitingService {
   }>> {
     const statusDetails = [];
 
+    // Agent spawning removed - returning failed status for all
     for (const agentId of dependsOn) {
-      try {
-        const agent = await this.agentService.getAgent(agentId);
-        if (agent) {
-          statusDetails.push({
-            agentId,
-            status: agent.status,
-            lastHeartbeat: agent.lastHeartbeat,
-            currentTask: (agent.agentMetadata as any)?.currentTask?.description,
-            progress: (agent.agentMetadata as any)?.progress
-          });
-        } else {
-          statusDetails.push({
-            agentId,
-            status: 'failed' as AgentStatus
-          });
-        }
-      } catch (error) {
-        statusDetails.push({
-          agentId,
-          status: 'failed' as AgentStatus
-        });
-      }
+      statusDetails.push({
+        agentId,
+        status: 'failed' as AgentStatus
+      });
     }
 
     return statusDetails;

@@ -9,13 +9,7 @@ export * from './schemas/index.js';
 // Services
 export * from './services/index.js';
 
-// Process Management
-export { ClaudeSpawner } from './process/ClaudeSpawner.js';
-export { ProcessReaper } from './process/ProcessReaper.js';
-export { ClaudeProcess, type ClaudeSpawnConfig } from './process/ClaudeProcess.js';
-
 // Tools
-export { AgentOrchestrationTools, type OrchestrationResult, type SpawnAgentOptions } from './tools/AgentOrchestrationTools.js';
 export { AnalysisMcpTools } from './tools/AnalysisMcpTools.js';
 // CacheMcpTools removed - over-engineered caching system
 export { KnowledgeGraphMcpTools } from './tools/knowledgeGraphTools.js';

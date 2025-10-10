@@ -1,6 +1,5 @@
 import { DatabaseManager } from '../database/index.js';
 import { TaskRepository } from '../repositories/TaskRepository.js';
-import { AgentRepository } from '../repositories/AgentRepository.js';
 import { MemoryRepository } from '../repositories/MemoryRepository.js';
 import { PathUtils } from '../utils/pathUtils.js';
 import { Logger } from '../utils/logger.js';
@@ -51,13 +50,11 @@ export interface TaskRiskAssessment {
 export class TaskService {
   private logger: Logger;
   private taskRepo: TaskRepository;
-  private agentRepo: AgentRepository;
   private memoryRepo: MemoryRepository;
 
   constructor(private db: DatabaseManager) {
     this.logger = new Logger('task-service');
     this.taskRepo = new TaskRepository(db);
-    this.agentRepo = new AgentRepository(db);
     this.memoryRepo = new MemoryRepository(db);
   }
 
@@ -249,11 +246,6 @@ export class TaskService {
       const task = await this.taskRepo.findById(taskId);
       if (!task) {
         throw new Error(`Task not found: ${taskId}`);
-      }
-
-      const agent = await this.agentRepo.findById(agentId);
-      if (!agent) {
-        throw new Error(`Agent not found: ${agentId}`);
       }
 
       const updatedTask = await this.taskRepo.update(taskId, {
