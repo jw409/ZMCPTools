@@ -405,3 +405,32 @@ Talents use **separate MCP server instances** with coordination-specific tools:
 ## 📜 License
 
 MIT License - see LICENSE file for details.
+
+## Logging and Diagnostics
+
+ZMCPTools uses a structured, file-based logging system with a mechanism for providing diagnostics to clients in a token-efficient manner.
+
+### Core Principles
+
+1.  **Structured, File-based Logging:** All events are logged as structured JSON to files in the `var/storage/logs` directory. This provides a persistent and queryable record of all activities.
+2.  **Diagnostics in Responses:** When a tool encounters a noteworthy event (e.g., a warning, a non-fatal error), it can include a `diagnostics` object in its response.
+3.  **Unique Log Pointer:** The `diagnostics` object contains a `logId` (e.g., a request ID) that points to the relevant log entries.
+4.  **On-Demand Log Retrieval:** Clients can use the `logId` to query the `logs://` resource and retrieve detailed logs on demand.
+
+### Example Tool Response
+
+```json
+{
+  "success": true,
+  "results": [...],
+  "diagnostics": {
+    "level": "warn",
+    "message": "Query was slow. See logs for performance details.",
+    "logId": "req-a7b3f9c2"
+  }
+}
+```
+
+### Documentation Generation
+
+**Note:** The `TOOL_LIST.md`, `RESOURCE_REGISTRY.md`, and `AGENT_TOOL_LIST.md` files in the `etc/` directory are auto-generated. Do not edit them directly. To update tool or resource documentation, modify the source code where it is defined.

@@ -419,8 +419,10 @@ export class EmbeddingClient {
 
   /**
    * Generate embeddings using current active model
+   * @param texts - Array of texts to embed
+   * @param isQuery - Whether these are query texts (true) or document texts (false)
    */
-  async generateEmbeddings(texts: string[]): Promise<EmbeddingResult> {
+  async generateEmbeddings(texts: string[], isQuery: boolean = false): Promise<EmbeddingResult> {
     const modelInfo = this.getActiveModelInfo();
 
     // Validate model availability
@@ -429,7 +431,7 @@ export class EmbeddingClient {
     }
 
     if (modelInfo.requires_gpu) {
-      return this.generateGPUEmbeddings(texts, modelInfo);
+      return this.generateGPUEmbeddings(texts, modelInfo, isQuery);
     } else {
       return this.generateCPUEmbeddings(texts, modelInfo);
     }
@@ -437,8 +439,9 @@ export class EmbeddingClient {
 
   /**
    * Generate embeddings using GPU service (Gemma3 or Qwen3)
+   * @param isQuery - Whether these are query texts (service applies query prompts) or document texts
    */
-  private async generateGPUEmbeddings(texts: string[], modelInfo: ModelInfo): Promise<EmbeddingResult> {
+  private async generateGPUEmbeddings(texts: string[], modelInfo: ModelInfo, isQuery: boolean = false): Promise<EmbeddingResult> {
     try {
       const response = await fetch(`${this.config.gpu_endpoint}/embed`, {
         method: 'POST',
@@ -447,7 +450,8 @@ export class EmbeddingClient {
         },
         body: JSON.stringify({
           texts: texts,
-          model: modelInfo.api_model_name
+          model: modelInfo.api_model_name,
+          is_query: isQuery  // Let service apply task-specific prompts
         })
       });
 

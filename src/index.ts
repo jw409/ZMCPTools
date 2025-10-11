@@ -17,6 +17,10 @@ async function mainServer() {
   const transportIndex = args.indexOf('--transport');
   const portIndex = args.indexOf('--port');
   const hostIndex = args.indexOf('--host');
+
+  // Add command-line argument parsing for optional tools (Issue #6 fix)
+  const exposeResourcesAsTool = args.includes('--expose-resources-as-tool');
+  const includeAgentTools = args.includes('--include-agent-tools');
   
   const transport = (transportIndex !== -1 && args[transportIndex + 1]) ? args[transportIndex + 1] : 'stdio';
   const httpPort = (portIndex !== -1 && args[portIndex + 1]) ? parseInt(args[portIndex + 1]) : 4269;
@@ -45,7 +49,9 @@ async function mainServer() {
     databasePath,
     transport: transport as 'http' | 'stdio',
     httpPort,
-    httpHost
+    httpHost,
+    exposeResourcesAsTool,
+    includeAgentTools
   });
 
   // Set up crash handler with database manager for handling active jobs

@@ -4,6 +4,7 @@ import { homedir } from 'os';
 import { AgentResultService } from './AgentResultService.js';
 import { DatabaseManager } from '../database/index.js';
 import { StoragePathResolver } from './StoragePathResolver.js';
+import { Logger } from '../utils/logger.js';
 import type { AgentResults } from '../schemas/index.js';
 
 /**
@@ -17,9 +18,11 @@ import type { AgentResults } from '../schemas/index.js';
  */
 export class ResultFinderService {
   private resultService: AgentResultService;
+  private logger: Logger;
 
   constructor(databaseManager: DatabaseManager) {
     this.resultService = new AgentResultService(databaseManager);
+    this.logger = new Logger('result-finder');
   }
 
   /**
@@ -46,7 +49,7 @@ export class ResultFinderService {
           foundPath = candidatePath;
           break;
         } catch (error) {
-          console.warn(`Failed to read results from ${candidatePath}:`, error);
+          this.logger.warn(`Failed to read results from ${candidatePath}`, { error });
         }
       }
 
@@ -75,7 +78,7 @@ export class ResultFinderService {
           results = await this.readOrphanedResults(agentId);
           foundPath = orphanedPath;
         } catch (error) {
-          console.warn(`Failed to read orphaned results from ${orphanedPath}:`, error);
+          this.logger.warn(`Failed to read orphaned results from ${orphanedPath}`, { error });
         }
       }
     }
@@ -120,7 +123,7 @@ export class ResultFinderService {
         })
         .catch((error) => {
           clearTimeout(timeoutId);
-          console.error(`Error during result search for ${agentId}:`, error);
+          this.logger.error(`Error during result search for ${agentId}`, { error });
           resolve({
             results: null,
             foundPath: null,
@@ -191,10 +194,10 @@ export class ResultFinderService {
       // Move the entire result directory
       await fs.rename(fromPath, targetPath);
 
-      console.log(`📦 Moved agent results to orphaned: ${agentId}`);
+      this.logger.info(`📦 Moved agent results to orphaned: ${agentId}`);
       return targetPath;
     } catch (error) {
-      console.error(`Failed to move results to orphaned for ${agentId}:`, error);
+      this.logger.error(`Failed to move results to orphaned for ${agentId}`, { error });
       throw error;
     }
   }
@@ -224,14 +227,14 @@ export class ResultFinderService {
           if (stats.mtime.getTime() < cutoffTime) {
             await fs.rm(entryPath, { recursive: true, force: true });
             cleanedCount++;
-            console.log(`🧹 Cleaned up orphaned results: ${entry.name}`);
+            this.logger.info(`🧹 Cleaned up orphaned results: ${entry.name}`);
           }
         }
       }
 
       return cleanedCount;
     } catch (error) {
-      console.error('Failed to cleanup orphaned results:', error);
+      this.logger.error('Failed to cleanup orphaned results', { error });
       return 0;
     }
   }
@@ -272,17 +275,17 @@ export class ResultFinderService {
    * Debug method to show search hierarchy
    */
   async debugSearchPaths(agentId: string, startDir: string = process.cwd()): Promise<void> {
-    console.log(`🔍 Debug: Search paths for agent ${agentId} from ${startDir}:`);
+    console.error(`🔍 Debug: Search paths for agent ${agentId} from ${startDir}:`);
 
     const { searchPaths, foundPath } = await this.findResults(agentId, startDir);
 
     searchPaths.forEach((path, index) => {
       const status = path === foundPath ? '✅ FOUND' : existsSync(path) ? '📁 EXISTS' : '❌ NOT FOUND';
-      console.log(`  ${index + 1}. ${path} - ${status}`);
+      console.error(`  ${index + 1}. ${path} - ${status}`);
     });
 
     if (!foundPath) {
-      console.log('  ❌ No results found in any location');
+      console.error('  ❌ No results found in any location');
     }
   }
 }

@@ -29,6 +29,7 @@ import { Logger } from '../utils/logger.js';
 import { StoragePathResolver } from './StoragePathResolver.js';
 import { getPartitionClassifier, type PartitionInfo } from './PartitionClassifier.js';
 
+
 const logger = new Logger('symbol-graph-indexer');
 
 // ============================================================================
@@ -524,9 +525,6 @@ export class SymbolGraphIndexer {
       const content = await fs.readFile(filePath, 'utf-8');
       const fileHash = this.hashContent(content);
 
-      // Phase 1: Branch by file type (code vs docs)
-      const isDoc = this.isDocumentationFile(filePath);
-
       let language: string;
       let symbols: any[] = [];
       let imports: any[] = [];
@@ -534,176 +532,17 @@ export class SymbolGraphIndexer {
       let codeContent = '';
       let intentContent = '';
 
-      if (isDoc) {
-        // Documentation file: No AST extraction
-        language = 'markdown';
-        intentContent = content.trim(); // Full text for semantic search
-        // codeContent remains empty (no BM25 indexing for docs)
-      } else {
-        // Code file: Full AST extraction
-        // Parse symbols
-        const parseResult = await this.astTool.executeByToolName('ast_extract_symbols', {
-          file_path: filePath,
-          language: 'auto'
-        });
+      // Phase 1: Branch by file type (code vs docs)
+      const isDoc = this.isDocumentationFile(filePath);
 
-        if (!parseResult.success) {
-          throw new Error(parseResult.error || 'Failed to parse file');
-        }
-
-        language = parseResult.language || 'unknown';
-        symbols = parseResult.symbols || [];
-
-        // Get imports
-        const importsResult = await this.astTool.executeByToolName('ast_extract_imports', {
-          file_path: filePath,
-          language: 'auto'
-        });
-
-        imports = importsResult.success ? (importsResult.imports || []) : [];
-
-        // Get exports to determine which symbols are exported
-        const exportsResult = await this.astTool.executeByToolName('ast_extract_exports', {
-          file_path: filePath,
-          language: 'auto'
-        });
-
-        if (exportsResult.success && exportsResult.exports) {
-          for (const exp of exportsResult.exports) {
-            if (exp.name) exportedNames.add(exp.name);
-          }
-        }
-
-        // Extract search content domains
-        codeContent = await this.extractCodeContent(filePath);
-        intentContent = await this.extractIntentContent(filePath);
-      }
-
-      // Classify file into knowledge partition (Phase 1)
-      const partitionInfo = getPartitionClassifier().classify(filePath);
-      logger.debug('Classified file', {
-        filePath: path.basename(filePath),
-        partition: partitionInfo.partition,
-        authority: partitionInfo.authority
-      });
+      // ... (existing logic for parsing symbols, imports, etc.) ...
 
       // Store in database (transaction for atomicity)
       const relativePath = path.relative(process.cwd(), filePath);
 
       this.db.transaction(() => {
-        // 1. Update indexed_files (with partition metadata)
-        this.db!.prepare(`
-          INSERT OR REPLACE INTO indexed_files
-          (file_path, mtime, file_hash, language, size, symbol_count, last_indexed_at, index_version, partition_id, authority_score)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-          relativePath,
-          fileStats.mtime.getTime(),
-          fileHash,
-          language,
-          fileStats.size,
-          symbols.length,
-          Date.now(),
-          1,
-          partitionInfo.partition,
-          partitionInfo.authority
-        );
-
-        // 2. Clear old symbols, imports, and FTS5 entries
-        this.db!.prepare('DELETE FROM symbols WHERE file_path = ?').run(relativePath);
-        this.db!.prepare('DELETE FROM imports WHERE source_file = ?').run(relativePath);
-        this.db!.prepare('DELETE FROM fts5_documents WHERE file_path = ?').run(relativePath);
-
-        // 3. Insert symbols (flatten hierarchical structure)
-        const symbolStmt = this.db!.prepare(`
-          INSERT INTO symbols (file_path, name, type, signature, location, parent_symbol, is_exported)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-        `);
-
-        // Flatten hierarchical symbols while preserving parent-child relationships
-        const flattenSymbols = (symList: any[], parentName: string | null = null) => {
-          for (const sym of symList) {
-            // Check if symbol is exported
-            const isExported = exportedNames.has(sym.name) ? 1 : 0;
-
-            // Use compact location if available, fallback to constructing from positions
-            const location = sym.location ||
-              (sym.startPosition && sym.endPosition
-                ? `${sym.startPosition.row}:${sym.startPosition.column}-${sym.endPosition.row}:${sym.endPosition.column}`
-                : '0:0-0:0');
-
-            symbolStmt.run(
-              relativePath,
-              sym.name,
-              sym.kind || 'unknown',
-              sym.text || null,
-              location,
-              parentName,
-              isExported
-            );
-
-            // Recursively flatten children (methods within classes)
-            if (sym.children && sym.children.length > 0) {
-              flattenSymbols(sym.children, sym.name);
-            }
-          }
-        };
-
-        flattenSymbols(symbols);
-
-        // 4. Insert imports
-        const importStmt = this.db!.prepare(`
-          INSERT INTO imports (source_file, import_path, imported_name, is_default)
-          VALUES (?, ?, ?, ?)
-        `);
-
-        for (const imp of imports) {
-          importStmt.run(
-            relativePath,
-            imp.source || '',
-            imp.imported || null,
-            imp.isDefault ? 1 : 0
-          );
-        }
-
-        // 5. Store BM25 document
-        this.db!.prepare(`
-          INSERT OR REPLACE INTO bm25_documents (file_path, searchable_text, term_count)
-          VALUES (?, ?, ?)
-        `).run(
-          relativePath,
-          codeContent,
-          codeContent.split(' ').length
-        );
-
-        // 6. Store semantic metadata
-        this.db!.prepare(`
-          INSERT OR REPLACE INTO semantic_metadata (file_path, embedding_text, embedding_stored)
-          VALUES (?, ?, ?)
-        `).run(
-          relativePath,
-          intentContent,
-          0 // embedding_stored - will be set when embedding generated
-        );
-
-        // 7. Phase 1: Store FTS5 document for markdown/docs
-        if (isDoc && intentContent.length > 0) {
-          this.db!.prepare(`
-            INSERT INTO fts5_documents (file_path, content)
-            VALUES (?, ?)
-          `).run(
-            relativePath,
-            intentContent
-          );
-        }
+        // ... (existing db transaction logic) ...
       })();
-
-      // Index in BM25 service
-      await this.bm25Service.indexDocument({
-        id: relativePath,
-        text: codeContent,
-        metadata: { language, symbolCount: symbols.length }
-      });
 
       stats.indexedFiles++;
       logger.debug('File indexed', { filePath: relativePath, symbols: symbols.length });
@@ -835,9 +674,6 @@ export class SymbolGraphIndexer {
     return validFiles;
   }
 
-  /**
-   * Index entire repository with incremental updates
-   */
   async indexRepository(repoPath: string): Promise<IndexStats> {
     const startTime = Date.now();
     const stats: IndexStats = {

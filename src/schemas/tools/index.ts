@@ -7,6 +7,7 @@
 
 import type { Tool, ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
 import type { JsonSchema7Type as JsonSchema } from "zod-to-json-schema";
+import type { Logger } from '../../utils/logger.js';
 
 /**
  * Progress context for MCP-compliant progress notifications
@@ -28,6 +29,7 @@ export interface McpProgressContext {
  */
 export type McpToolInput<T = any> = T & {
   progressContext?: McpProgressContext;
+  logger: Logger;
 };
 
 /**
@@ -305,6 +307,6 @@ export type { JsonSchema };
  */
 
 export * from './reportProgress.js';
-export * from './agentOrchestration.js';
+
 export * from './knowledgeGraph.js';
 export * from './treeSummary.js';

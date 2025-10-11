@@ -240,8 +240,8 @@ export class HybridSearchService {
     const startTime = Date.now();
 
     try {
-      // Generate query embedding
-      const queryEmbedding = await this.embeddingClient.generateEmbeddings([query]);
+      // Generate query embedding with query-specific prompts
+      const queryEmbedding = await this.embeddingClient.generateEmbeddings([query], true);
 
       if (!queryEmbedding || queryEmbedding.embeddings.length === 0) {
         throw new Error('Failed to generate query embedding');

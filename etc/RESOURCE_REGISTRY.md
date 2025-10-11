@@ -1,7 +1,7 @@
 # MCP Resource Registry
 
 **AUTO-GENERATED** from source code by `npm run generate:docs`
-Last generated: 2025-10-10T07:08:26.727Z
+Last generated: 2025-10-11T21:40:18.306Z
 
 ## Available MCP Resources
 
@@ -22,7 +22,7 @@ MCP Resources provide 97% token reduction compared to tools for read-only operat
 
 | URI Template | Description |
 |--------------|-------------|
-| `project://*/structure` | Get project directory tree with smart ignore patterns (use project://{path}/structure?max_depth=5&exclude=node_modules) |
+| `project://*/structure` | Get project directory tree. TWO MODES: 1) flat=true (RECOMMENDED): Instant paginated file list from Symbol Graph SQLite cache (3,891 files in <50ms). COMPACT by default (just file paths, 70-80% token savings). Use ?verbose=true for metadata. Use ?dir=src/ for hierarchical navigation. 2) flat=false (default): Live filesystem scan with async batching + limits (slower). Example: project://{path}/structure?flat=true&limit=100&cursor=<token> |
 | `project://*/dependencies` | Get direct dependencies (imports) for a source file from symbol graph cache (use project://{file_path}/dependencies). Fast SQLite lookup using indexed import tracking. |
 | `project://*/dependents` | Get reverse dependencies (files that import this file) from symbol graph cache (use project://{file_path}/dependents). Fast SQLite lookup for impact analysis. |
 | `project://*/circular-deps` | Detect circular dependency chains in the project using DFS graph traversal (use project://./circular-deps). Helps identify problematic import cycles. |

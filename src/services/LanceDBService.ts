@@ -388,10 +388,10 @@ export class LanceDBService {
 
       // Generate embeddings for all documents
       const contents = documents.map(doc => doc.content);
-      console.log(`🔍 LanceDBService: Generating ${contents.length} embeddings using ${this.usingTalentOS ? 'TalentOS GPU' : 'HuggingFace'}...`);
+      this.logger.info(`🔍 LanceDBService: Generating ${contents.length} embeddings using ${this.usingTalentOS ? 'TalentOS GPU' : 'HuggingFace'}...`);
       const embeddings = await this.embeddingFunction.embed(contents);
-      console.log(`✅ LanceDBService: Generated ${embeddings.length} embeddings (dimension: ${embeddings[0]?.length || 0})`);
-      console.log(`   First embedding sample: [${embeddings[0].slice(0, 5).map(v => v.toFixed(4)).join(', ')}]`);
+      this.logger.info(`✅ LanceDBService: Generated ${embeddings.length} embeddings (dimension: ${embeddings[0]?.length || 0})`);
+      this.logger.info(`   First embedding sample: [${embeddings[0].slice(0, 5).map(v => v.toFixed(4)).join(', ')}]`);
 
       // Convert to LanceDB format
       const lanceData = documents.map((doc, index) => ({
@@ -842,11 +842,11 @@ export class LanceDBService {
       const table = this.tables.get(collectionName)!;
 
       // Generate embedding for query
-      console.log(`🔍 Generating query embedding for: "${query.substring(0, 50)}..."`);
+      this.logger.info(`🔍 Generating query embedding for: "${query.substring(0, 50)}..."`);
       const queryEmbedding = await this.embeddingFunction.embed([query]);
       const queryVector = queryEmbedding[0];
-      console.log(`✅ Query embedding generated (dimension: ${queryVector.length})`);
-      console.log(`   Sample: [${queryVector.slice(0, 5).map(v => v.toFixed(4)).join(', ')}]`);
+      this.logger.info(`✅ Query embedding generated (dimension: ${queryVector.length})`);
+      this.logger.info(`   Sample: [${queryVector.slice(0, 5).map(v => v.toFixed(4)).join(', ')}]`);
 
       // Build search query with optional metadata filtering
       let searchQuery = table.search(queryVector).limit(limit);

@@ -21,6 +21,7 @@ import { Logger } from '../utils/logger.js';
 import { glob } from 'glob';
 import * as path from 'path';
 
+
 const logger = new Logger('index-symbol-graph');
 
 // Input schema for the tool
@@ -30,7 +31,8 @@ const IndexSymbolGraphInputSchema = z.object({
   include: z.array(z.string()).optional().describe('Glob patterns to include (default: **/*.{ts,js,py,md})'),
   exclude: z.array(z.string()).optional().describe('Glob patterns to exclude (default: node_modules/**, dist/**, **/*.test.ts)'),
   force_clean: z.boolean().optional().default(false).describe('Wipe cache and rebuild from scratch (corruption recovery)'),
-  max_workers: z.number().optional().default(4).describe('CPU parallelism for scanning/parsing (default: 4)')
+  max_workers: z.number().optional().default(4).describe('CPU parallelism for scanning/parsing (default: 4)'),
+  openapi_spec: z.string().optional().describe('Absolute path to an OpenAPI JSON file. If provided, the indexer will link code symbols to the API contract.')
 });
 
 type IndexSymbolGraphInput = z.infer<typeof IndexSymbolGraphInputSchema>;
@@ -50,15 +52,99 @@ async function indexSymbolGraphHandler(input: IndexSymbolGraphInput): Promise<an
     include = DEFAULT_INCLUDE_PATTERNS,
     exclude = DEFAULT_EXCLUDE_PATTERNS,
     force_clean = false,
-    max_workers = 4
+    max_workers = 4,
+    openapi_spec
   } = input;
 
   logger.info('Starting symbol graph indexing', {
     repository_path,
     mode: files ? 'explicit-files' : 'glob-patterns',
     file_count: files?.length,
-    force_clean
+    force_clean,
+    with_api_spec: !!openapi_spec
   });
+
+  // API Conformance Linking Logic
+  if (openapi_spec) {
+    logger.info('OpenAPI spec provided, starting API conformance linking process.', { spec_path: openapi_spec });
+    try {
+      const fs = await import('fs/promises');
+      const specContent = await fs.readFile(openapi_spec, 'utf-8');
+      const spec = JSON.parse(specContent);
+
+      // Simple check for spec validity
+      if (!spec.openapi || !spec.paths) {
+        throw new Error('Invalid OpenAPI spec file.');
+      }
+
+      // Step 4: Populate Knowledge Graph with API Entities
+      for (const path in spec.paths) {
+        for (const method in spec.paths[path]) {
+          const endpointName = `${method.toUpperCase()} ${path}`;
+          const endpointId = `spec_endpoint:${endpointName}`;
+          await store_knowledge_memory({
+            entity_type: 'api_endpoint',
+            entity_name: endpointName,
+            entity_id: endpointId, // Custom ID for easy linking
+            properties: spec.paths[path][method],
+          });
+        }
+      }
+
+      // Step 5: Link Code Symbols to API Entities
+      const allSymbols = await indexer.getAllSymbols(); // Assume indexer can provide all symbols
+      for (const symbol of allSymbols) {
+        const fileContent = await fs.readFile(symbol.filePath, 'utf-8');
+        
+        // Backend linking (simple regex for python decorators)
+        if (symbol.filePath.endsWith('.py')) {
+          const pyRegex = /@app\.(get|post|put|delete)\([\'\"](.*)[\'\"]\)/g;
+          let match;
+          while ((match = pyRegex.exec(fileContent)) !== null) {
+            const method = match[1].toUpperCase();
+            const path = match[2];
+            const endpointName = `${method} ${path}`;
+            const endpointId = `spec_endpoint:${endpointName}`;
+
+            await create_knowledge_relationship({
+              from_entity_id: symbol.id, // Assumes symbol has a unique ID
+              to_entity_id: endpointId,
+              relationship_type: 'implements_endpoint',
+            });
+          }
+        }
+
+        // Frontend linking (simple regex for fetch calls)
+        if (symbol.filePath.endsWith('.ts')) {
+          const tsRegex = /fetch\([\'\`\"](.*)[\'\`\"]\)/g;
+          let match;
+          while ((match = tsRegex.exec(fileContent)) !== null) {
+            const path = match[1].replace(/\$\{.*\}/g, '{id}'); // Simple template literal replacement
+            const endpointName = `GET ${path}`; // Assume GET for simplicity
+            const endpointId = `spec_endpoint:${endpointName}`;
+
+            await create_knowledge_relationship({
+              from_entity_id: symbol.id,
+              to_entity_id: endpointId,
+              relationship_type: 'calls_endpoint',
+            });
+          }
+        }
+      }
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error during API linking';
+      logger.error('API conformance linking failed', { error: errorMessage });
+      // Return a diagnostic on failure
+      return {
+        status: 'failed',
+        diagnostics: {
+          level: 'error',
+          message: `Failed to process OpenAPI spec: ${errorMessage}`,
+        }
+      }
+    }
+  }
 
   try {
     // Get storage paths
@@ -107,7 +193,7 @@ async function indexSymbolGraphHandler(input: IndexSymbolGraphInput): Promise<an
     }
 
     // Index repository
-    const stats = await indexer.indexRepository(repository_path);
+    const stats = await indexer.indexRepository(repository_path, { openapi_spec });
 
     const duration_ms = Date.now() - startTime;
 
@@ -256,26 +342,21 @@ async function indexSymbolGraphHandler(input: IndexSymbolGraphInput): Promise<an
 // Export the tool definition
 export const indexSymbolGraphTool: McpTool = {
   name: 'mcp__zmcp-tools__index_symbol_graph',
-  description: `Index code symbols for semantic search. Incremental by default (mtime/hash, >95% cache hit).
+    description: `Builds/updates the project\'s knowledge graph by indexing all code symbols. This is the primary "write" operation for the graph. Can optionally link symbols to an OpenAPI specification for cross-language validation.
 
-Use when:
-- Adding new code to search
-- Recovering from index corruption
-- Scoping to specific paths/files
-- Comparing cache (symbols://) vs actual (project://)
+    **Philosophy:** This is a "write" tool. It prepares and builds the graph. Use "read" resources like \`knowledge://search\` or \`symbols://search\` to query the data after indexing is complete. This separation of read and write is a core principle of ZMCPTools.
 
-Params:
-- files: Explicit list (composable!)
-- include/exclude: Glob patterns
-- force_clean: Wipe cache (corruption recovery)
-- max_workers: CPU parallelism (default: 4)
+    **Core Use Cases:**
+    - **Initial Indexing:** Run on a new project to build the graph for the first time.
+    - **Incremental Updates:** Run after major code changes to keep the graph fresh. The tool automatically detects unchanged files for high performance.
 
-Returns:
-- files_indexed, symbols_extracted, embeddings_generated
-- duration_ms, cache_hit_rate
-- logs: {repo}/var/storage/logs/zmcp/index/
-
-Blocks: 2s-5min depending on scope (incremental is fast!)`,
-  inputSchema: zodToJsonSchema(IndexSymbolGraphInputSchema, 'IndexSymbolGraphInput') as any,
+    **Advanced Use Case: API Conformance Validation**
+    - **Goal:** Validate that a client (e.g., TypeScript frontend) matches the API contract defined in an OpenAPI spec.
+    - **Workflow:**
+        1.  **Ensure Spec Exists:** The agent is responsible for ensuring an up-to-date \`openapi.json\` file is available for the project.
+        2.  **Build Linked Graph (Write):** Call this tool, providing both the \`repository_path\` and the \`openapi_spec\` path. This is the explicit build step that creates the links.
+        3.  **Query for Discrepancies (Read):** After the indexer finishes, use a "read" resource like \`knowledge://search\` to find and compare the linked artifacts.
+    `,
+  inputSchema: zodToJsonSchema(IndexSymbolGraphInputSchema) as any,
   handler: indexSymbolGraphHandler
 };

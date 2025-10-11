@@ -31,9 +31,11 @@ export class StoragePathResolver {
       return this.DOM0_BASE;
     }
 
-    // DomU: Use project path or current working directory
-    const projectPath = config.projectPath || process.cwd();
-    return join(projectPath, this.DOMU_VAR, this.STORAGE_DIR);
+    // DomU: Require a project path
+    if (!config.projectPath) {
+      throw new Error('A project path must be provided for domU storage scope.');
+    }
+    return join(config.projectPath, this.DOMU_VAR, this.STORAGE_DIR);
   }
 
   /**
@@ -141,8 +143,10 @@ export class StoragePathResolver {
    * Check if project has local storage configured
    */
   static hasProjectLocalStorage(projectPath?: string): boolean {
-    const path = projectPath || process.cwd();
-    const varDir = join(path, this.DOMU_VAR);
+    if (!projectPath) {
+      return false;
+    }
+    const varDir = join(projectPath, this.DOMU_VAR);
     return existsSync(varDir);
   }
 

@@ -33,12 +33,18 @@ async function checkEmbeddingService(): Promise<boolean> {
 
 /**
  * Get embedding from service directly
+ * @param text - Text to embed
+ * @param isQuery - Whether this is a query (true) or document (false, default)
  */
-async function getEmbeddingDirect(text: string): Promise<number[]> {
+async function getEmbeddingDirect(text: string, isQuery: boolean = false): Promise<number[]> {
   const response = await fetch('http://localhost:8765/embed', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, model: 'gemma3_06b' })
+    body: JSON.stringify({
+      text,
+      model: 'gemma_embed',  // Correct model name
+      is_query: isQuery      // Let service apply task-specific prompts
+    })
   });
 
   if (!response.ok) {
@@ -46,7 +52,7 @@ async function getEmbeddingDirect(text: string): Promise<number[]> {
   }
 
   const data = await response.json();
-  return data.embedding;
+  return data.embeddings[0];  // Service returns {embeddings: [...], ...}
 }
 
 describe('GPU Integration Tests - Real Embedding Service', () => {

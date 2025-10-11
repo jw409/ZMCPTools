@@ -20,6 +20,7 @@ import { getSymbolGraphIndexer } from "../services/SymbolGraphIndexer.js";
 import { readdir, stat, readFile } from "fs/promises";
 import { join, resolve } from "path";
 import { homedir } from "os";
+import { Logger } from "../utils/logger.js";
 
 export interface ResourceInfo {
   uri: string;
@@ -76,6 +77,7 @@ export class ResourceManager {
   private websitePagesRepository: WebsitePagesRepository;
   private treeSitterASTTool: TreeSitterASTTool;
   private treeSummaryService: TreeSummaryService;
+  private logger: Logger;
 
   constructor(private db: DatabaseManager, repositoryPath: string) {
     // Resolve repository path to absolute path
@@ -106,6 +108,7 @@ export class ResourceManager {
     this.websitePagesRepository = new WebsitePagesRepository(this.db);
     this.treeSitterASTTool = new TreeSitterASTTool();
     this.treeSummaryService = new TreeSummaryService();
+    this.logger = new Logger('resource-manager');
   }
 
   /**
@@ -205,13 +208,20 @@ export class ResourceManager {
         uriTemplate: "project://*/structure",
         name: "Project Structure",
         description:
-          "Get project directory tree with smart ignore patterns (use project://{path}/structure?max_depth=5&exclude=node_modules)",
+          "Get project directory tree. TWO MODES: 1) flat=true (RECOMMENDED): Instant paginated file list from Symbol Graph SQLite cache (3,891 files in <50ms). COMPACT by default (just file paths, 70-80% token savings). Use ?verbose=true for metadata. Use ?dir=src/ for hierarchical navigation. 2) flat=false (default): Live filesystem scan with async batching + limits (slower). Example: project://{path}/structure?flat=true&limit=100&cursor=<token>",
         mimeType: "application/json",
         _meta: {
           "params": {
             "path": "project path (. for current directory)",
-            "max_depth": "maximum directory depth (default: 5)",
-            "exclude": "comma-separated exclude patterns (default: node_modules,dist,.git)"
+            "flat": "true = cached paginated list (instant), false = live tree scan (slower, default: false)",
+            "verbose": "true = include metadata (indexed_at, symbol_count, has_embeddings), false = compact mode with only file paths (default: false, flat mode only)",
+            "dir": "filter files by directory prefix for hierarchical navigation (e.g., dir=src/, flat mode only)",
+            "limit": "max results per page (flat mode only, default: 100)",
+            "cursor": "pagination cursor from nextCursor field (flat mode only)",
+            "max_depth": "maximum directory depth for tree mode (default: 3)",
+            "max_files": "maximum files to scan in tree mode (default: 1000)",
+            "max_directories": "maximum directories to scan in tree mode (default: 500)",
+            "exclude": "comma-separated exclude patterns for tree mode (default: node_modules,dist,.git,.next,build,coverage)"
           }
         }
       },
@@ -1473,12 +1483,12 @@ export class ResourceManager {
 
       // Use IndexedKnowledgeSearch for direct search of indexed_knowledge.json
       const { IndexedKnowledgeSearch } = await import('../services/IndexedKnowledgeSearch.js');
-      console.log('[ResourceManager] Creating IndexedKnowledgeSearch with path:', this.repositoryPath);
+      this.logger.info('[ResourceManager] Creating IndexedKnowledgeSearch with path:', this.repositoryPath);
       const searchService = new IndexedKnowledgeSearch(this.repositoryPath);
 
       // Fetch more results to support pagination
       const fetchLimit = startPosition + limit * 2;
-      console.log('[ResourceManager] Calling search with query:', query, 'options:', { limit: fetchLimit, useBm25, useEmbeddings });
+      this.logger.info('[ResourceManager] Calling search with query:', { query, options: { limit: fetchLimit, useBm25, useEmbeddings } });
       const allResults = await searchService.search(query, {
         limit: fetchLimit,
         useBm25,
@@ -1487,7 +1497,7 @@ export class ResourceManager {
         semanticWeight,
         minScoreThreshold: threshold
       });
-      console.log('[ResourceManager] Search returned', allResults.length, 'results');
+      this.logger.info('[ResourceManager] Search returned', { count: allResults.length });
 
       // Apply cursor-based pagination
       const endPosition = startPosition + limit;
@@ -1872,7 +1882,108 @@ export class ResourceManager {
     const resolvedPath = resolve(this.repositoryPath, projectPath);
 
     if (aspect === "structure") {
-      const maxDepth = parseInt(searchParams.get("max_depth") || "5");
+      // NEW: flat=true mode uses Symbol Graph cache (instant, paginated)
+      const useFlat = searchParams.get("flat") === "true";
+
+      if (useFlat) {
+        // CACHE MODE: Query Symbol Graph SQLite cache for instant results
+        try {
+          const indexer = getSymbolGraphIndexer();
+          await indexer.initialize(resolvedPath);
+
+          // Get all indexed files from cache
+          let allFiles = await indexer.getIndexedFiles();
+
+          // Directory filtering for hierarchical navigation
+          const dirFilter = searchParams.get("dir");
+          if (dirFilter) {
+            const normalizedFilter = dirFilter.endsWith("/") ? dirFilter : dirFilter + "/";
+            allFiles = allFiles.filter(f => f.file_path.startsWith(normalizedFilter));
+          }
+
+          // Pagination parameters
+          const limit = parseInt(searchParams.get("limit") || "100");
+          const cursor = searchParams.get("cursor");
+
+          // Verbose mode: include metadata (indexed_at, symbol_count, has_embeddings)
+          // Compact mode (default): only file_path strings (70-80% token reduction)
+          const verbose = searchParams.get("verbose") === "true";
+
+          // Parse cursor for position
+          let startPosition = 0;
+          if (cursor) {
+            try {
+              const cursorData = CursorManager.decode(cursor);
+              startPosition = cursorData.position || 0;
+            } catch (error) {
+              throw new Error('Invalid cursor parameter');
+            }
+          }
+
+          // Apply cursor-based pagination
+          const endPosition = startPosition + limit;
+          const paginatedFiles = allFiles.slice(startPosition, endPosition);
+
+          // Generate next cursor if more results exist
+          let nextCursor: string | undefined;
+          if (endPosition < allFiles.length) {
+            nextCursor = CursorManager.createPositionCursor(endPosition);
+          }
+
+          // Format files based on verbose flag
+          const formattedFiles = verbose
+            ? paginatedFiles.map(f => ({
+                file_path: f.file_path,
+                indexed_at: f.indexed_at,
+                symbol_count: f.symbol_count || 0,
+                has_embeddings: f.has_embeddings || false
+              }))
+            : paginatedFiles.map(f => f.file_path); // Compact: just strings
+
+          return {
+            uri: `project://${path}?flat=true`,
+            mimeType: "application/json",
+            text: JSON.stringify(
+              {
+                project_path: resolvedPath,
+                mode: verbose ? "cached_flat_verbose" : "cached_flat_compact",
+                files: formattedFiles,
+                nextCursor,
+                limit,
+                total: allFiles.length,
+                ...(dirFilter && { dir_filter: dirFilter }),
+                performance: {
+                  source: "Symbol Graph SQLite cache (instant)",
+                  token_optimization: verbose ? "verbose mode (full metadata)" : "compact mode (70-80% token reduction)",
+                  note: "Use ?verbose=true for debugging with metadata. Use ?dir=src/ for hierarchical navigation."
+                },
+                timestamp: new Date().toISOString()
+              },
+              null,
+              2
+            )
+          };
+        } catch (error) {
+          return {
+            uri: `project://${path}?flat=true`,
+            mimeType: "application/json",
+            text: JSON.stringify(
+              {
+                error: error instanceof Error ? error.message : "Failed to query symbol graph cache",
+                hint: "Run index_symbol_graph tool first to populate cache, or use flat=false for live scan",
+                timestamp: new Date().toISOString()
+              },
+              null,
+              2
+            )
+          };
+        }
+      }
+
+      // LIVE SCAN MODE: Original tree-based scanning with limits
+      const maxDepth = parseInt(searchParams.get("max_depth") || "3");  // LOWERED default from 5→3
+      const maxFiles = parseInt(searchParams.get("max_files") || "1000");  // NEW: File count limit
+      const maxDirectories = parseInt(searchParams.get("max_directories") || "500");  // NEW: Dir count limit
       const excludePatterns = searchParams.get("exclude")?.split(",") || [
         "node_modules",
         "dist",
@@ -1885,12 +1996,21 @@ export class ResourceManager {
       try {
         const structure = await this.treeSummaryService.analyzeDirectory(
           resolvedPath,
-          { maxDepth, excludePatterns }
+          { maxDepth, excludePatterns, maxFiles, maxDirectories }
         );
 
         // Calculate stats from the structure
         const totalFiles = this.countFiles(structure);
         const totalDirectories = this.countDirectories(structure);
+
+        // Check if limits were hit
+        const limitWarnings = [];
+        if (totalFiles >= maxFiles) {
+          limitWarnings.push(`File limit reached (${maxFiles}). Use ?max_files=N to increase or reduce max_depth.`);
+        }
+        if (totalDirectories >= maxDirectories) {
+          limitWarnings.push(`Directory limit reached (${maxDirectories}). Use ?max_directories=N to increase or reduce max_depth.`);
+        }
 
         return {
           uri: `project://${path}`,
@@ -1898,11 +2018,19 @@ export class ResourceManager {
           text: JSON.stringify(
             {
               project_path: resolvedPath,
+              mode: "live_tree",
               max_depth: maxDepth,
+              max_files: maxFiles,
+              max_directories: maxDirectories,
               exclude_patterns: excludePatterns,
               structure,
               total_files: totalFiles,
               total_directories: totalDirectories,
+              warnings: limitWarnings.length > 0 ? limitWarnings : undefined,
+              performance: {
+                async_batching: "Yields control every 10 directories to prevent blocking",
+                recommendation: totalFiles > 500 ? "Consider using flat=true for cached paginated results" : "Scan completed within limits"
+              },
               timestamp: new Date().toISOString()
             },
             null,

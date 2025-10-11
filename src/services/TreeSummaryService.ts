@@ -224,15 +224,25 @@ export class TreeSummaryService {
   /**
    * Analyze directory structure with explicit exclude patterns
    * No hidden config files - everything is explicit via parameters
+   *
+   * PERFORMANCE: Uses async batching to prevent blocking on large directories.
+   * Lower maxDepth (default: 3) and maxFiles (default: 1000) to avoid session hangs.
    */
   async analyzeDirectory(
     projectPath: string,
     options: {
       maxDepth?: number;
       excludePatterns?: string[];
+      maxFiles?: number;
+      maxDirectories?: number;
     } = {}
   ): Promise<DirectoryNode> {
-    const { maxDepth = 5, excludePatterns = [] } = options;
+    const {
+      maxDepth = 3,  // LOWERED from 5 to 3 (prevents massive scans)
+      excludePatterns = [],
+      maxFiles = 1000,  // NEW: Limit file count to prevent bloat
+      maxDirectories = 500  // NEW: Limit directory count
+    } = options;
 
     // Check if directory exists
     try {
@@ -253,7 +263,16 @@ export class TreeSummaryService {
       ...excludePatterns
     ];
 
-    return await this.scanDirectory(projectPath, projectPath, allExcludePatterns, maxDepth, 0);
+    // Track counts to enforce limits
+    const scanContext = {
+      fileCount: 0,
+      directoryCount: 0,
+      maxFiles,
+      maxDirectories,
+      dirsScannedSinceYield: 0
+    };
+
+    return await this.scanDirectory(projectPath, projectPath, allExcludePatterns, maxDepth, 0, scanContext);
   }
 
   /**
@@ -408,14 +427,24 @@ export class TreeSummaryService {
 
 
   /**
-   * Recursively scan directory with exclude patterns
+   * Recursively scan directory with exclude patterns.
+   *
+   * ASYNC BATCHING: Yields control to event loop every 10 directories to prevent blocking.
+   * This prevents session hangs on large directories (e.g., ZMCPTools with 3,891 files).
    */
   private async scanDirectory(
     basePath: string,
     currentPath: string,
     excludePatterns: string[],
     maxDepth: number,
-    currentDepth: number
+    currentDepth: number,
+    scanContext?: {
+      fileCount: number;
+      directoryCount: number;
+      maxFiles: number;
+      maxDirectories: number;
+      dirsScannedSinceYield: number;
+    }
   ): Promise<DirectoryNode> {
     const { minimatch } = await import('minimatch');
     const name = path.basename(currentPath);
@@ -433,10 +462,34 @@ export class TreeSummaryService {
       return node;
     }
 
+    // Check directory count limit
+    if (scanContext && scanContext.directoryCount >= scanContext.maxDirectories) {
+      this.logger.warn(`Reached max directory limit (${scanContext.maxDirectories}), stopping scan`);
+      return node;
+    }
+
+    // ASYNC BATCHING: Yield control every 10 directories to prevent blocking
+    if (scanContext && scanContext.dirsScannedSinceYield >= 10) {
+      await new Promise(resolve => setImmediate(resolve));
+      scanContext.dirsScannedSinceYield = 0;
+    }
+
+    // Increment directory count
+    if (scanContext) {
+      scanContext.directoryCount++;
+      scanContext.dirsScannedSinceYield++;
+    }
+
     try {
       const entries = await fs.readdir(currentPath, { withFileTypes: true });
 
       for (const entry of entries) {
+        // Check file count limit
+        if (scanContext && scanContext.fileCount >= scanContext.maxFiles) {
+          this.logger.warn(`Reached max file limit (${scanContext.maxFiles}), stopping scan`);
+          break;
+        }
+
         const entryPath = path.join(currentPath, entry.name);
         const entryRelativePath = path.relative(basePath, entryPath);
 
@@ -472,7 +525,8 @@ export class TreeSummaryService {
             entryPath,
             excludePatterns,
             maxDepth,
-            currentDepth + 1
+            currentDepth + 1,
+            scanContext  // Pass context to track counts and yielding
           );
           node.children!.push(childNode);
         } else if (entry.isFile()) {
@@ -491,6 +545,11 @@ export class TreeSummaryService {
               lastModified: stats.mtime
             };
             node.children!.push(fileNode);
+
+            // Increment file count
+            if (scanContext) {
+              scanContext.fileCount++;
+            }
           } catch (error) {
             // Skip files we can't access
             continue;

@@ -5,9 +5,11 @@ import { homedir } from 'os';
 export class Logger {
   private logDir: string;
   private category: string;
+  private requestId?: string;
 
-  constructor(category: string) {
+  constructor(category: string, requestId?: string) {
     this.category = category;
+    this.requestId = requestId;
 
     // Use project-local logs if var/ directory exists, otherwise global
     const cwd = process.cwd();
@@ -34,7 +36,7 @@ export class Logger {
     const now = new Date();
     const dateStr = now.toLocaleDateString('en-US', {
       year: 'numeric',
-      month: '2-digit', 
+      month: '2-digit',
       day: '2-digit'
     }).replace(/\//g, '-');
     const timeStr = now.toLocaleTimeString('en-US', {
@@ -48,7 +50,8 @@ export class Logger {
 
   private formatLogEntry(level: string, message: string, data?: any): string {
     const timestamp = new Date().toISOString();
-    const entry = `[${timestamp}] [${level.toUpperCase()}] ${message}`;
+    const requestIdStr = this.requestId ? ` [${this.requestId}]` : '';
+    const entry = `[${timestamp}]${requestIdStr} [${level.toUpperCase()}] ${message}`;
     
     if (data) {
       return `${entry}\nData: ${JSON.stringify(data, null, 2)}\n---\n`;

@@ -60,6 +60,9 @@ import {
 } from "../tools/knowledgeGraphTools.js";
 import { gpuKnowledgeTools } from "../tools/knowledgeGraphGPUTools.js";
 import { indexSymbolGraphTool } from "../tools/IndexSymbolGraphTool.js";
+import { getGPUSearchTools } from "../tools/gpuSearchTools.js";
+import { getMetaMcpTools } from '../tools/MetaMcpTools.js';
+import { Logger } from "../utils/logger.js";
 import type { McpTool, McpProgressContext } from "../schemas/tools/index.js";
 
 // REMOVED unused imports (deprecated/undocumented tools):
@@ -76,6 +79,8 @@ export interface McpServerOptions {
   transport?: "stdio" | "http";
   httpPort?: number;
   httpHost?: string;
+  exposeResourcesAsTool?: boolean;
+  includeAgentTools?: boolean;
 }
 
 export class McpToolsServer {
@@ -362,13 +367,16 @@ export class McpToolsServer {
       const { name, arguments: args } = request.params;
       const typedArgs: Record<string, any> = args || {};
       
-      // Debug logging to see what the MCP client is sending
-      process.stderr.write(`🔍 MCP CallTool request: name="${name}", args=${JSON.stringify(typedArgs, null, 2)}\n`);
+      const requestId = randomUUID().slice(0, 8);
+      const logger = new Logger(name, requestId);
+
+      logger.info(`MCP CallTool request`, { name, args: typedArgs });
       
       const tools = this.getAvailableTools();
       const tool = tools.find((t) => t.name === name);
 
       if (!tool) {
+        logger.error(`Tool not found`, { name });
         throw new McpError(ErrorCode.MethodNotFound, `Tool "${name}" not found`);
       }
 
@@ -386,10 +394,10 @@ export class McpToolsServer {
                 if (this.mcpServer) {
                   await this.mcpServer.notification(notification);
                 } else {
-                  process.stderr.write(`⚠️ MCP server not connected, cannot send progress notification\n`);
+                  logger.warn(`MCP server not connected, cannot send progress notification`);
                 }
               } catch (notificationError) {
-                process.stderr.write(`⚠️ Failed to send progress notification: ${notificationError}\n`);
+                logger.warn(`Failed to send progress notification`, { error: notificationError });
               }
             }
           };
@@ -397,9 +405,11 @@ export class McpToolsServer {
 
         // Remove _meta from args before passing to handler to avoid confusion
         const { _meta, ...cleanArgs } = args || {};
-        const handlerArgs = progressContext 
-          ? { ...cleanArgs, progressContext }
-          : cleanArgs;
+        const handlerArgs = { 
+          ...cleanArgs, 
+          ...(progressContext && { progressContext }),
+          logger 
+        };
 
         const result = await tool.handler(handlerArgs);
 
@@ -438,17 +448,22 @@ export class McpToolsServer {
           isError: false,
         };
       } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Unknown error";
+        logger.error(`Tool execution failed`, { error: errorMessage, stack: error instanceof Error ? error.stack : undefined });
         // Return error as CallToolResult instead of throwing
         return {
           content: [
             {
               type: "text" as const,
-              text: `Error: ${
-                error instanceof Error ? error.message : "Unknown error"
-              }`,
+              text: `Error: ${errorMessage}`,
             },
           ],
           isError: true,
+          diagnostics: {
+            level: 'error',
+            message: errorMessage,
+            logId: requestId
+          }
         };
       }
     });
@@ -458,13 +473,33 @@ export class McpToolsServer {
     // List resources handler
     this.mcpServer.setRequestHandler(ListResourcesRequestSchema, async () => {
       const resources = this.resourceManager.listResources();
+
+      // Add diagnostics log resources
+      const diagnosticsResources = [
+        {
+          uri: 'logs://search',
+          name: 'Search diagnostics logs',
+          description: 'Search diagnostics logs by logId (use query parameter: logs://search?query=logId)',
+          mimeType: 'application/json'
+        },
+        {
+          uri: 'logs://recent',
+          name: 'Recent diagnostics logs',
+          description: 'Get recent diagnostics logs (last 50)',
+          mimeType: 'application/json'
+        }
+      ];
+
       return {
-        resources: resources.map((resource) => ({
-          uri: resource.uriTemplate,
-          name: resource.name,
-          description: resource.description,
-          mimeType: resource.mimeType,
-        })),
+        resources: [
+          ...resources.map((resource) => ({
+            uri: resource.uriTemplate,
+            name: resource.name,
+            description: resource.description,
+            mimeType: resource.mimeType,
+          })),
+          ...diagnosticsResources
+        ],
       };
     });
 
@@ -473,8 +508,14 @@ export class McpToolsServer {
       const { uri } = request.params;
       try {
         process.stderr.write(`🔍 Reading resource with uri: ${uri}\n`);
+
+        // Handle diagnostics log resources
+        if (uri.startsWith('logs://')) {
+          return await this.handleLogsResource(uri);
+        }
+
         const result = await this.resourceManager.readResource(uri);
-        
+
         // Return the result directly as it already has the correct structure
         // with uri, mimeType, and text fields
         return {
@@ -495,10 +536,51 @@ export class McpToolsServer {
     });
   }
 
+  private async handleLogsResource(uri: string): Promise<any> {
+    const { DiagnosticsLogger } = await import('../utils/DiagnosticsLogger.js');
+    const logDir = 'var/logs/diagnostics';
+
+    const url = new URL(uri, 'logs://');
+    const pathname = url.pathname.replace('//', '/');
+
+    if (pathname === '/search') {
+      const query = url.searchParams.get('query');
+      if (!query) {
+        return {
+          contents: [{
+            uri,
+            mimeType: 'application/json',
+            text: JSON.stringify({ error: 'Missing query parameter. Use: logs://search?query=logId' }, null, 2)
+          }]
+        };
+      }
+
+      const results = DiagnosticsLogger.searchLogs(logDir, query);
+      return {
+        contents: [{
+          uri,
+          mimeType: 'application/json',
+          text: JSON.stringify(results, null, 2)
+        }]
+      };
+    } else if (pathname === '/recent') {
+      const results = DiagnosticsLogger.getRecentLogs(logDir, 50);
+      return {
+        contents: [{
+          uri,
+          mimeType: 'application/json',
+          text: JSON.stringify(results, null, 2)
+        }]
+      };
+    }
+
+    throw new Error(`Unknown logs resource: ${pathname}`);
+  }
+
   private setupPromptHandlers(): void {
     // List prompts handler
     this.mcpServer.setRequestHandler(ListPromptsRequestSchema, async () => {
-      const prompts = this.promptManager.listPrompts();
+      const { prompts } = this.promptManager.listPrompts() || { prompts: [] };
       return {
         prompts: prompts.map((prompt) => ({
           name: prompt.name,
@@ -524,7 +606,7 @@ export class McpToolsServer {
   }
 
   public getAvailableTools(): McpTool[] {
-    return [
+    const tools: McpTool[] = [
       // Knowledge graph core + GPU (10 tools total)
       // - Core: store/create (2 tools)
       // - GPU: search_gpu/status/switch_mode (3 tools)
@@ -532,20 +614,30 @@ export class McpToolsServer {
       ...this.knowledgeGraphMcpTools.getTools(),
       ...gpuKnowledgeTools,
 
+      // GPU vector search (4 tools) - Multi-agent knowledge sharing
+      // - search_knowledge: GPU-accelerated semantic search across collections
+      // - index_document: Add documents to vector store
+      // - list_collections: Discover available knowledge collections
+      // - get_collection_stats: Monitor collection health
+      ...getGPUSearchTools(this.db),
+
       // Symbol graph indexing (1 tool)
       // - index_symbol_graph: Flexible code indexing with Unix composability
       indexSymbolGraphTool,
-
-      // REMOVED - NOT in TOOL_LIST.md:
-      // - Browser tools (10 tools): Use external/playwright-mcp submodule instead
-      // - reportProgressTool: Moved to agent-only context (not global)
-      // - analysisMcpTools: DEPRECATED (moved to MCP resources)
-      // - treeSummaryTools: DEPRECATED (moved to MCP resources)
-      // - hybridSearchTools, unifiedSearchTools, codeAcquisitionTools: Undocumented
-
-      // NOTE: Agent orchestration, communication, plan management removed
-      // Will be re-added via claude-agent-sdk integration
     ];
+
+    // Conditionally add the meta tool for reading MCP resources (Issue #6 fix)
+    if (this.options.exposeResourcesAsTool) {
+      tools.push(...getMetaMcpTools(this.resourceManager));
+    }
+
+    // Conditionally add agent-specific tools (Issue #6 fix)
+    if (this.options.includeAgentTools) {
+      // TODO: Implement the loading of agent tools from AGENT_TOOL_LIST.md
+      // For now, this is a placeholder.
+    }
+
+    return tools;
   }
 
   async start(): Promise<void> {

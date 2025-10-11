@@ -40,6 +40,12 @@ active_work:
   priority_2: "#53 Phase 1 - FTS5 + dual-indexing (code + markdown)"
   priority_3: "#54 Phase 2 - Hybrid search (BM25+FTS5+semantic+reranker)"
   context: "Search architecture: FTS5=SQLite tokenizer, BM25=pre-parsed ranking, semantic=gemma3, reranker=qwen3-4B port 8765"
+diagnostics:
+  pattern: "diagnostics object in tool response"
+  flag: "diagnostics.level (warn, error, info)"
+  pointer: "diagnostics.logId (e.g., req-a7b3f9c2)"
+  action: "read_resource('logs://search?query=' + logId)"
+  purpose: "on-demand logs, no token spam"
 ---
 
 # ZMCPTools MCP Integration v3.0

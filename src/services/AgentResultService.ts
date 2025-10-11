@@ -54,10 +54,10 @@ export class AgentResultService {
         });
       } catch (error) {
         // If agent doesn't exist in database, that's okay - just log it
-        console.warn(`Agent ${agentId} not found in database, results written to filesystem only`);
+        console.error(`Agent ${agentId} not found in database, results written to filesystem only`);
       }
 
-      console.log(`✅ Results written for agent ${agentId} in ${relativePath}`);
+      console.error(`✅ Results written for agent ${agentId} in ${relativePath}`);
     } catch (error) {
       console.error(`❌ Failed to write results for agent ${agentId}:`, error);
       throw error;
@@ -222,7 +222,7 @@ export class AgentResultService {
 
     if (existsSync(resultDir)) {
       await fs.rm(resultDir, { recursive: true, force: true });
-      console.log(`🧹 Cleaned up results for agent ${agentId}`);
+      console.error(`🧹 Cleaned up results for agent ${agentId}`);
     }
   }
 
