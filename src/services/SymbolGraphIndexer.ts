@@ -101,6 +101,10 @@ export interface SearchResult {
     originalScore?: number;
     authorityScore?: number;
     partition?: string;
+    // Explicit degradation tracking (#60)
+    degraded?: boolean;
+    fallbackReason?: string;
+    actualSearchMode?: 'semantic' | 'bm25' | 'hybrid';
   };
 }
 
@@ -947,11 +951,25 @@ export class SymbolGraphIndexer {
    * Search using semantic embeddings (intent domain)
    * Phase 1: Authority-weighted results (dom0 ranks higher than project)
    * Uses LanceDB vector search to find semantically similar files
+   *
+   * Gracefully degrades to BM25 keyword search with explicit degradation tracking (#60)
    */
   async searchSemantic(query: string, limit: number = 10): Promise<SearchResult[]> {
     if (!this.lanceDBService || !this.db) {
       logger.warn('LanceDB not initialized, falling back to keyword search');
-      return this.searchKeyword(query, limit);
+      const fallbackResults = await this.searchKeyword(query, limit);
+
+      // Mark results as degraded - DON'T LIE about matchType
+      return fallbackResults.map(result => ({
+        ...result,
+        matchType: 'keyword',  // TRUTH: It's keyword search, not semantic
+        metadata: {
+          ...result.metadata,
+          degraded: true,
+          fallbackReason: 'LanceDB not initialized - check GPU service at port 8765',
+          actualSearchMode: 'bm25'
+        }
+      }));
     }
 
     try {
@@ -993,7 +1011,8 @@ export class SymbolGraphIndexer {
             ...result.metadata,  // ✅ Preserve ALL LanceDB metadata (fixes #52)
             originalScore: result.score,
             authorityScore,
-            partition: result.metadata.partition_id || 'unknown'
+            partition: result.metadata.partition_id || 'unknown',
+            actualSearchMode: 'semantic'  // Explicit tracking
           }
         };
       });
@@ -1011,8 +1030,13 @@ export class SymbolGraphIndexer {
       const keywordResults = await this.searchKeyword(query, limit);
       return keywordResults.map(result => ({
         ...result,
-        matchType: 'semantic' as const,
-        score: result.score * 0.8 // Reduce score to indicate fallback
+        matchType: 'keyword',  // TRUTH: It's keyword search, not semantic
+        metadata: {
+          ...result.metadata,
+          degraded: true,
+          fallbackReason: `Semantic search error: ${error.message}`,
+          actualSearchMode: 'bm25'
+        }
       }));
     }
   }
