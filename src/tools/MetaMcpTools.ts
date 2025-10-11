@@ -1,7 +1,7 @@
 
 import { z } from 'zod';
 import { ResourceManager } from '../managers/ResourceManager.js';
-import { McpTool } from '../schemas/tools/index.js';
+import type { McpTool } from '../schemas/tools/index.js';
 
 const ReadMcpResourceSchema = z.object({
   uri: z.string().describe('The full URI of the MCP resource to read (e.g., "symbols://stats").'),

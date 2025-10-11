@@ -341,7 +341,7 @@ async function indexSymbolGraphHandler(input: IndexSymbolGraphInput): Promise<an
 
 // Export the tool definition
 export const indexSymbolGraphTool: McpTool = {
-  name: 'mcp__zmcp-tools__index_symbol_graph',
+  name: 'index_symbol_graph',
     description: `Builds/updates the project\'s knowledge graph by indexing all code symbols. This is the primary "write" operation for the graph. Can optionally link symbols to an OpenAPI specification for cross-language validation.
 
     **Philosophy:** This is a "write" tool. It prepares and builds the graph. Use "read" resources like \`knowledge://search\` or \`symbols://search\` to query the data after indexing is complete. This separation of read and write is a core principle of ZMCPTools.

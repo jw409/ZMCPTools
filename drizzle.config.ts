@@ -1,6 +1,6 @@
 import { defineConfig } from 'drizzle-kit';
 import { join } from 'path';
-import { StoragePathResolver } from './src/services/StoragePathResolver.js';
+import { StoragePathResolver } from './src/services/StoragePathResolver';
 
 // Get project root - works in both development and production
 const projectRoot = process.cwd();

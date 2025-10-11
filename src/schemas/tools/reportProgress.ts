@@ -4,7 +4,7 @@
  */
 
 import { z } from 'zod';
-import { type TaskStatus, type AgentStatus, agentStatusSchema } from '../index.js';
+import { type TaskStatus, type AgentStatus } from '../index.js';
 
 // ===============================================
 // Progress Report Internal Schema with Metadata

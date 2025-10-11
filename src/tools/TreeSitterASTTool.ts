@@ -734,15 +734,33 @@ export class TreeSitterASTTool {
    * Helper to find name identifier in node children (for TypeScript AST nodes)
    */
   private findNameInChildren(node: any): string | null {
-    // Look for identifier nodes in immediate children
-    if (node.children && node.children.length > 0) {
+    // Perform a recursive, depth-first search for the first identifier.
+    if (!node) return null;
+
+    if (node.type === 'identifier' || (node.kind && ts.SyntaxKind[node.kind] === 'Identifier')) {
+      return node.text || (node.escapedText ? node.escapedText.toString() : null);
+    }
+
+    if (node.children) {
       for (const child of node.children) {
-        if (child.type === 'identifier') {
-          return child.text;
+        const found = this.findNameInChildren(child);
+        if (found) {
+          return found;
         }
       }
     }
-    return null;
+
+    // Handle TypeScript API nodes that don't have a .children property
+    let result: string | null = null;
+    ts.forEachChild(node, (child: ts.Node) => {
+      if (result) return; // Stop searching once found
+      const found = this.findNameInChildren(child);
+      if (found) {
+        result = found;
+      }
+    });
+
+    return result;
   }
 
   async extractImports(tree: any, language: string): Promise<string[]> {

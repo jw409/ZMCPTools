@@ -1,11 +1,15 @@
 /**
- * ZMCPTools Test Harness
+ * ZMCPTools Generic Test Harness
  *
  * This script provides a stable, self-contained way to test the ZMCPTools server.
- * It starts the server, connects a client via stdio, executes a simple command,
- * and then shuts down. This allows for testing server health and basic
- * functionality without requiring a full agent environment and avoids issues
- * with server restarts causing context loss.
+ * It accepts a command via CLI arguments, starts the server, connects a client,
+ * executes the command, prints the raw JSON result, and then shuts down.
+ * This allows for single-turn testing of any MCP functionality.
+ *
+ * Usage:
+ *   tsx scripts/zmcp-test-harness.ts listTools
+ *   tsx scripts/zmcp-test-harness.ts readResource <URI>
+ *   tsx scripts/zmcp-test-harness.ts callTool <TOOL_NAME> [JSON_ARGS]
  */
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -17,66 +21,68 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 async function main() {
-  console.log('🚀 Starting ZMCPTools Test Harness...');
+  const args = process.argv.slice(2);
+  const command = args[0];
+
+  if (!command) {
+    console.error('❌ Error: No command provided.');
+    console.error('Usage: tsx scripts/zmcp-test-harness.ts <listTools|readResource|callTool> [args...]');
+    process.exit(1);
+  }
+
+  console.log(`🚀 Starting ZMCPTools Test Harness for command: ${command}...`);
 
   let client: Client | undefined;
-  let transport: StdioClientTransport | undefined;
 
   try {
-    // 1. Define the server entry point
-    // We use `tsx` to run the TypeScript source directly.
     const serverPath = join(__dirname, '../src/index.ts');
-    console.log(`Server path: ${serverPath}`);
-
-    // 2. Instantiate the StdioClientTransport
-    // This will spawn the server process and manage communication over stdio.
-    transport = new StdioClientTransport({
+    const transport = new StdioClientTransport({
       command: 'tsx',
       args: [serverPath],
     });
 
-    // 3. Instantiate the MCP Client
-    client = new Client(
-      {
-        name: 'test-harness-client',
-        version: '1.0.0',
-      },
-      {
-        capabilities: {},
-      }
-    );
+    client = new Client({ name: 'generic-harness-client', version: '1.0.1' }, { capabilities: {} });
 
-    // 4. Connect the client to the transport
-    console.log('🔌 Connecting to server via stdio...');
     await client.connect(transport);
-    console.log('✅ Connected successfully!\n');
 
-    // 5. Execute a simple, read-only command to verify the connection
-    console.log('Listing available tools...');
-    const response = await client.listTools();
+    let result: any;
 
-    // 6. Log the result
-    console.log('\n🛠️ Available Tools:');
-    if (response.tools.length > 0) {
-      response.tools.forEach(tool => {
-        console.log(`- ${tool.name}`);
-      });
-    } else {
-      console.log('No tools found.');
+    switch (command) {
+      case 'getToolInventory':
+      case 'listTools':
+        result = await client.listTools();
+        break;
+
+      case 'readResource':
+        const uri = args[1];
+        if (!uri) {
+          throw new Error('Missing URI for readResource command');
+        }
+        result = await client.readResource({ uri });
+        break;
+
+      case 'callTool':
+        const toolName = args[1];
+        const toolArgs = args[2] ? JSON.parse(args[2]) : {};
+        if (!toolName) {
+          throw new Error('Missing tool name for callTool command');
+        }
+        result = await client.callTool({ name: toolName, arguments: toolArgs });
+        break;
+
+      default:
+        throw new Error(`Unknown command: ${command}`);
     }
-    console.log(`\nTotal tools found: ${response.tools.length}`);
 
-    console.log('\n✅ Test harness completed successfully!');
+    // Output the raw, unchanged JSON result for evaluation
+    console.log(JSON.stringify(result, null, 2));
 
   } catch (error) {
-    console.error('❌ Test harness failed:', error);
+    console.error(`❌ Test harness failed for command "${command}":`, error);
     process.exit(1);
   } finally {
-    // 7. Shutdown
     if (client) {
-      console.log('\n🛑 Shutting down client and server...');
       await client.close();
-      console.log('✅ Shutdown complete.');
     }
   }
 }

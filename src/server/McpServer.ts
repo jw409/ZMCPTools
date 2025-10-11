@@ -42,7 +42,7 @@ import type {
 } from "@modelcontextprotocol/sdk/types.js";
 
 import { DatabaseManager } from "../database/index.js";
-import { WebScrapingService } from "../services/WebScrapingService.js";
+
 import {
   KnowledgeGraphService,
   VectorSearchService,
@@ -86,7 +86,7 @@ export interface McpServerOptions {
 export class McpToolsServer {
   private mcpServer: Server;
   private db: DatabaseManager;
-  private webScrapingService: WebScrapingService;
+
   private knowledgeGraphMcpTools: KnowledgeGraphMcpTools;
   private resourceManager: ResourceManager;
   private promptManager: PromptManager;
@@ -300,11 +300,7 @@ export class McpToolsServer {
       verbose: process.env.NODE_ENV === "development",
     });
 
-    // Initialize services
-    this.webScrapingService = new WebScrapingService(
-      this.db,
-      this.repositoryPath
-    );
+
 
     // Initialize tools
     this.knowledgeGraphMcpTools = new KnowledgeGraphMcpTools(this.db);
@@ -671,14 +667,7 @@ export class McpToolsServer {
       await this.startStdioTransport();
     }
 
-    // Start background scraping worker
-    process.stderr.write("🤖 Starting background scraping worker...\n");
-    try {
-      await this.webScrapingService.startScrapingWorker();
-      process.stderr.write("✅ Background scraping worker started\n");
-    } catch (error) {
-      process.stderr.write(`⚠️ Failed to start scraping worker: ${error}\n`);
-    }
+
 
     process.stderr.write("✅ MCP Server started successfully\n");
     const transportMsg =
@@ -919,14 +908,7 @@ export class McpToolsServer {
         process.stderr.write("✅ Database connections closed\n");
       }
 
-      // Stop background services
-      if (
-        this.webScrapingService &&
-        typeof this.webScrapingService.stopScrapingWorker === "function"
-      ) {
-        await this.webScrapingService.stopScrapingWorker();
-        process.stderr.write("✅ Background services stopped\n");
-      }
+
     } catch (error) {
       process.stderr.write(`⚠️  Error during shutdown: ${error}\n`);
     }
@@ -1210,14 +1192,7 @@ export class McpToolsServer {
     this.stopInactivityTimer();
     process.stderr.write("⏰ Inactivity timer stopped\n");
 
-    // Stop background scraping worker
-    process.stderr.write("🤖 Stopping background scraping worker...\n");
-    try {
-      await this.webScrapingService.stopScrapingWorker();
-      process.stderr.write("✅ Background scraping worker stopped\n");
-    } catch (error) {
-      process.stderr.write(`⚠️ Error stopping scraping worker: ${error}\n`);
-    }
+
 
     // Close Express server if running
     if (this.httpServer) {
