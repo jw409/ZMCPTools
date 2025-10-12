@@ -76,14 +76,14 @@ export class EmbeddingClient {
 
   // Model specifications
   private readonly MODEL_SPECS: Record<string, ModelInfo> = {
-    gemma3: {
-      name: 'EmbeddingGemma-300M',
-      dimensions: 768,
-      requires_gpu: true,
-      api_model_name: 'gemma_embed',
-      collection_suffix: 'gemma3'
-    },
     qwen3: {
+      name: 'Qwen3-Embedding-4B',
+      dimensions: 2560,
+      requires_gpu: true,
+      api_model_name: 'qwen3_4b',
+      collection_suffix: 'qwen3'
+    },
+    gemma3: {
       name: 'EmbeddingGemma-300M',
       dimensions: 768,
       requires_gpu: true,
