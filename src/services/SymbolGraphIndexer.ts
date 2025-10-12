@@ -218,7 +218,7 @@ export class SymbolGraphIndexer {
     this.lanceDBService = new LanceDBService(this.db as any, {
       projectPath,
       preferLocal: true,
-      embeddingModel: 'gemma_embed'  // Use TalentOS GPU embeddings
+      embeddingModel: 'qwen3_4b'  // Use Qwen3-Embedding-4B (2560D, +86% quality)
     });
     const lanceResult = await this.lanceDBService.initialize();
     if (!lanceResult.success) {
