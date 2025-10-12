@@ -193,7 +193,7 @@ async function indexSymbolGraphHandler(input: IndexSymbolGraphInput): Promise<an
     }
 
     // Index repository
-    const stats = await indexer.indexRepository(repository_path, { openapi_spec });
+    const stats = await indexer.indexRepository(repository_path);
 
     const duration_ms = Date.now() - startTime;
 

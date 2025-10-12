@@ -91,6 +91,8 @@ export interface IndexStats {
   errors: string[];
   indexingTimeMs?: number;
   languages?: Record<string, number>;
+  totalSymbols?: number;     // Total symbols extracted (for IndexSymbolGraphTool reporting)
+  filesWithEmbeddings?: number;  // Files with embeddings generated
 }
 
 export interface SearchResult {
@@ -959,9 +961,11 @@ export class SymbolGraphIndexer {
       stats.indexingTimeMs = Date.now() - startTime;
       stats.indexedFiles = stats.alreadyIndexed + stats.needsIndexing; // Total indexed (new + cached)
 
-      // Get language statistics
+      // Get language statistics and symbol counts
       const languageStats = await this.getStats();
       stats.languages = languageStats.languages;
+      stats.totalSymbols = languageStats.totalSymbols;
+      stats.filesWithEmbeddings = languageStats.filesWithEmbeddings;
 
       logger.info('Repository indexing completed', {
         totalFiles: stats.totalFiles,
