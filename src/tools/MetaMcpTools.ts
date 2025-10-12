@@ -12,7 +12,7 @@ export const getMetaMcpTools = (resourceManager: ResourceManager): McpTool[] => 
   const readMcpResourceTool: McpTool = {
     name: 'read_mcp_resource',
     description: 'Reads an MCP resource by its URI. Acts as a meta-tool to access the resource API.',
-    inputSchema: zodToJsonSchema(ReadMcpResourceSchema),
+    inputSchema: ReadMcpResourceSchema,
     handler: async (params: z.infer<typeof ReadMcpResourceSchema>) => {
       try {
         const resourceContent = await resourceManager.readResource(params.uri);

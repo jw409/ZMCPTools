@@ -73,25 +73,25 @@ export class SharedStateTools {
   getTools(): Tool[] {
     return [
       {
-        name: 'mcp__zmcp-tools__todo_write',
+        name: 'todo_write',
         description: 'Write or update shared todos that all agents can see',
         inputSchema: zodToJsonSchema(TodoWriteSchema) as any,
         handler: this.todoWrite.bind(this)
       },
       {
-        name: 'mcp__zmcp-tools__todo_read',
+        name: 'todo_read',
         description: 'Read shared todos with optional filtering',
         inputSchema: zodToJsonSchema(TodoReadSchema) as any,
         handler: this.todoRead.bind(this)
       },
       {
-        name: 'mcp__zmcp-tools__broadcast_progress',
+        name: 'broadcast_progress',
         description: 'Broadcast task progress to all agents in the repository',
         inputSchema: zodToJsonSchema(BroadcastProgressSchema) as any,
         handler: this.broadcastProgress.bind(this)
       },
       {
-        name: 'mcp__zmcp-tools__register_artifact',
+        name: 'register_artifact',
         description: 'Register created artifacts for discovery by other agents',
         inputSchema: zodToJsonSchema(RegisterArtifactSchema) as any,
         handler: this.registerArtifact.bind(this)

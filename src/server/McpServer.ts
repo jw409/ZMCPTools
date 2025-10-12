@@ -61,8 +61,10 @@ import {
 } from "../tools/knowledgeGraphTools.js";
 import { gpuKnowledgeTools } from "../tools/knowledgeGraphGPUTools.js";
 import { indexSymbolGraphTool } from "../tools/IndexSymbolGraphTool.js";
+import { indexKnowledgeTool } from "../tools/IndexKnowledgeTool.js";
 import { getGPUSearchTools } from "../tools/gpuSearchTools.js";
 import { getMetaMcpTools } from '../tools/MetaMcpTools.js';
+import { getResourceWrapperTools } from '../tools/ResourceWrapperTools.js';
 import { FileSystemTools } from '../tools/FileSystemTools.js';
 import { SharedStateTools } from '../tools/SharedStateTools.js';
 import { Logger } from "../utils/logger.js";
@@ -373,8 +375,14 @@ export class McpToolsServer {
       const tools = this.getAvailableTools();
       return {
         tools: tools.map((tool) => {
+          
           // Convert Zod schema to JSON Schema for OpenRouter/Gemini compatibility
-          const jsonSchema = toCleanJsonSchema(tool.inputSchema);
+                              let jsonSchema;
+          if (tool.inputSchema._def) {
+            jsonSchema = toCleanJsonSchema(tool.inputSchema);
+          } else {
+            jsonSchema = tool.inputSchema;
+          }
           return {
             name: tool.name,
             description: tool.description,
@@ -661,22 +669,27 @@ export class McpToolsServer {
       // - index_symbol_graph: Flexible code indexing with Unix composability
       indexSymbolGraphTool,
 
-      // Shared state tools (4 tools) - Multi-agent coordination
-      // - todo_write: Write/update shared todos
-      // - todo_read: Read shared todos with filtering
-      // - broadcast_progress: Broadcast task progress
-      // - register_artifact: Register created artifacts
-      ...this.sharedStateTools.getTools(),
+      // Knowledge indexing (1 tool)
+      // - index_knowledge: Populate indexed_knowledge.json from GitHub issues + markdown docs
+      indexKnowledgeTool,
     ];
+
+    // Conditionally add shared state tools (NOT in compat modes)
+    // These are for multi-agent coordination (todo_write, todo_read, broadcast_progress, register_artifact)
+    if (!this.options.openrouterCompat && !this.options.geminiCompat) {
+      tools.push(...this.sharedStateTools.getTools());
+    }
 
     // Conditionally add the file system tools for openrouter compatibility
     if (this.options.openrouterCompat) {
       tools.push(...this.fileSystemTools.getTools());
     }
 
-    // Conditionally add the meta tool for reading MCP resources (Issue #6 fix)
-    if (this.options.geminiCompat) {
-      tools.push(...getMetaMcpTools(this.resourceManager));
+    // Conditionally add resource wrapper tools for compat modes (Issue #6 fix)
+    // Gemini/OpenRouter don't understand generic read_mcp_resource, so we expose
+    // specific tools like get_file_symbols, get_knowledge_search, etc.
+    if (this.options.geminiCompat || this.options.openrouterCompat) {
+      tools.push(...getResourceWrapperTools(this.resourceManager));
     }
 
     // Conditionally add agent-specific tools (Issue #6 fix)

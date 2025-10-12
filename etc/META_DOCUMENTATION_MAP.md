@@ -22,6 +22,8 @@
 |----------|----------|---------|--------------|
 | **Embedding Strategy** | `etc/EMBEDDING_STRATEGY.md` | GPU/CPU embedding model selection, LanceDB architecture | 2025-10-03 |
 | **GitHub Issues Guide** | `etc/GITHUB_ISSUES.md` | Labels, issue creation, workflow integration | 2025-10-08 |
+| **Compatibility Modes** | `COMPATIBILITY_MODES.md` | Tool availability by mode (Standard/OpenRouter/Gemini/Agent) | 2025-10-11 |
+| **Security Implementation** | `SECURITY_IMPLEMENTATION.md` | Role-based access control (RBAC), defense-in-depth architecture | 2025-10-11 |
 
 ### Design Decisions
 
@@ -46,6 +48,7 @@
 | Document | Location | Purpose | Last Updated |
 |----------|----------|---------|--------------|
 | **Agent Verification** | `etc/AGENT_VERIFICATION_CHECKLIST.md` | Post-agent validation protocol | 2025-10-03 |
+| **Gemini Hints** | `etc/GEMINI_HINTS.md` | Debugging and workflow hints for the Gemini assistant | 2025-10-11 |
 
 ---
 
@@ -92,7 +95,9 @@
 **Purpose**: Long-term strategy, model selection, system design
 
 - `etc/EMBEDDING_STRATEGY.md` - GPU model choice (Gemma3), LanceDB patterns
-- `etc/decisions/EMBEDDING_MODEL_SELECTION.md` - Gemma3-300M selection rationale
+- `COMPATIBILITY_MODES.md` - Tool availability by mode (Standard/OpenRouter/Gemini/Agent)
+- `SECURITY_IMPLEMENTATION.md` - Role-based access control (RBAC), defense-in-depth
+- `etc/decisions/EMBEDDING_MODEL_SELECTION.md` - Embedding model selection rationale (⚠️ may be outdated - check MODEL_REGISTRY.py)
 - `etc/decisions/RESOURCES_VS_TOOLS_DECISION.md` - Resource vs tool decision tree
 - `etc/decisions/AST_STORAGE_ARCHITECTURE.md` - Code symbol storage patterns
 - `etc/decisions/WHY_ARCHIVED_LEGACY_BROWSER_TOOLS.md` - Playwright migration rationale
@@ -189,8 +194,11 @@
 | Which embedding model to use? | `etc/EMBEDDING_STRATEGY.md` → "Model Selection" section |
 | How to verify agent work? | `etc/AGENT_VERIFICATION_CHECKLIST.md` → "Verification Checklist" |
 | List of all MCP tools? | `etc/TOOL_LIST.md` (auto-generated) |
+| Which tools in which mode? | `COMPATIBILITY_MODES.md` → Tool availability matrix |
+| Role-based access control? | `SECURITY_IMPLEMENTATION.md` → RBAC configuration |
 | Service port assignments? | `etc/generated/SERVICE_PORTS.md` (if exists) |
 | How to create GitHub issue? | `etc/GITHUB_ISSUES.md` → "Issue Creation Protocol" |
+| Gemini workflow hints? | `etc/GEMINI_HINTS.md` |
 | Browser automation usage? | `etc/PLAYWRIGHT_USAGE.md` → Full playwright-mcp guide |
 | Design decision rationale? | `etc/decisions/` (by topic) |
 | Test criteria for feature? | `etc/test-plans/` (by feature) |
@@ -202,8 +210,11 @@
 | Create a GitHub issue | `etc/GITHUB_ISSUES.md` → "Issue Creation Protocol" |
 | Verify agent completed work | `etc/AGENT_VERIFICATION_CHECKLIST.md` → "Post-Agent Verification Protocol" |
 | Choose embedding model | `etc/EMBEDDING_STRATEGY.md` → "Model Selection: Gemma3-300M" |
+| Configure remote agent tools | `COMPATIBILITY_MODES.md` → OpenRouter/Gemini mode setup |
+| Set up role-based security | `SECURITY_IMPLEMENTATION.md` → Agent roles and capabilities |
 | Add new MCP tool | `etc/TOOL_LIST.md` → Check pattern, then implement |
 | Debug semantic search | `etc/EMBEDDING_STRATEGY.md` → "Troubleshooting" |
+| Debug the ZMCP server? | `etc/GEMINI_HINTS.md` |
 | Automate browser interactions | `etc/PLAYWRIGHT_USAGE.md` → "Usage Patterns" + Examples |
 | Understand design decision | `etc/decisions/` → Find relevant decision doc |
 | Find test criteria | `etc/test-plans/` → Find relevant test plan |
@@ -308,7 +319,7 @@ gh issue create --label "enhancement"
 
 ---
 
-**Last Updated**: 2025-10-09 (Added PLAYWRIGHT_USAGE.md for browser automation)
+**Last Updated**: 2025-10-11 (Added COMPATIBILITY_MODES.md and SECURITY_IMPLEMENTATION.md, noted EMBEDDING_MODEL_SELECTION.md may be outdated)
 
 **Status**: Living document - update whenever new docs added
 

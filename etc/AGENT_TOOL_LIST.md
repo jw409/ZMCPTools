@@ -1,19 +1,12 @@
 # Agent Tool List
 
 **AUTO-GENERATED** from source code by `npm run generate:docs`
-Last generated: 2025-10-12T04:16:46.087Z
+Last generated: 2025-10-12T05:34:08.899Z
 
 Simplified tool reference for agent contexts (removes verbose descriptions).
 
 ## Available Tools by Category
 
-### Other (4)
-
-- `broadcast_progress`
-- `register_artifact`
-- `todo_read`
-- `todo_write`
-
 ---
 
-**Total Tools**: 4
+**Total Tools**: 0

@@ -3,7 +3,7 @@
 This document provides a comprehensive reference for all MCP tools and resources available in ZMCPTools.
 
 ⚠️  **AUTO-GENERATED** from source code by `npm run generate:docs`
-Last generated: 2025-10-12T04:16:46.082Z
+Last generated: 2025-10-12T05:34:08.898Z
 
 ## ⚡ Token Optimization Notice
 
@@ -17,9 +17,8 @@ See [GitHub Issue #35](https://github.com/jw409/ZMCPTools/issues/35) for migrati
 ## Table of Contents
 
 - [🔍 MCP Resources (Token-Optimized)](#mcp-resources-token-optimized)
-- [Other (4 tools)](#other)
 
-**Total Active Tools**: 4
+**Total Active Tools**: 0
 
 ---
 
@@ -80,26 +79,6 @@ See [GitHub Issue #35](https://github.com/jw409/ZMCPTools/issues/35) for migrati
 | `logs://list` | 📂 BROWSE LOG DIRECTORIES: List all log directories in ~/.mcptools/logs/ organized by agent, session, or service type. Use to discover available logs before drilling down to specific files. Returns directory names and file counts. | - |
 | `logs://*/files` | 📄 LIST LOG FILES (PAGINATED): Get log files with pagination. **Params**: `?limit=100&offset=0`. Default limit: 100, sorted by modified time (newest first). Returns: files array, total, hasMore, nextOffset. Example: `logs://crashes/files?limit=50&offset=0` | - |
 | `logs://*/content` | 📖 GREP LOG CONTENT (PAGINATED): Search/filter log content with regex + pagination. **Required**: `?file=error.log`. **Optional**: `pattern=CUDA` (regex), `case_insensitive=true`, `line_numbers=true`, `A=3` (after), `B=3` (before), `C=3` (context), `limit=1000`, `offset=0`. Example: `logs://crashes/content?file=agent.log&pattern=error&case_insensitive=true&line_numbers=true&C=2&limit=100` | - |
-
-## Other
-
-<a name="other"></a>
-
-### `broadcast_progress`
-
-Broadcast task progress to all agents in the repository
-
-### `register_artifact`
-
-Register created artifacts for discovery by other agents
-
-### `todo_read`
-
-Read shared todos with optional filtering
-
-### `todo_write`
-
-Write or update shared todos that all agents can see
 
 ---
 
