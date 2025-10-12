@@ -3,7 +3,7 @@
 This document provides a comprehensive reference for all MCP tools and resources available in ZMCPTools.
 
 ⚠️  **AUTO-GENERATED** from source code by `npm run generate:docs`
-Last generated: 2025-10-12T08:12:15.160Z
+Last generated: 2025-10-12T08:25:12.124Z
 
 ## ⚡ Token Optimization Notice
 
@@ -17,13 +17,13 @@ See [GitHub Issue #35](https://github.com/jw409/ZMCPTools/issues/35) for migrati
 ## Table of Contents
 
 - [🔍 MCP Resources (Token-Optimized)](#mcp-resources-token-optimized)
-- [Other (80 tools)](#other)
+- [Other (77 tools)](#other)
 - [Progress Reporting (1 tools)](#progress-reporting)
 - [Knowledge Graph (1 tools)](#knowledge-graph)
 - [Agent Communication (11 tools)](#agent-communication)
 - [Browser Automation (10 tools)](#browser-automation)
 
-**Total Active Tools**: 103
+**Total Active Tools**: 100
 
 ---
 
@@ -189,10 +189,6 @@ Force unlock all stuck scraping jobs (jobs that haven\
 
 Retrieve results from a completed or failed agent by ID. This tool searches for agent result files both in the local project directory and parent directories (bubbling up). Can wait for results if they are not immediately available.
 
-### `get_collection_stats`
-
-Get statistics for a specific collection. Use for: monitoring collection size, checking index health.
-
 ### `get_email`
 
 Carbon copy recipient talent IDs (optional)
@@ -301,10 +297,6 @@ Talent ID joining the meeting
 
 No description
 
-### `list_collections`
-
-List all available knowledge collections. Use for: discovering what knowledge is available, checking collection status.
-
 ### `list_documentation_sources`
 
 List all configured documentation sources
@@ -348,10 +340,6 @@ No description
 ### `scrape_documentation`
 
 Scrape documentation from a website using intelligent sub-agents. Jobs are queued and processed automatically by the background worker. Supports plain string selectors for content extraction.
-
-### `search_knowledge`
-
-Search knowledge base using GPU-accelerated embeddings. Searches across code, docs, issues, learnings. Use for: finding relevant context, discovering similar patterns, semantic code search.
 
 ### `search_knowledge_graph_gpu`
 

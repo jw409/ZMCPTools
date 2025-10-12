@@ -153,6 +153,13 @@ project://./structure?max_depth=3
 - `cat etc/decisions/` - Design decision rationale
 - `cat etc/test-plans/` - Test criteria & validation
 
+**Knowledge Graph Usage** (CRITICAL - read before implementing):
+- `knowledge://search` - Search GitHub issues, docs, architecture patterns, prior solutions
+- `knowledge://status` - Check what's indexed (entities, relationships, quality metrics)
+- `knowledge://entity/{id}/related` - Discover connections after finding an entity
+- **Use case**: Always search before implementing to avoid duplicate work
+- **Example**: `knowledge://search?query=resource+migration+MCP` finds Issue #35 with full context
+
 ## Core Patterns
 
 **Resources vs Tools**:
@@ -177,9 +184,16 @@ project://./structure?max_depth=3
 resource://project://./structure
 ```
 
-**Semantic search**:
+**Search knowledge graph** (GitHub issues, docs, architecture):
 ```
-resource://knowledge://search?query=auth&limit=10
+resource://knowledge://search?query=embedding+service&limit=10
+```
+
+**Vector search** (LanceDB collections):
+```
+resource://vector://search?query=semantic+search&collection=documentation&limit=10
+resource://vector://collections  (list all collections)
+resource://vector://status        (check GPU status)
 ```
 
 **Browser automation**:

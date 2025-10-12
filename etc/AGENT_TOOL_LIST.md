@@ -1,13 +1,13 @@
 # Agent Tool List
 
 **AUTO-GENERATED** from source code by `npm run generate:docs`
-Last generated: 2025-10-12T08:12:15.165Z
+Last generated: 2025-10-12T08:25:12.129Z
 
 Simplified tool reference for agent contexts (removes verbose descriptions).
 
 ## Available Tools by Category
 
-### Other (80)
+### Other (77)
 
 - `acquire_repository`
 - `ast_analyze`
@@ -34,7 +34,6 @@ Simplified tool reference for agent contexts (removes verbose descriptions).
 - `force_unlock_job`
 - `force_unlock_stuck_jobs`
 - `get_agent_results`
-- `get_collection_stats`
 - `get_email`
 - `get_embedding_status`
 - `get_execution_plan`
@@ -62,7 +61,6 @@ Simplified tool reference for agent contexts (removes verbose descriptions).
 - `join_meeting`
 - `leave_meeting`
 - `list_acquisitions`
-- `list_collections`
 - `list_documentation_sources`
 - `list_execution_plans`
 - `orchestrate_collaborative_team`
@@ -74,7 +72,6 @@ Simplified tool reference for agent contexts (removes verbose descriptions).
 - `reindex_knowledge_base`
 - `remove_acquisition`
 - `scrape_documentation`
-- `search_knowledge`
 - `search_knowledge_graph_gpu`
 - `search_knowledge_graph_hybrid`
 - `search_knowledge_graph_unified`
@@ -127,4 +124,4 @@ Simplified tool reference for agent contexts (removes verbose descriptions).
 
 ---
 
-**Total Tools**: 103
+**Total Tools**: 100
