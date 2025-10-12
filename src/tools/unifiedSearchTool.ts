@@ -263,11 +263,26 @@ Returns real file paths, content snippets, and extracted code symbols (functions
         const semanticStart = Date.now();
 
         // Search files using semantic similarity (intent-only search domain)
-        // TODO: Implement semantic search in SymbolGraphIndexer
-        // For now, use empty results (will be implemented in follow-up)
-        semanticResults = [];
+        const semanticSearchResults = await symbolGraphIndexer.searchSemantic(query, candidate_limit);
 
-        logger.info('Semantic search not yet implemented in SymbolGraphIndexer - using BM25 only');
+        semanticResults = semanticSearchResults.map(result => ({
+          id: result.filePath,
+          entity_name: result.filePath.split('/').pop() || result.filePath,
+          entity_type: 'file',
+          description: `File: ${result.filePath}`,
+          file_path: result.filePath,
+          content: result.snippet || '',
+          relevant_symbols: result.symbols || [],
+          semantic_score: result.score,
+          search_method: 'semantic',
+          match_type: result.matchType,
+          metadata: result.metadata
+        }));
+
+        logger.info('Semantic search completed', {
+          results: semanticResults.length,
+          degraded: semanticResults.some(r => r.metadata?.degraded)
+        });
 
         metrics.stage_timings.semantic_ms = Date.now() - semanticStart;
         metrics.component_scores.semantic_results = semanticResults.length;
@@ -330,7 +345,7 @@ Returns real file paths, content snippets, and extracted code symbols (functions
             candidate.description || candidate.entity_name || ''
           );
 
-          // Call reranker service
+          // Call reranker service (using Qwen3-Reranker-4B)
           const rerankerResponse = await fetch('http://localhost:8765/rerank', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -338,7 +353,7 @@ Returns real file paths, content snippets, and extracted code symbols (functions
               query,
               documents,
               top_k: final_limit,
-              model: 'reranker'
+              model: 'qwen3_reranker'  // Fixed: use qwen3_reranker (Qwen3-Reranker-4B)
             })
           });
 
