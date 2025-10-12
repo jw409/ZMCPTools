@@ -1,7 +1,7 @@
 # Agent Tool List
 
 **AUTO-GENERATED** from source code by `npm run generate:docs`
-Last generated: 2025-10-12T07:04:48.504Z
+Last generated: 2025-10-12T08:12:15.165Z
 
 Simplified tool reference for agent contexts (removes verbose descriptions).
 
