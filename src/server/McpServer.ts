@@ -63,6 +63,7 @@ import { gpuKnowledgeTools } from "../tools/knowledgeGraphGPUTools.js";
 import { indexSymbolGraphTool } from "../tools/IndexSymbolGraphTool.js";
 import { indexKnowledgeTool } from "../tools/IndexKnowledgeTool.js";
 import { getGPUSearchTools } from "../tools/gpuSearchTools.js";
+import { unifiedSearchTools } from "../tools/unifiedSearchTool.js";
 import { getMetaMcpTools } from '../tools/MetaMcpTools.js';
 import { getResourceWrapperTools } from '../tools/ResourceWrapperTools.js';
 import { FileSystemTools } from '../tools/FileSystemTools.js';
@@ -675,6 +676,10 @@ export class McpToolsServer {
       // Knowledge indexing (1 tool)
       // - index_knowledge: Populate indexed_knowledge.json from GitHub issues + markdown docs
       indexKnowledgeTool,
+
+      // Unified codebase search (1 tool)
+      // - search_knowledge_graph_unified: Search files using BM25/semantic/hybrid methods
+      ...unifiedSearchTools,
     ];
 
     // Conditionally add shared state tools (NOT in compat modes)
