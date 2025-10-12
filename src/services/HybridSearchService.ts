@@ -7,6 +7,7 @@
 import { Logger } from '../utils/logger.js';
 import { EmbeddingClient } from './EmbeddingClient.js';
 import { BM25Service } from './BM25Service.js';
+import { VectorSearchService } from './VectorSearchService.js';
 import type { BM25Document, BM25SearchResult } from './BM25Service.js';
 // Define DocumentMetadata interface locally
 export interface DocumentMetadata {
@@ -47,6 +48,7 @@ export class HybridSearchService {
   private logger: Logger;
   private embeddingClient: EmbeddingClient;
   private bm25Service: BM25Service;
+  private vectorSearchService?: VectorSearchService;
 
   private readonly DEFAULT_CONFIG: HybridSearchConfig = {
     alpha: 0.7,              // 70% dense, 30% sparse
@@ -57,10 +59,15 @@ export class HybridSearchService {
     max_results: 50
   };
 
-  constructor(embeddingClient?: EmbeddingClient, bm25Service?: BM25Service) {
+  constructor(
+    embeddingClient?: EmbeddingClient,
+    bm25Service?: BM25Service,
+    vectorSearchService?: VectorSearchService
+  ) {
     this.logger = new Logger('hybrid-search');
     this.embeddingClient = embeddingClient || new EmbeddingClient();
     this.bm25Service = bm25Service || new BM25Service();
+    this.vectorSearchService = vectorSearchService;
   }
 
   /**
@@ -80,13 +87,19 @@ export class HybridSearchService {
       };
       await this.bm25Service.indexDocument(bm25Doc);
 
-      // Index for dense embedding search (if supported by EmbeddingClient)
-      // Note: This would require extending EmbeddingClient to support indexing
-      // For now, we assume embeddings are generated on-demand during search
+      // Index for dense vector search if VectorSearchService is available
+      if (this.vectorSearchService) {
+        await this.vectorSearchService.addDocuments('hybrid_search', [{
+          id,
+          content: text,
+          metadata
+        }]);
+      }
 
       this.logger.debug('Document indexed for hybrid search', {
         id,
-        textLength: text.length
+        textLength: text.length,
+        hasVectorSearch: !!this.vectorSearchService
       });
 
     } catch (error) {
@@ -113,8 +126,19 @@ export class HybridSearchService {
 
       await this.bm25Service.indexDocuments(bm25Docs);
 
+      // Batch index for vector search if available
+      if (this.vectorSearchService) {
+        const vectorDocs = documents.map(doc => ({
+          id: doc.id,
+          content: doc.text,
+          metadata: doc.metadata
+        }));
+        await this.vectorSearchService.addDocuments('hybrid_search', vectorDocs);
+      }
+
       this.logger.info('Batch indexing completed for hybrid search', {
-        documentCount: documents.length
+        documentCount: documents.length,
+        hasVectorSearch: !!this.vectorSearchService
       });
 
     } catch (error) {
@@ -223,7 +247,7 @@ export class HybridSearchService {
   }
 
   /**
-   * Perform dense embedding search
+   * Perform dense embedding search using VectorSearchService
    */
   private async performDenseSearch(
     query: string,
@@ -240,24 +264,40 @@ export class HybridSearchService {
     const startTime = Date.now();
 
     try {
-      // Generate query embedding with query-specific prompts
-      const queryEmbedding = await this.embeddingClient.generateEmbeddings([query], true);
-
-      if (!queryEmbedding || queryEmbedding.embeddings.length === 0) {
-        throw new Error('Failed to generate query embedding');
+      // If VectorSearchService is not available, return empty results
+      if (!this.vectorSearchService) {
+        this.logger.warn('VectorSearchService not available - dense search disabled');
+        return {
+          results: [],
+          time_ms: Date.now() - startTime
+        };
       }
 
-      // For now, return empty results as we need to implement
-      // vector similarity search in the embedding client
-      // This would typically involve querying a vector database
-      const results: Array<{
-        id: string;
-        text: string;
-        dense_score: number;
-        metadata?: Record<string, any>;
-      }> = [];
+      // Perform vector similarity search via VectorSearchService
+      // Uses LanceDB with Qwen3-Embedding-4B (2560D) when GPU is available
+      // Falls back to Xenova/all-MiniLM-L6-v2 (384D) otherwise
+      const vectorResults = await this.vectorSearchService.search(
+        query,
+        undefined,  // Search across all collections
+        limit,
+        0.3        // Minimum similarity threshold
+      );
+
+      // Convert VectorSearchService results to HybridSearchService format
+      const results = vectorResults.map(result => ({
+        id: result.id,
+        text: result.content,
+        dense_score: result.similarity,  // Use similarity as score (0.0-1.0)
+        metadata: result.metadata
+      }));
 
       const endTime = Date.now();
+
+      this.logger.debug('Dense search completed', {
+        query: query.substring(0, 50),
+        resultCount: results.length,
+        time_ms: endTime - startTime
+      });
 
       return {
         results,
