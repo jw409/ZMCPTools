@@ -34,7 +34,7 @@ export class TalentOSEmbeddingFunction {
     this.embeddingClient = new EmbeddingClient();
 
     this.config = {
-      modelName: config.modelName || 'gemma_embed', // Default to EmbeddingGemma-300M (768D)
+      modelName: config.modelName || 'qwen3_4b', // Default to Qwen3-Embedding-4B (2560D)
       endpoint: config.endpoint || 'http://localhost:8765',
       timeout: config.timeout || 30000,
       batchSize: config.batchSize || 50,
@@ -206,16 +206,16 @@ export class TalentOSEmbeddingFunction {
       case 'qwen3_06b':
         return 1024; // Qwen3 0.6B dimensions
       case 'qwen3_4b':
-        return 1024; // Qwen3 4B dimensions
+        return 2560; // Qwen3 4B dimensions (CORRECT: 2560, not 1024!)
       case 'qwen3_8b':
-        return 1024; // Qwen3 8B dimensions
+        return 4096; // Qwen3 8B dimensions
       case 'gemma_embed':
         return 768;  // Gemma embedding dimensions
       case 'minilm':
         return 384;  // MiniLM dimensions
       default:
-        this.logger.warn('Unknown model dimensions, defaulting to 1024', { model: this.config.modelName });
-        return 1024; // Default to Qwen3 dimensions
+        this.logger.warn('Unknown model dimensions, defaulting to 2560', { model: this.config.modelName });
+        return 2560; // Default to Qwen3-4B dimensions
     }
   }
 

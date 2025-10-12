@@ -169,6 +169,10 @@ class HuggingFaceEmbeddingFunction {
         return 768;
       case 'Xenova/distiluse-base-multilingual-cased-v2':
         return 512;
+      case 'qwen3_4b':
+        return 2560;  // Qwen3-Embedding-4B
+      case 'gemma_embed':
+        return 768;   // EmbeddingGemma-300M
       default:
         return 384; // Default dimension
     }
