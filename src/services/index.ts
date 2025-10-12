@@ -76,4 +76,16 @@ export {
 export { TaskRepository } from '../repositories/TaskRepository.js';
 export { CommunicationRepository } from '../repositories/CommunicationRepository.js';
 export { MemoryRepository } from '../repositories/MemoryRepository.js';
+export { SymbolIndexRepository, type FileSymbolMetadata, type SymbolLookupResult } from '../repositories/SymbolIndexRepository.js';
 export { MemoryService } from './MemoryService.js';
+export {
+  SymbolIndexerService,
+  type SymbolIndexingOptions,
+  type SymbolIndexingStats
+} from './SymbolIndexerService.js';
+export {
+  AdaptiveBoostLearner,
+  type QueryFeedback,
+  type WeightConfig,
+  type LearningConfig
+} from './AdaptiveBoostLearner.js';

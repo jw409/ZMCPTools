@@ -8,6 +8,7 @@ export * from './plans';
 export * from './knowledge-graph';
 export * from './shared-state';
 export * from './contracts';
+export * from './symbol-index';
 
 // Re-export commonly used types for convenience
 export type {

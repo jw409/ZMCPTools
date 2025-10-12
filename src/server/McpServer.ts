@@ -51,6 +51,7 @@ import { ResourceManager } from "../managers/ResourceManager.js";
 import { PromptManager } from "../managers/PromptManager.js";
 import { PathUtils } from "../utils/pathUtils.js";
 import { LanceDBService } from "../services/LanceDBService.js";
+import { toCleanJsonSchema } from "../utils/jsonSchemaUtils.js";
 import {
   KnowledgeGraphMcpTools,
   StoreKnowledgeMemorySchema,
@@ -62,8 +63,11 @@ import { gpuKnowledgeTools } from "../tools/knowledgeGraphGPUTools.js";
 import { indexSymbolGraphTool } from "../tools/IndexSymbolGraphTool.js";
 import { getGPUSearchTools } from "../tools/gpuSearchTools.js";
 import { getMetaMcpTools } from '../tools/MetaMcpTools.js';
+import { FileSystemTools } from '../tools/FileSystemTools.js';
+import { SharedStateTools } from '../tools/SharedStateTools.js';
 import { Logger } from "../utils/logger.js";
 import type { McpTool, McpProgressContext } from "../schemas/tools/index.js";
+import { AgentCapabilityManager } from '../security/AgentCapabilities.js';
 
 // REMOVED unused imports (deprecated/undocumented tools):
 // - WebScrapingMcpTools, AnalysisMcpTools, TreeSummaryTools (deprecated)
@@ -79,8 +83,10 @@ export interface McpServerOptions {
   transport?: "stdio" | "http";
   httpPort?: number;
   httpHost?: string;
-  exposeResourcesAsTool?: boolean;
+  geminiCompat?: boolean;
+  openrouterCompat?: boolean;
   includeAgentTools?: boolean;
+  role?: string; // Agent role for capability filtering (backend, frontend, testing, documentation, dom0)
 }
 
 export class McpToolsServer {
@@ -91,11 +97,14 @@ export class McpToolsServer {
   private resourceManager: ResourceManager;
   private promptManager: PromptManager;
   private lanceDBManager: LanceDBService;
+  private fileSystemTools: FileSystemTools;
+  private sharedStateTools: SharedStateTools;
   private repositoryPath: string;
   private httpServer?: http.Server;
   private transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
   private lastClientActivity: number = Date.now();
   private inactivityTimer?: NodeJS.Timeout;
+  private capabilityManager?: AgentCapabilityManager;
 
   // REMOVED unused properties (deprecated/undocumented tools):
   // - webScrapingMcpTools, analysisMcpTools, treeSummaryTools
@@ -304,6 +313,7 @@ export class McpToolsServer {
 
     // Initialize tools
     this.knowledgeGraphMcpTools = new KnowledgeGraphMcpTools(this.db);
+    this.sharedStateTools = new SharedStateTools(this.db);
 
     // REMOVED deprecated tool initialization:
     // - fileOperationsService, treeSummaryService (deprecated - use MCP resources)
@@ -316,6 +326,18 @@ export class McpToolsServer {
     this.lanceDBManager = new LanceDBService(this.db, {
       // LanceDB is embedded - no server configuration needed
     });
+    this.fileSystemTools = new FileSystemTools();
+
+    // Initialize capability manager if role specified
+    if (options.role) {
+      try {
+        this.capabilityManager = new AgentCapabilityManager();
+        process.stderr.write(`🔐 Agent capability manager initialized for role: ${options.role}\n`);
+      } catch (error) {
+        process.stderr.write(`⚠️  Failed to initialize capability manager: ${error}\n`);
+        process.stderr.write(`⚠️  Tool filtering disabled - all tools available\n`);
+      }
+    }
 
     this.setupMcpHandlers();
 
@@ -350,11 +372,15 @@ export class McpToolsServer {
     this.mcpServer.setRequestHandler(ListToolsRequestSchema, async () => {
       const tools = this.getAvailableTools();
       return {
-        tools: tools.map((tool) => ({
-          name: tool.name,
-          description: tool.description,
-          inputSchema: tool.inputSchema,
-        })),
+        tools: tools.map((tool) => {
+          // Convert Zod schema to JSON Schema for OpenRouter/Gemini compatibility
+          const jsonSchema = toCleanJsonSchema(tool.inputSchema);
+          return {
+            name: tool.name,
+            description: tool.description,
+            inputSchema: jsonSchema,
+          };
+        }),
       };
     });
 
@@ -374,6 +400,19 @@ export class McpToolsServer {
       if (!tool) {
         logger.error(`Tool not found`, { name });
         throw new McpError(ErrorCode.MethodNotFound, `Tool "${name}" not found`);
+      }
+
+      // Runtime validation: Check if role can use this tool (defense in depth)
+      if (this.capabilityManager && this.options.role) {
+        const canUse = this.capabilityManager.canUseTool(this.options.role, name);
+        if (!canUse) {
+          logger.error(`Tool access denied`, { tool: name, role: this.options.role });
+          process.stderr.write(`🔐 DENIED: Role '${this.options.role}' attempted to call forbidden tool '${name}'\n`);
+          throw new McpError(
+            ErrorCode.InvalidRequest,
+            `Tool "${name}" is not allowed for role "${this.options.role}"`
+          );
+        }
       }
 
       try {
@@ -602,6 +641,7 @@ export class McpToolsServer {
   }
 
   public getAvailableTools(): McpTool[] {
+    process.stderr.write(`DEBUG: this.options.openrouterCompat is: ${this.options.openrouterCompat}\n`);
     const tools: McpTool[] = [
       // Knowledge graph core + GPU (10 tools total)
       // - Core: store/create (2 tools)
@@ -620,10 +660,22 @@ export class McpToolsServer {
       // Symbol graph indexing (1 tool)
       // - index_symbol_graph: Flexible code indexing with Unix composability
       indexSymbolGraphTool,
+
+      // Shared state tools (4 tools) - Multi-agent coordination
+      // - todo_write: Write/update shared todos
+      // - todo_read: Read shared todos with filtering
+      // - broadcast_progress: Broadcast task progress
+      // - register_artifact: Register created artifacts
+      ...this.sharedStateTools.getTools(),
     ];
 
+    // Conditionally add the file system tools for openrouter compatibility
+    if (this.options.openrouterCompat) {
+      tools.push(...this.fileSystemTools.getTools());
+    }
+
     // Conditionally add the meta tool for reading MCP resources (Issue #6 fix)
-    if (this.options.exposeResourcesAsTool) {
+    if (this.options.geminiCompat) {
       tools.push(...getMetaMcpTools(this.resourceManager));
     }
 
@@ -631,6 +683,13 @@ export class McpToolsServer {
     if (this.options.includeAgentTools) {
       // TODO: Implement the loading of agent tools from AGENT_TOOL_LIST.md
       // For now, this is a placeholder.
+    }
+
+    // Filter tools by role if capability manager is initialized
+    if (this.capabilityManager && this.options.role) {
+      const filteredTools = this.capabilityManager.filterToolsByRole(tools, this.options.role);
+      process.stderr.write(`🔐 Filtered tools for role '${this.options.role}': ${filteredTools.length}/${tools.length} tools available\n`);
+      return filteredTools;
     }
 
     return tools;

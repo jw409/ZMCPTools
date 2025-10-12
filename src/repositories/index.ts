@@ -85,6 +85,11 @@ export {
   KnowledgeRelationshipRepository,
   KnowledgeInsightRepository
 } from './KnowledgeGraphRepository.js';
+export {
+  SymbolIndexRepository,
+  type FileSymbolMetadata,
+  type SymbolLookupResult
+} from './SymbolIndexRepository.js';
 
 /**
  * Helper function to create a type-safe repository with full TypeScript support

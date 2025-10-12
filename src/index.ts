@@ -17,15 +17,19 @@ async function mainServer() {
   const transportIndex = args.indexOf('--transport');
   const portIndex = args.indexOf('--port');
   const hostIndex = args.indexOf('--host');
+  const roleIndex = args.indexOf('--role');
 
   // Add command-line argument parsing for optional tools (Issue #6 fix)
   const exposeResourcesAsTool = args.includes('--expose-resources-as-tool');
   const includeAgentTools = args.includes('--include-agent-tools');
   const geminiCompat = args.includes('--gemini-compat');
-  
+  const openrouterCompat = args.includes('--openrouter-compat');
+  process.stderr.write(`DEBUG: openrouterCompat flag is: ${openrouterCompat}\n`);
+
   const transport = (transportIndex !== -1 && args[transportIndex + 1]) ? args[transportIndex + 1] : 'stdio';
   const httpPort = (portIndex !== -1 && args[portIndex + 1]) ? parseInt(args[portIndex + 1]) : 4269;
   const httpHost = (hostIndex !== -1 && args[hostIndex + 1]) ? args[hostIndex + 1] : '127.0.0.1';
+  const role = (roleIndex !== -1 && args[roleIndex + 1]) ? args[roleIndex + 1] : undefined;
 
   // Get database path using pathResolver (supports project-local via issue #6 fix)
   // MCPTOOLS_DATA_DIR env var still supported for backward compatibility
@@ -51,8 +55,10 @@ async function mainServer() {
     transport: transport as 'http' | 'stdio',
     httpPort,
     httpHost,
+    role,
     includeAgentTools,
-    geminiCompat
+    geminiCompat,
+    openrouterCompat
   });
 
   // Set up crash handler with database manager for handling active jobs

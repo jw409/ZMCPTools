@@ -1,5 +1,6 @@
 
 import { z } from 'zod';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 import { ResourceManager } from '../managers/ResourceManager.js';
 import type { McpTool } from '../schemas/tools/index.js';
 
@@ -11,7 +12,7 @@ export const getMetaMcpTools = (resourceManager: ResourceManager): McpTool[] => 
   const readMcpResourceTool: McpTool = {
     name: 'read_mcp_resource',
     description: 'Reads an MCP resource by its URI. Acts as a meta-tool to access the resource API.',
-    inputSchema: ReadMcpResourceSchema,
+    inputSchema: zodToJsonSchema(ReadMcpResourceSchema),
     handler: async (params: z.infer<typeof ReadMcpResourceSchema>) => {
       try {
         const resourceContent = await resourceManager.readResource(params.uri);
