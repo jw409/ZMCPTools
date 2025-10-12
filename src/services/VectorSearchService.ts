@@ -80,8 +80,8 @@ export class VectorSearchService {
     this.config = {
       // TalentOS embedding model selection - use qwen3_4b (2560D) for quality
       embeddingModel: 'qwen3_4b',
-      chunkSize: 512,
-      chunkOverlap: 50,
+      chunkSize: 28800,      // 90% of 32K token limit
+      chunkOverlap: 2880,    // 10% overlap
       temperature: 0.1,
       ...config
     };

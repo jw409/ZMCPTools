@@ -31,9 +31,9 @@ export interface Chunk {
 }
 
 export interface ChunkerConfig {
-  targetTokens: number;      // Target chunk size (default: 1800)
+  targetTokens: number;      // Target chunk size (default: 28800 for qwen3_4b)
   overlapPercentage: number; // Overlap as % of chunk size (default: 0.10)
-  tokenLimit: number;        // Hard limit (default: 2048)
+  tokenLimit: number;        // Hard limit (default: 32000 for qwen3_4b)
   embeddingServiceUrl: string;
   model: string;
 }
@@ -52,11 +52,11 @@ export class SemanticChunker {
 
   constructor(config?: Partial<ChunkerConfig>) {
     this.config = {
-      targetTokens: 1800,
+      targetTokens: 28800,  // 90% of 32K context for qwen3_4b
       overlapPercentage: 0.10,
-      tokenLimit: 2048,
+      tokenLimit: 32000,    // qwen3_4b context limit
       embeddingServiceUrl: 'http://localhost:8765',
-      model: 'gemma_embed',
+      model: 'qwen3_4b',    // Updated from gemma_embed
       ...config
     };
   }

@@ -28,6 +28,7 @@ import { LanceDBService } from './LanceDBService.js';
 import { Logger } from '../utils/logger.js';
 import { StoragePathResolver } from './StoragePathResolver.js';
 import { getPartitionClassifier, type PartitionInfo } from './PartitionClassifier.js';
+import { SemanticChunker } from './SemanticChunker.js';
 
 
 const logger = new Logger('symbol-graph-indexer');
@@ -121,6 +122,7 @@ export class SymbolGraphIndexer {
   private bm25Service: BM25Service;
   private embeddingClient: EmbeddingClient;
   private lanceDBService: LanceDBService | null = null;
+  private semanticChunker: SemanticChunker;
   private projectPath: string = '';
   private readonly COLLECTION_NAME = 'symbol_graph_embeddings';
 
@@ -163,6 +165,12 @@ export class SymbolGraphIndexer {
     this.astTool = new TreeSitterASTTool();
     this.bm25Service = new BM25Service();
     this.embeddingClient = new EmbeddingClient();
+    this.semanticChunker = new SemanticChunker({
+      targetTokens: 28800,  // 90% of 32K for qwen3_4b
+      overlapPercentage: 0.10,
+      tokenLimit: 32000,
+      model: 'qwen3_4b'
+    });
   }
 
   /**
@@ -335,6 +343,21 @@ export class SymbolGraphIndexer {
         embedding_text TEXT NOT NULL,
         embedding_stored BOOLEAN DEFAULT 0,
         lancedb_id TEXT,
+        total_chunks INTEGER DEFAULT 1,  -- Number of chunks for this file (1 = no chunking)
+        FOREIGN KEY (file_path) REFERENCES indexed_files(file_path) ON DELETE CASCADE
+      );
+
+      -- Semantic chunks (for large files that exceed token limits)
+      CREATE TABLE IF NOT EXISTS semantic_chunks (
+        chunk_id TEXT PRIMARY KEY,
+        file_path TEXT NOT NULL,
+        chunk_index INTEGER NOT NULL,
+        chunk_text TEXT NOT NULL,
+        start_offset INTEGER NOT NULL,
+        end_offset INTEGER NOT NULL,
+        token_count INTEGER NOT NULL,
+        embedding_stored BOOLEAN DEFAULT 0,
+        lancedb_id TEXT,
         FOREIGN KEY (file_path) REFERENCES indexed_files(file_path) ON DELETE CASCADE
       );
 
@@ -355,6 +378,8 @@ export class SymbolGraphIndexer {
       CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(name);
       CREATE INDEX IF NOT EXISTS idx_imports_source_file ON imports(source_file);
       CREATE INDEX IF NOT EXISTS idx_imports_import_path ON imports(import_path);
+      CREATE INDEX IF NOT EXISTS idx_semantic_chunks_file_path ON semantic_chunks(file_path);
+      CREATE INDEX IF NOT EXISTS idx_semantic_chunks_stored ON semantic_chunks(embedding_stored);
     `;
 
     this.db.exec(schema);
@@ -556,6 +581,7 @@ export class SymbolGraphIndexer {
 
   /**
    * Generate embeddings for files that don't have them yet
+   * Uses smart chunking for large files (>28.8K tokens)
    * Processes files in batches to avoid overwhelming the GPU service
    */
   private async generatePendingEmbeddings(): Promise<void> {
@@ -566,7 +592,6 @@ export class SymbolGraphIndexer {
 
     try {
       // Get files where embedding_stored = 0 and embedding_text not empty
-      // Phase 1: Join with indexed_files to get partition metadata
       const pending = this.db.prepare(`
         SELECT
           sm.file_path,
@@ -590,48 +615,100 @@ export class SymbolGraphIndexer {
 
       logger.info(`Generating embeddings for ${pending.length} files...`);
 
-      // Batch process (20 at a time to avoid overwhelming GPU)
-      const batchSize = 20;
       let processedCount = 0;
+      let chunkedCount = 0;
 
-      for (let i = 0; i < pending.length; i += batchSize) {
-        const batch = pending.slice(i, i + batchSize);
+      // Process files one at a time (chunking requires token counting via API)
+      for (const row of pending) {
+        try {
+          // Determine language for semantic boundaries
+          const ext = path.extname(row.file_path);
+          const language = this.isDocumentationFile(row.file_path) ? 'markdown' : 'typescript';
 
-        // Prepare documents for LanceDB (Phase 1: with partition metadata)
-        const documents = batch.map(row => ({
-          id: row.file_path,
-          content: row.embedding_text,
-          metadata: {
-            file_path: row.file_path,
-            indexed_at: new Date().toISOString(),
-            partition_id: row.partition_id,
-            authority_score: row.authority_score
+          // Chunk the document (returns single chunk if small enough)
+          const chunks = await this.semanticChunker.chunkDocument(
+            row.file_path,
+            row.embedding_text,
+            path.basename(row.file_path),
+            language
+          );
+
+          if (chunks.length > 1) {
+            chunkedCount++;
+            logger.info(`Chunked large file ${path.basename(row.file_path)} into ${chunks.length} chunks`);
           }
-        }));
 
-        // Add to LanceDB (will generate embeddings automatically)
-        const result = await this.lanceDBService.addDocuments(this.COLLECTION_NAME, documents);
-
-        if (result.success) {
-          // Update semantic_metadata to mark embeddings as stored
-          const updateStmt = this.db.prepare(`
-            UPDATE semantic_metadata
-            SET embedding_stored = 1, lancedb_id = ?
-            WHERE file_path = ?
+          // Store chunks in database
+          const insertChunkStmt = this.db.prepare(`
+            INSERT INTO semantic_chunks
+            (chunk_id, file_path, chunk_index, chunk_text, start_offset, end_offset, token_count)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
           `);
 
-          for (const row of batch) {
-            updateStmt.run(row.file_path, row.file_path);
+          for (const chunk of chunks) {
+            insertChunkStmt.run(
+              chunk.metadata.chunkId,
+              row.file_path,
+              chunk.metadata.chunkIndex,
+              chunk.text,
+              chunk.metadata.startOffset,
+              chunk.metadata.endOffset,
+              chunk.metadata.tokenCount
+            );
           }
 
-          processedCount += batch.length;
-          logger.info(`Embedding progress: ${processedCount}/${pending.length} files`);
-        } else {
-          logger.error('Failed to generate embeddings for batch', { error: result.error });
+          // Embed each chunk
+          const chunkDocuments = chunks.map(chunk => ({
+            id: chunk.metadata.chunkId,
+            content: chunk.text,
+            metadata: {
+              file_path: row.file_path,
+              chunk_index: chunk.metadata.chunkIndex,
+              total_chunks: chunks.length,
+              start_offset: chunk.metadata.startOffset,
+              end_offset: chunk.metadata.endOffset,
+              token_count: chunk.metadata.tokenCount,
+              indexed_at: new Date().toISOString(),
+              partition_id: row.partition_id,
+              authority_score: row.authority_score
+            }
+          }));
+
+          const result = await this.lanceDBService.addDocuments(this.COLLECTION_NAME, chunkDocuments);
+
+          if (result.success) {
+            // Mark chunks as stored
+            const updateChunkStmt = this.db.prepare(`
+              UPDATE semantic_chunks
+              SET embedding_stored = 1, lancedb_id = ?
+              WHERE chunk_id = ?
+            `);
+
+            for (const chunk of chunks) {
+              updateChunkStmt.run(chunk.metadata.chunkId, chunk.metadata.chunkId);
+            }
+
+            // Update file metadata
+            this.db.prepare(`
+              UPDATE semantic_metadata
+              SET embedding_stored = 1, total_chunks = ?, lancedb_id = ?
+              WHERE file_path = ?
+            `).run(chunks.length, row.file_path, row.file_path);
+
+            processedCount++;
+            if (processedCount % 10 === 0) {
+              logger.info(`Embedding progress: ${processedCount}/${pending.length} files (${chunkedCount} chunked)`);
+            }
+          } else {
+            logger.error(`Failed to generate embeddings for ${row.file_path}`, { error: result.error });
+          }
+
+        } catch (error: any) {
+          logger.error(`Failed to process ${row.file_path}`, { error: error.message });
         }
       }
 
-      logger.info(`Successfully generated embeddings for ${processedCount} files`);
+      logger.info(`Successfully generated embeddings for ${processedCount}/${pending.length} files (${chunkedCount} required chunking)`);
 
     } catch (error: any) {
       logger.error('Error generating pending embeddings', { error: error.message });
