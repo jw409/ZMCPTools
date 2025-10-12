@@ -1,0 +1,116 @@
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                      ZMCPTOOLS COMPATIBILITY MODES                             ║
+║                         Quick Reference Card                                   ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ MODES                                                                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ 1. Standard      No flags                    Claude Desktop/CLI             │
+│ 2. OpenRouter    --openrouter-compat         Remote agents (OpenRouter API) │
+│ 3. Gemini        --gemini-compat             Gemini native integration      │
+│ 4. Agent         --include-agent-tools       Multi-agent coordination       │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ TOOL MATRIX                                                                  │
+├─────────────┬──────────┬────────────┬────────┬───────┬───────────────────────┤
+│ Tools       │ Standard │ OpenRouter │ Gemini │ Agent │ Count                 │
+├─────────────┼──────────┼────────────┼────────┼───────┼───────────────────────┤
+│ BASE (always available)                                                      │
+├─────────────┼──────────┼────────────┼────────┼───────┼───────────────────────┤
+│ Knowledge   │    ✅    │     ✅     │   ✅   │  ✅   │ 10 tools              │
+│ GPU Search  │    ✅    │     ✅     │   ✅   │  ✅   │ 4 tools               │
+│ Symbol      │    ✅    │     ✅     │   ✅   │  ✅   │ 1 tool                │
+├─────────────┼──────────┼────────────┼────────┼───────┼───────────────────────┤
+│ MODE-SPECIFIC                                                                │
+├─────────────┼──────────┼────────────┼────────┼───────┼───────────────────────┤
+│ SharedState │    ✅    │     ❌     │   ❌   │  ✅   │ 4 tools (internal)    │
+│ FileSystem  │    ❌    │     ✅     │   ❌   │  ❌   │ 2 tools (read/write)  │
+│ Meta MCP    │    ❌    │     ❌     │   ✅   │  ❌   │ ? tools (resources)   │
+├─────────────┼──────────┼────────────┼────────┼───────┼───────────────────────┤
+│ TOTAL       │    19    │     17     │   16+  │  19+  │ (before RBAC)         │
+└─────────────┴──────────┴────────────┴────────┴───────┴───────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ BASE TOOLS (15 tools - available in all modes)                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ Knowledge Graph (10 tools):                                                 │
+│   store_knowledge_memory, create_knowledge_relationship,                    │
+│   search_knowledge_graph_gpu, update_knowledge_entity,                      │
+│   prune_knowledge_graph, compact_knowledge_graph,                           │
+│   export_knowledge_graph, wipe_knowledge_graph,                             │
+│   knowledge_graph_status, switch_knowledge_mode                             │
+│                                                                              │
+│ GPU Search (4 tools):                                                       │
+│   search_knowledge, index_document, list_collections,                       │
+│   get_collection_stats                                                      │
+│                                                                              │
+│ Symbol Indexing (1 tool):                                                   │
+│   index_symbol_graph                                                        │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ MODE-SPECIFIC TOOLS                                                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ SharedState (4 tools) - Standard + Agent only:                              │
+│   todo_write, todo_read, broadcast_progress, register_artifact              │
+│   → Multi-agent coordination (excluded from remote agents)                  │
+│                                                                              │
+│ FileSystem (2 tools) - OpenRouter only:                                     │
+│   read_file, write_file                                                     │
+│   → File I/O for agents without MCP resource support                        │
+│                                                                              │
+│ Meta MCP (? tools) - Gemini only:                                           │
+│   [Tools that wrap MCP resources for Gemini compatibility]                  │
+│   → Access resources via tools for native integration                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ ROLE-BASED ACCESS CONTROL (RBAC)                                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ Applied AFTER mode-specific tools are added                                 │
+│                                                                              │
+│ Roles (talent-os/etc/agent_capabilities.json):                              │
+│   • backend       - Full access (read/write/knowledge)                      │
+│   • frontend      - UI focus (limited file access)                          │
+│   • testing       - Read-only (4 tools after RBAC)                          │
+│   • documentation - Read all + write docs                                   │
+│   • dom0          - Unrestricted (wildcard * access)                        │
+│                                                                              │
+│ Example: Testing role in OpenRouter mode                                    │
+│   17 tools → RBAC filter → 4 tools available                                │
+│   (read_file, search_knowledge, list_collections, get_collection_stats)     │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ USAGE EXAMPLES                                                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ Standard Mode (Claude Desktop):                                             │
+│   node dist/server/index.js                                                 │
+│   → 19 tools (base + SharedState)                                           │
+│                                                                              │
+│ OpenRouter Mode (Remote Agent):                                             │
+│   node dist/server/index.js --role testing --openrouter-compat              │
+│   → 17 tools → RBAC → 4 tools                                               │
+│                                                                              │
+│ Gemini Mode (Native Integration):                                           │
+│   node dist/server/index.js --role backend --gemini-compat                  │
+│   → 16+ tools (base + Meta MCP)                                             │
+│                                                                              │
+│ Agent Mode (Multi-Agent):                                                   │
+│   node dist/server/index.js --role dom0 --include-agent-tools               │
+│   → 19+ tools (base + SharedState + agent-specific)                         │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ KEY FILES                                                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ Implementation:     src/server/McpServer.ts (lines 649-701)                 │
+│ Capabilities:       talent-os/etc/agent_capabilities.json                   │
+│ Full Docs:          COMPATIBILITY_MODES.md                                  │
+│ Security:           SECURITY_IMPLEMENTATION.md                               │
+│ Tool List:          etc/TOOL_LIST.md (auto-generated)                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+                        Last Updated: October 11, 2025
