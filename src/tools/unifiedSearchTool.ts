@@ -395,6 +395,50 @@ Returns real file paths, content snippets, and extracted code symbols (functions
       metrics.final_results = finalResults.length;
       metrics.total_time_ms = Date.now() - startTime;
 
+      // Emit search telemetry for Scavenger/Teacher learning pipeline
+      logger.info('Search telemetry', {
+        telemetry_type: 'search_effectiveness',
+        timestamp: new Date().toISOString(),
+        query,
+        query_length: query.length,
+        weights_applied: {
+          bm25_weight,
+          semantic_weight,
+          use_bm25,
+          use_gpu_embeddings,
+          use_reranker,
+          auto_routing_used: use_bm25 === queryAnalysis.suggestedBM25 && use_gpu_embeddings === queryAnalysis.suggestedSemantic,
+          suggested_config: {
+            bm25: queryAnalysis.suggestedBM25,
+            semantic: queryAnalysis.suggestedSemantic,
+            reranker: queryAnalysis.suggestedReranker,
+            reasoning: queryAnalysis.reasoning
+          }
+        },
+        results: {
+          total_candidates: allCandidates.length,
+          total_final: finalResults.length,
+          bm25_contributed: bm25Results.length,
+          semantic_contributed: semanticResults.length,
+          reranked: use_reranker,
+          top_3_scores: finalResults.slice(0, 3).map(r => ({
+            file: r.file_path,
+            bm25: r.bm25_score || 0,
+            semantic: r.semantic_score || 0,
+            reranker: r.reranker_score || 0,
+            final: r.final_score || r.combined_score || 0
+          }))
+        },
+        performance: {
+          total_time_ms: metrics.total_time_ms,
+          bm25_ms: metrics.stage_timings.bm25_ms || 0,
+          semantic_ms: metrics.stage_timings.semantic_ms || 0,
+          reranker_ms: metrics.stage_timings.reranker_ms || 0,
+          gpu_available: gpuAvailable,
+          model_used: metrics.model_used
+        }
+      });
+
       // Prepare response
       const response: any = {
         success: true,
