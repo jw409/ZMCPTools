@@ -33,7 +33,7 @@
   ],
   "preferGlobal": true,
   "scripts": {
-    "build": "npm run generate:build-info && npm run generate:docs && tsup",
+    "build": "npm run test:run && npm run generate:build-info && npm run generate:docs && tsup",
     "postbuild": "chmod +x dist/server/index.js dist/cli/index.js dist/talent-server/index.js || true",
     "generate:build-info": "tsx scripts/generate_build_info.ts",
     "generate:docs": "tsx scripts/generate_tool_list.ts",
@@ -114,6 +114,7 @@
     "express": "^5.1.0",
     "knip": "^5.63.1",
     "minimatch": "^10.0.3",
+    "minimist": "^1.2.8",
     "patchright": "^1.52.5",
     "sharp": "^0.34.3",
     "ts-pattern": "^5.7.1",
@@ -128,6 +129,7 @@
   "devDependencies": {
     "@swc/core": "^1.12.11",
     "@types/better-sqlite3": "latest",
+    "@types/minimist": "^1.2.5",
     "@types/node": "latest",
     "@types/turndown": "^5.0.5",
     "@types/user-agents": "^1.0.4",

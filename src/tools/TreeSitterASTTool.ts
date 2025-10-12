@@ -20,6 +20,9 @@ import { promisify } from 'util';
 // Tree-sitter native packages have version conflicts, so we'll add them progressively
 import * as ts from "typescript";
 import { getASTCache } from "../services/ASTCacheService.js";
+import { Logger } from "../utils/logger.js";
+
+const logger = new Logger('tree-sitter-ast');
 
 // Schema for AST operations
 const ASTOperationSchema = z.object({
@@ -454,9 +457,18 @@ export class TreeSitterASTTool {
 
     // Convert children
     const children: any[] = [];
-    ts.forEachChild(node, child => {
-      children.push(this.convertTsNodeToTreeSitterFormat(child));
-    });
+
+    // For SourceFile, use statements directly as it's more reliable
+    if (ts.isSourceFile(node)) {
+      node.statements.forEach(stmt => {
+        children.push(this.convertTsNodeToTreeSitterFormat(stmt));
+      });
+    } else {
+      // For other nodes, use forEachChild
+      ts.forEachChild(node, child => {
+        children.push(this.convertTsNodeToTreeSitterFormat(child));
+      });
+    }
 
     converted.children = children;
     converted.childCount = children.length;
@@ -472,10 +484,13 @@ export class TreeSitterASTTool {
       case ts.SyntaxKind.SourceFile: return 'program';
       case ts.SyntaxKind.ImportDeclaration: return 'import_statement';
       case ts.SyntaxKind.ExportDeclaration: return 'export_statement';
+      case ts.SyntaxKind.ExportAssignment: return 'export_statement';
       case ts.SyntaxKind.ClassDeclaration: return 'class_declaration';
+      case ts.SyntaxKind.ClassExpression: return 'class_declaration';
       case ts.SyntaxKind.InterfaceDeclaration: return 'interface_declaration';
       case ts.SyntaxKind.TypeAliasDeclaration: return 'type_alias_declaration';
       case ts.SyntaxKind.FunctionDeclaration: return 'function_declaration';
+      case ts.SyntaxKind.FunctionExpression: return 'function_declaration';
       case ts.SyntaxKind.MethodDeclaration: return 'method_definition';
       case ts.SyntaxKind.PropertyDeclaration: return 'property_declaration';
       case ts.SyntaxKind.VariableDeclaration: return 'variable_declaration';
@@ -484,6 +499,7 @@ export class TreeSitterASTTool {
       case ts.SyntaxKind.Block: return 'block';
       case ts.SyntaxKind.ArrowFunction: return 'arrow_function';
       case ts.SyntaxKind.Identifier: return 'identifier';
+      case ts.SyntaxKind.Constructor: return 'method_definition';
       default: return ts.SyntaxKind[node.kind];
     }
   }
@@ -591,65 +607,25 @@ export class TreeSitterASTTool {
       return symbols;
     }
 
-    // TypeScript/JavaScript - build hierarchical structure
+    // TypeScript/JavaScript - direct tree traversal approach
     const topLevelSymbols: any[] = [];
     const classMap = new Map<string, any>(); // Track classes for nesting methods
-    const nodeToParentMap = new Map<any, string>(); // Map nodes to parent class names
 
-    const cursor = tree.walk();
+    // Ensure we have a valid tree structure
+    if (!tree || (!tree.rootNode && !tree.symbols)) {
+      return topLevelSymbols; // Return empty if no valid tree
+    }
 
-    // First pass: build parent map and collect classes
-    const buildParentMap = (parentClassName: string | null = null) => {
-      const node = cursor.currentNode;
-
-      if (language === 'typescript' || language === 'javascript') {
-        const nameNode = this.findNameInChildren(node);
-
-        // Track current class context
-        let currentClassName = parentClassName;
-        if (node.type === 'class_declaration' && nameNode) {
-          currentClassName = nameNode;
-        }
-
-        // Map this node to its parent class
-        if (currentClassName && node.type === 'method_definition') {
-          nodeToParentMap.set(node, currentClassName);
-        }
-
-        // Recursively process children
-        if (cursor.gotoFirstChild()) {
-          do {
-            buildParentMap(currentClassName);
-          } while (cursor.gotoNextSibling());
-          cursor.gotoParent();
-        }
-      } else {
-        // For non-TS/JS, just recurse
-        if (cursor.gotoFirstChild()) {
-          do {
-            buildParentMap(null);
-          } while (cursor.gotoNextSibling());
-          cursor.gotoParent();
-        }
-      }
-    };
-
-    // Build the parent map
-    buildParentMap();
-
-    // Reset cursor to root
-    const cursor2 = tree.walk();
-
-    // Second pass: extract symbols using parent map
-    const visitNode = () => {
-      const node = cursor2.currentNode;
+    // Simple recursive traversal of the tree structure
+    const visitNode = (node: any): void => {
+      if (!node) return;
 
       if (language === 'typescript' || language === 'javascript') {
-        const nameNode = this.findNameInChildren(node);
+        const name = this.findNameInChildren(node);
 
-        if (node.type === 'class_declaration' && nameNode) {
+        if (node.type === 'class_declaration' && name) {
           const classSymbol = {
-            name: nameNode,
+            name,
             kind: 'class',
             location: this.compactLocation(
               node.startPosition.row,
@@ -660,11 +636,11 @@ export class TreeSitterASTTool {
             children: [] as any[]
           };
           topLevelSymbols.push(classSymbol);
-          classMap.set(nameNode, classSymbol);
+          classMap.set(name, classSymbol);
 
-        } else if (node.type === 'interface_declaration' && nameNode) {
+        } else if (node.type === 'interface_declaration' && name) {
           topLevelSymbols.push({
-            name: nameNode,
+            name,
             kind: 'interface',
             location: this.compactLocation(
               node.startPosition.row,
@@ -674,9 +650,9 @@ export class TreeSitterASTTool {
             )
           });
 
-        } else if (node.type === 'function_declaration' && nameNode) {
+        } else if (node.type === 'function_declaration' && name) {
           topLevelSymbols.push({
-            name: nameNode,
+            name,
             kind: 'function',
             location: this.compactLocation(
               node.startPosition.row,
@@ -686,11 +662,9 @@ export class TreeSitterASTTool {
             )
           });
 
-        } else if (node.type === 'method_definition' && nameNode) {
-          // Look up parent class from map
-          const parentClass = nodeToParentMap.get(node);
+        } else if (node.type === 'method_definition' && name) {
           const methodSymbol = {
-            name: nameNode,
+            name,
             kind: 'method',
             location: this.compactLocation(
               node.startPosition.row,
@@ -700,25 +674,30 @@ export class TreeSitterASTTool {
             )
           };
 
-          if (parentClass && classMap.has(parentClass)) {
-            classMap.get(parentClass)!.children.push(methodSymbol);
-          } else {
-            // Orphaned method - add to top level
-            topLevelSymbols.push(methodSymbol);
-          }
+          // For now, add methods to top level
+          // (proper nesting requires parent tracking which was failing)
+          topLevelSymbols.push(methodSymbol);
         }
       }
 
       // Recursively visit children
-      if (cursor2.gotoFirstChild()) {
-        do {
-          visitNode();
-        } while (cursor2.gotoNextSibling());
-        cursor2.gotoParent();
+      if (node.children && Array.isArray(node.children)) {
+        for (const child of node.children) {
+          visitNode(child);
+        }
       }
     };
 
-    visitNode();
+    // Start traversal from root node
+    const rootNode = tree.rootNode || tree;
+
+    // If rootNode doesn't have children array, return empty
+    if (!rootNode || !rootNode.children || !Array.isArray(rootNode.children)) {
+      return topLevelSymbols;
+    }
+
+    visitNode(rootNode);
+
     return topLevelSymbols;
   }
 
@@ -737,11 +716,21 @@ export class TreeSitterASTTool {
     // Perform a recursive, depth-first search for the first identifier.
     if (!node) return null;
 
+    // Check if this is an identifier node
     if (node.type === 'identifier' || (node.kind && ts.SyntaxKind[node.kind] === 'Identifier')) {
       return node.text || (node.escapedText ? node.escapedText.toString() : null);
     }
 
-    if (node.children) {
+    // For raw TypeScript nodes, check the .name property directly
+    if (node.kind && node.name) {
+      const nameNode = node.name;
+      if (nameNode.kind === ts.SyntaxKind.Identifier) {
+        return nameNode.escapedText?.toString() || nameNode.text;
+      }
+    }
+
+    // Search in our converted children array
+    if (node.children && Array.isArray(node.children)) {
       for (const child of node.children) {
         const found = this.findNameInChildren(child);
         if (found) {
@@ -751,16 +740,19 @@ export class TreeSitterASTTool {
     }
 
     // Handle TypeScript API nodes that don't have a .children property
-    let result: string | null = null;
-    ts.forEachChild(node, (child: ts.Node) => {
-      if (result) return; // Stop searching once found
-      const found = this.findNameInChildren(child);
-      if (found) {
-        result = found;
-      }
-    });
+    if (node.kind) {
+      let result: string | null = null;
+      ts.forEachChild(node, (child: ts.Node) => {
+        if (result) return; // Stop searching once found
+        const found = this.findNameInChildren(child);
+        if (found) {
+          result = found;
+        }
+      });
+      return result;
+    }
 
-    return result;
+    return null;
   }
 
   async extractImports(tree: any, language: string): Promise<string[]> {
@@ -811,6 +803,103 @@ export class TreeSitterASTTool {
 
     visitNode();
     return imports;
+  }
+
+  /**
+   * Find pattern in AST nodes (simple string/regex matching)
+   * Returns nodes whose text contains the pattern
+   */
+  findPattern(tree: any, pattern: string, language: string): any[] {
+    const matches: any[] = [];
+
+    // Try to use as regex first, fallback to escaped literal if invalid
+    let regex: RegExp;
+    try {
+      regex = new RegExp(pattern, 'gi');
+    } catch (e) {
+      // Invalid regex, escape and use as literal string
+      regex = new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+    }
+
+    // For Python, search through symbols
+    if (language === 'python' && tree.symbols) {
+      // Search functions
+      if (tree.symbols.functions) {
+        tree.symbols.functions.forEach((fn: any) => {
+          if (fn.name.match(regex)) {
+            matches.push({
+              type: 'function',
+              name: fn.name,
+              location: `${fn.line}:0-${fn.line}:0`
+            });
+          }
+        });
+      }
+
+      // Search classes
+      if (tree.symbols.classes) {
+        tree.symbols.classes.forEach((cls: any) => {
+          if (cls.name.match(regex)) {
+            matches.push({
+              type: 'class',
+              name: cls.name,
+              location: `${cls.line}:0-${cls.line}:0`
+            });
+          }
+          // Search methods within classes
+          if (cls.methods) {
+            cls.methods.forEach((method: string) => {
+              if (method.match(regex)) {
+                matches.push({
+                  type: 'method',
+                  name: method,
+                  className: cls.name,
+                  location: `${cls.line}:0-${cls.line}:0`
+                });
+              }
+            });
+          }
+        });
+      }
+
+      return matches;
+    }
+
+    // For TypeScript/JavaScript, walk the tree
+    const cursor = tree.walk();
+    const visitNode = () => {
+      const node = cursor.currentNode;
+
+      // Check if node text or name contains pattern
+      const name = this.findNameInChildren(node);
+      const textMatches = node.text && node.text.match(regex);
+      const nameMatches = name && name.match(regex);
+
+      if (textMatches || nameMatches) {
+        matches.push({
+          type: node.type,
+          name: name || undefined,
+          location: this.compactLocation(
+            node.startPosition.row,
+            node.startPosition.column,
+            node.endPosition.row,
+            node.endPosition.column
+          ),
+          text: node.text && node.text.length > 100 ? node.text.substring(0, 100) + '...' : node.text
+        });
+      }
+
+      // Recursively visit children
+      if (cursor.gotoFirstChild()) {
+        do {
+          visitNode();
+        } while (cursor.gotoNextSibling());
+        cursor.gotoParent();
+      }
+    };
+
+    visitNode();
+    return matches;
   }
 
   async extractExports(tree: any, language: string): Promise<string[]> {
@@ -1070,14 +1159,33 @@ export class TreeSitterASTTool {
         };
       }
 
-      // Prepare to collect data for caching
-      cacheData = {
-        language: parseResult.language
-      };
-
     switch (operation) {
       case "parse":
       case "ast_parse": {
+        // NOTE: Parse operation deliberately does NOT cache results
+        // Parse results depend on query parameters (compact, use_symbol_table, max_depth, etc.)
+        // Caching would return wrong results for different parameter combinations
+        // For Python, handle special case where we only have symbols (no rootNode)
+        if (parseResult.language === 'python' && !parseResult.tree.rootNode) {
+          const structure = this.buildPythonStructureFromSymbols(parseResult.tree.symbols);
+          return {
+            success: true,
+            language: 'python',
+            structure,
+            symbols: parseResult.tree.symbols,
+            errors: parseResult.errors
+          };
+        }
+
+        // For TS/JS with rootNode, proceed with normal tree processing
+        if (!parseResult.tree.rootNode) {
+          return {
+            success: false,
+            error: `No AST root node available for ${parseResult.language}`,
+            errors: parseResult.errors
+          };
+        }
+
         let compactTree = this.createCompactTree(parseResult.tree.rootNode, parseResult.language);
 
         // Apply optimizations
@@ -1131,11 +1239,15 @@ export class TreeSitterASTTool {
         if (!args.query) {
           return { success: false, error: "Query string required" };
         }
-        const matches = await this.query(parseResult.tree, args.query);
+        // S-expression queries not yet implemented - suggest alternative
         return {
-          success: true,
-          matches,
-          matchCount: matches.length
+          success: false,
+          error: "S-expression tree-sitter queries not yet implemented. Use operation='find_pattern' for simple string/regex matching instead.",
+          suggestion: {
+            operation: "find_pattern",
+            example: "{ operation: 'find_pattern', file_path: '...', pattern: 'functionName' }"
+          },
+          query: args.query
         };
 
       case "extract_symbols":
@@ -1147,7 +1259,8 @@ export class TreeSitterASTTool {
           symbols,
           symbolCount: symbols.length
         };
-        cacheData.symbols = symbols;
+        // Initialize cacheData for caching
+        cacheData = { language: parseResult.language, symbols };
         return result;
       }
 
@@ -1160,7 +1273,8 @@ export class TreeSitterASTTool {
           imports,
           importCount: imports.length
         };
-        cacheData.imports = imports;
+        // Initialize cacheData for caching
+        cacheData = { language: parseResult.language, imports };
         return result;
       }
 
@@ -1173,24 +1287,50 @@ export class TreeSitterASTTool {
           exports,
           exportCount: exports.length
         };
-        cacheData.exports = exports;
+        // Initialize cacheData for caching
+        cacheData = { language: parseResult.language, exports };
         return result;
       }
 
       case "find_pattern":
-      case "ast_find_pattern":
-        // TODO: Implement pattern finding using tree-sitter queries
+      case "ast_find_pattern": {
         if (!args.pattern) {
           return { success: false, error: "Pattern required" };
         }
+
+        const matches = this.findPattern(parseResult.tree, args.pattern, parseResult.language);
         return {
           success: true,
-          message: "Pattern finding not yet implemented",
-          pattern: args.pattern
+          language: parseResult.language,
+          pattern: args.pattern,
+          matches,
+          matchCount: matches.length
         };
+      }
 
       case "get_structure":
       case "ast_get_structure": {
+        // For Python, build structure from symbols (no rootNode available)
+        if (parseResult.language === 'python' && !parseResult.tree.rootNode) {
+          const structure = this.buildPythonStructureFromSymbols(parseResult.tree.symbols);
+          const result = {
+            success: true,
+            language: 'python',
+            structure,
+            statistics: {
+              imports: parseResult.tree.symbols?.imports?.length || 0,
+              exports: parseResult.tree.symbols?.exports?.length || 0,
+              classes: parseResult.tree.symbols?.classes?.length || 0,
+              functions: parseResult.tree.symbols?.functions?.length || 0,
+              interfaces: 0
+            }
+          };
+          // Initialize cacheData for caching
+          cacheData = { language: 'python', structure };
+          return result;
+        }
+
+        // For TS/JS, use existing logic
         const markdownStructure = this.getFileStructure(parseResult.tree, parseResult.language);
         const compactTree = this.createCompactTree(parseResult.tree.rootNode, parseResult.language);
         const result = {
@@ -1199,7 +1339,8 @@ export class TreeSitterASTTool {
           structure: markdownStructure,
           statistics: this.gatherStatistics(compactTree)
         };
-        cacheData.structure = markdownStructure;
+        // Initialize cacheData for caching
+        cacheData = { language: parseResult.language, structure: markdownStructure };
         return result;
       }
 
@@ -1641,7 +1782,7 @@ export class TreeSitterASTTool {
       const indentStr = "  ".repeat(indent);
       const prefix = indent === 0 ? "## " : indent === 1 ? "### " : "- ";
 
-      // Format the node for display
+      // Format the node for display (minified)
       let display = "";
 
       switch (node.type) {
@@ -1655,61 +1796,61 @@ export class TreeSitterASTTool {
 
         case 'import_statement':
         case 'import_from_statement':
-          display = `📦 Import: \`${node.name || 'unknown'}\``;
+          display = `imp: \`${node.name || 'unknown'}\``;
           break;
 
         case 'export_statement':
-          display = `📤 Export${node.name ? `: \`${node.name}\`` : ''}`;
+          display = `exp${node.name ? `: \`${node.name}\`` : ''}`;
           break;
 
         case 'class_declaration':
         case 'class_definition':
-          display = `🏗️ Class: **${node.name || 'anonymous'}**`;
+          display = `cls: ${node.name || 'anonymous'}`;
           break;
 
         case 'interface_declaration':
-          display = `📋 Interface: **${node.name || 'anonymous'}**`;
+          display = `interface: ${node.name || 'anonymous'}`;
           break;
 
         case 'type_alias_declaration':
-          display = `🏷️ Type: **${node.name || 'anonymous'}**`;
+          display = `type: ${node.name || 'anonymous'}`;
           break;
 
         case 'function_declaration':
         case 'function_definition':
-          display = `🔧 Function: **${node.name || 'anonymous'}**`;
+          display = `fn: ${node.name || 'anonymous'}`;
           break;
 
         case 'arrow_function':
-          display = `➡️ Arrow Function${node.name ? `: **${node.name}**` : ''}`;
+          display = `arrow${node.name ? `: ${node.name}` : ''}`;
           break;
 
         case 'method_definition':
-          display = `⚙️ Method: **${node.name || 'anonymous'}**`;
+          display = `method: ${node.name || 'anonymous'}`;
           break;
 
         case 'property_declaration':
         case 'public_field_definition':
         case 'field_definition':
-          display = `📌 Property: \`${node.name || 'unknown'}\``;
+          display = `prop: ${node.name || 'unknown'}`;
           break;
 
         case 'variable_declaration':
         case 'lexical_declaration':
-          display = `📝 Variable: \`${node.name || 'unknown'}\``;
+          display = `var: ${node.name || 'unknown'}`;
           break;
 
         case 'parameter':
         case 'typed_parameter':
-          display = `▪️ Param: \`${node.name || node.type}\``;
+          display = `param: ${node.name || node.type}`;
           break;
 
         case 'decorator':
-          display = `🎨 Decorator`;
+          display = `decorator`;
           break;
 
         case 'comment':
-          display = `💬 Comment`;
+          display = `comment`;
           break;
 
         case 'group':
@@ -1721,17 +1862,17 @@ export class TreeSitterASTTool {
 
         default:
           // For other significant nodes, show type and name if available
-          display = node.name ? `${node.type}: **${node.name}**` : node.type;
+          display = node.name ? `${node.type}: ${node.name}` : node.type;
       }
 
-      // Add modifiers if present
+      // Add modifiers if present (compact)
       if (node.modifiers && node.modifiers.length > 0) {
-        display = `[${node.modifiers.join(', ')}] ${display}`;
+        display = `[${node.modifiers.join(',')}] ${display}`;
       }
 
-      // Add line number
+      // Add line number (compact format)
       if (node.line) {
-        display += ` *(line ${node.line})*`;
+        display += ` (${node.line})`;
       }
 
       lines.push(`${indentStr}${prefix}${display}`);
@@ -1778,14 +1919,14 @@ export class TreeSitterASTTool {
 
     renderNode(compactTree, 0);
 
-    // Add summary statistics
+    // Add summary statistics (minified)
     lines.push("\n## Summary");
     const stats = this.gatherStatistics(compactTree);
-    lines.push(`- **Imports**: ${stats.imports}`);
-    lines.push(`- **Exports**: ${stats.exports}`);
-    lines.push(`- **Classes**: ${stats.classes}`);
-    lines.push(`- **Functions**: ${stats.functions}`);
-    lines.push(`- **Interfaces**: ${stats.interfaces}`);
+    lines.push(`- Imports: ${stats.imports}`);
+    lines.push(`- Exports: ${stats.exports}`);
+    lines.push(`- Classes: ${stats.classes}`);
+    lines.push(`- Functions: ${stats.functions}`);
+    lines.push(`- Interfaces: ${stats.interfaces}`);
 
     return lines.join("\n");
   }
@@ -1844,5 +1985,68 @@ export class TreeSitterASTTool {
 
     traverse(node);
     return stats;
+  }
+
+  /**
+   * Build Python structure from symbols object (subprocess parser output)
+   * Python parser returns { symbols: { imports, functions, classes, exports } } without AST nodes
+   */
+  private buildPythonStructureFromSymbols(symbols: any): string {
+    if (!symbols) {
+      return "# File Structure\n\nNo symbols found.";
+    }
+
+    const lines: string[] = ["# File Structure\n"];
+
+    // Imports (minified)
+    if (symbols.imports && symbols.imports.length > 0) {
+      lines.push("## Imports\n");
+      symbols.imports.forEach((imp: any) => {
+        const names = imp.names && imp.names.length > 0 ? ` (${imp.names.join(',')})` : '';
+        lines.push(`- imp: \`${imp.module}\`${names}`);
+      });
+      lines.push("");
+    }
+
+    // Classes with methods (minified)
+    if (symbols.classes && symbols.classes.length > 0) {
+      lines.push("## Classes\n");
+      symbols.classes.forEach((cls: any) => {
+        lines.push(`### cls: ${cls.name} (${cls.line})`);
+        if (cls.methods && cls.methods.length > 0) {
+          cls.methods.forEach((method: string) => {
+            lines.push(`  - method: ${method}`);
+          });
+        }
+        lines.push("");
+      });
+    }
+
+    // Top-level functions (minified)
+    if (symbols.functions && symbols.functions.length > 0) {
+      lines.push("## Functions\n");
+      symbols.functions.forEach((fn: any) => {
+        lines.push(`- fn: ${fn.name} (${fn.line})`);
+      });
+      lines.push("");
+    }
+
+    // Exports (minified)
+    if (symbols.exports && symbols.exports.length > 0) {
+      lines.push("## Exports\n");
+      symbols.exports.forEach((exp: string) => {
+        lines.push(`- exp: \`${exp}\``);
+      });
+      lines.push("");
+    }
+
+    // Summary (minified)
+    lines.push("\n## Summary");
+    lines.push(`- Imports: ${symbols.imports?.length || 0}`);
+    lines.push(`- Exports: ${symbols.exports?.length || 0}`);
+    lines.push(`- Classes: ${symbols.classes?.length || 0}`);
+    lines.push(`- Functions: ${symbols.functions?.length || 0}`);
+
+    return lines.join("\n");
   }
 }

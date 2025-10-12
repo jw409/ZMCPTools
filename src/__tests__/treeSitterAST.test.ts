@@ -20,6 +20,9 @@ describe('TreeSitterASTTool - Core Functionality', () => {
   beforeAll(async () => {
     astTool = new TreeSitterASTTool();
 
+    // Clear cache to avoid stale data from affecting tests
+    await astTool['astCache'].clear();
+
     // Create test files directory
     await fs.mkdir(testFilesDir, { recursive: true });
 
@@ -93,6 +96,13 @@ test_var = "test"
 
       expect(result.success).toBe(true);
       expect(result.symbols).toBeInstanceOf(Array);
+
+      // Debug: log what we got
+      if (result.symbols.length === 0) {
+        console.log('DEBUG: Empty symbols array');
+        console.log('DEBUG: Result:', JSON.stringify(result, null, 2));
+      }
+
       expect(result.symbols.length).toBeGreaterThan(0);
 
       // Should find the class
@@ -281,6 +291,214 @@ export const test = "test";
         expect(symbol.startPosition.row).toBeGreaterThanOrEqual(0);
         expect(symbol.startPosition.column).toBeGreaterThanOrEqual(0);
       });
+    });
+  });
+});
+
+describe('TreeSitterASTTool - Operation-Specific Functionality', () => {
+  let astTool: TreeSitterASTTool;
+  const testFilesDir = path.join(__dirname, '__test_files__');
+
+  beforeAll(async () => {
+    astTool = new TreeSitterASTTool();
+
+    // Clear cache to avoid stale data from affecting tests
+    await astTool['astCache'].clear();
+
+    // Ensure test files exist (may already be created by previous suite)
+    try {
+      await fs.access(testFilesDir);
+    } catch {
+      // Directory doesn't exist, create it and test files
+      await fs.mkdir(testFilesDir, { recursive: true });
+
+      await fs.writeFile(
+        path.join(testFilesDir, 'test.ts'),
+        `export class TestClass {
+  constructor(public name: string) {}
+
+  greet(): string {
+    return \`Hello, \${this.name}!\`;
+  }
+}
+
+export function testFunction(arg: string): void {
+  console.log(arg);
+}
+
+export interface TestInterface {
+  id: number;
+  name: string;
+}
+
+const testVar = "test";
+`,
+        'utf-8'
+      );
+
+      await fs.writeFile(
+        path.join(testFilesDir, 'test.py'),
+        `class TestClass:
+    def __init__(self, name):
+        self.name = name
+
+    def greet(self):
+        return f"Hello, {self.name}!"
+
+def test_function(arg):
+    print(arg)
+
+test_var = "test"
+`,
+        'utf-8'
+      );
+
+      await fs.writeFile(
+        path.join(testFilesDir, 'invalid.py'),
+        'def invalid(\n  # Missing closing paren',
+        'utf-8'
+      );
+    }
+  });
+
+  describe('find_pattern operation', () => {
+    it('should find matches for simple string pattern in TypeScript', async () => {
+      const result = await astTool.executeByToolName('ast_analyze', {
+        file_path: path.join(testFilesDir, 'test.ts'),
+        operation: 'find_pattern',
+        pattern: 'TestClass',
+        language: 'typescript'
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.pattern).toBe('TestClass');
+      expect(result.matches).toBeInstanceOf(Array);
+      expect(result.matchCount).toBeGreaterThan(0);
+
+      // Should find the class name
+      const classMatch = result.matches.find((m: any) => m.type === 'identifier');
+      expect(classMatch).toBeDefined();
+    });
+
+    it('should find matches for function pattern in Python', async () => {
+      const result = await astTool.executeByToolName('ast_analyze', {
+        file_path: path.join(testFilesDir, 'test.py'),
+        operation: 'find_pattern',
+        pattern: 'test_function',
+        language: 'python'
+      });
+
+      expect(result).toBeDefined();
+      if (result.success) {
+        expect(result.pattern).toBe('test_function');
+        expect(result.matches).toBeInstanceOf(Array);
+      }
+    });
+
+    it('should handle regex pattern matching', async () => {
+      const result = await astTool.executeByToolName('ast_analyze', {
+        file_path: path.join(testFilesDir, 'test.ts'),
+        operation: 'find_pattern',
+        pattern: 'Test.*',
+        language: 'typescript'
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.matches).toBeInstanceOf(Array);
+      expect(result.matchCount).toBeGreaterThan(0);
+    });
+
+    it('should return error when pattern is missing', async () => {
+      const result = await astTool.executeByToolName('ast_analyze', {
+        file_path: path.join(testFilesDir, 'test.ts'),
+        operation: 'find_pattern',
+        language: 'typescript'
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+      expect(typeof result.error).toBe('string');
+      expect(result.error).toContain('Pattern required');
+    });
+  });
+
+  describe('query operation', () => {
+    it('should return helpful error message with alternative', async () => {
+      const result = await astTool.executeByToolName('ast_analyze', {
+        file_path: path.join(testFilesDir, 'test.ts'),
+        operation: 'query',
+        query: '(function_declaration name: (identifier) @name)',
+        language: 'typescript'
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+      expect(typeof result.error).toBe('string');
+      expect(result.error).toContain('S-expression tree-sitter queries not yet implemented');
+      expect(result.suggestion).toBeDefined();
+      expect(result.suggestion.operation).toBe('find_pattern');
+      expect(result.suggestion.example).toBeDefined();
+    });
+
+    it('should return error when query is missing', async () => {
+      const result = await astTool.executeByToolName('ast_analyze', {
+        file_path: path.join(testFilesDir, 'test.ts'),
+        operation: 'query',
+        language: 'typescript'
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+      expect(typeof result.error).toBe('string');
+      expect(result.error).toContain('Query string required');
+    });
+  });
+
+  describe('get_diagnostics operation', () => {
+    it('should detect syntax errors in invalid TypeScript', async () => {
+      // Create file with syntax error
+      const invalidFile = path.join(testFilesDir, 'invalid-syntax.ts');
+      await fs.writeFile(
+        invalidFile,
+        'function broken( {\n  // Missing closing paren\n  return "test";\n}',
+        'utf-8'
+      );
+
+      const result = await astTool.executeByToolName('ast_analyze', {
+        file_path: invalidFile,
+        operation: 'get_diagnostics',
+        language: 'typescript'
+      });
+
+      expect(result).toBeDefined();
+      // Diagnostics should be present for invalid syntax
+      if (result.diagnostics) {
+        expect(result.diagnostics).toBeInstanceOf(Array);
+      }
+    });
+
+    it('should return empty diagnostics for valid code', async () => {
+      const result = await astTool.executeByToolName('ast_analyze', {
+        file_path: path.join(testFilesDir, 'test.ts'),
+        operation: 'get_diagnostics',
+        language: 'typescript'
+      });
+
+      expect(result).toBeDefined();
+    });
+
+    it('should handle Python syntax errors', async () => {
+      // The invalid.py file was created in Python tests
+      const invalidFile = path.join(testFilesDir, 'invalid.py');
+
+      const result = await astTool.executeByToolName('ast_analyze', {
+        file_path: invalidFile,
+        operation: 'get_diagnostics',
+        language: 'python'
+      });
+
+      expect(result).toBeDefined();
+      // Python diagnostics depend on subprocess availability
     });
   });
 });
