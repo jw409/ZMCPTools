@@ -21,6 +21,7 @@ export interface HybridSearchConfig {
   sparse_weight: number;   // Weight for sparse scores
   min_score_threshold: number;  // Minimum combined score threshold
   max_results: number;     // Maximum results to return
+  use_reranker: boolean;   // Apply Qwen3-4B reranker for quality boost (default: true)
 }
 
 export interface HybridSearchResult {
@@ -31,6 +32,8 @@ export interface HybridSearchResult {
   sparse_score?: number;
   dense_rank?: number;
   sparse_rank?: number;
+  reranker_score?: number;  // Qwen3-4B reranker score (0.0-1.0)
+  final_rank?: number;      // Final rank after reranking
   metadata?: Record<string, any>;
 }
 
@@ -41,6 +44,8 @@ export interface SearchStats {
   dense_time_ms: number;
   sparse_time_ms: number;
   fusion_time_ms: number;
+  reranker_time_ms?: number;  // Time spent reranking (if enabled)
+  reranker_applied: boolean;  // Whether reranking was applied
   total_time_ms: number;
 }
 
@@ -56,7 +61,8 @@ export class HybridSearchService {
     dense_weight: 1.0,
     sparse_weight: 1.0,
     min_score_threshold: 0.1,
-    max_results: 50
+    max_results: 50,
+    use_reranker: true      // Quality first - local GPU is superfast
   };
 
   constructor(
@@ -176,20 +182,67 @@ export class HybridSearchService {
         searchConfig
       );
 
-      // Filter by minimum score and limit results
+      // Filter by minimum score and get candidates for reranking
       const filteredResults = combinedResults
         .filter(result => result.combined_score >= searchConfig.min_score_threshold)
-        .slice(0, searchConfig.max_results);
+        .slice(0, searchConfig.max_results * 2); // Get 2x results for reranking
+
+      // Apply reranking if enabled
+      let finalResults = filteredResults;
+      let rerankerTimeMs: number | undefined;
+      let rerankerApplied = false;
+
+      if (searchConfig.use_reranker && filteredResults.length > 0) {
+        const rerankerStartTime = Date.now();
+        try {
+          // Extract document texts for reranking
+          const documents = filteredResults.map(r => r.text);
+
+          // Rerank using Qwen3-4B
+          const reranked = await this.embeddingClient.rerank(
+            query,
+            documents,
+            searchConfig.max_results // Return only top-k after reranking
+          );
+
+          // Merge reranker scores with original results
+          finalResults = reranked.map((rr, index) => {
+            const originalResult = filteredResults[rr.original_index];
+            return {
+              ...originalResult,
+              reranker_score: rr.score,
+              final_rank: rr.rank,
+              combined_score: rr.score // Use reranker score as final score
+            };
+          });
+
+          rerankerTimeMs = Date.now() - rerankerStartTime;
+          rerankerApplied = true;
+
+          this.logger.debug('Reranking completed', {
+            candidates: filteredResults.length,
+            reranked: finalResults.length,
+            time_ms: rerankerTimeMs
+          });
+        } catch (error) {
+          this.logger.warn('Reranking failed, using RRF results', { error });
+          finalResults = filteredResults.slice(0, searchConfig.max_results);
+        }
+      } else {
+        finalResults = filteredResults.slice(0, searchConfig.max_results);
+      }
 
       const totalEndTime = Date.now();
 
       const stats: SearchStats = {
         dense_results: denseResults.results.length,
         sparse_results: sparseResults.results.length,
-        combined_results: filteredResults.length,
+        combined_results: finalResults.length,
         dense_time_ms: denseResults.time_ms,
         sparse_time_ms: sparseResults.time_ms,
-        fusion_time_ms: totalEndTime - fusionStartTime,
+        fusion_time_ms: fusionStartTime ? (Date.now() - fusionStartTime) : 0,
+        reranker_time_ms: rerankerTimeMs,
+        reranker_applied: rerankerApplied,
         total_time_ms: totalEndTime - totalStartTime
       };
 
@@ -200,7 +253,7 @@ export class HybridSearchService {
       });
 
       return {
-        results: filteredResults,
+        results: finalResults,
         stats
       };
 

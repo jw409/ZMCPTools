@@ -1,7 +1,7 @@
 /**
  * EmbeddingClient Service
- * Provides GPU-first embedding generation with coarse-grained mode switching
- * Strong validation and safety checks to prevent silent failures and re-index loops
+ * Stateless GPU embedding generation with per-request model selection
+ * Both qwen3 and gemma3 are available simultaneously on GPU service
  */
 
 import { Logger } from '../utils/logger.js';
@@ -11,20 +11,8 @@ import { homedir } from 'os';
 import { StoragePathResolver } from './StoragePathResolver.js';
 
 export interface EmbeddingConfig {
-  active_model: 'gemma3' | 'qwen3' | 'minilm';
+  default_model: 'gemma3' | 'qwen3';
   gpu_endpoint: string;
-  auto_fallback: boolean;
-  reindex_cooldown_hours: number;
-  last_indexed: {
-    gemma3: string | null;
-    qwen3: string | null;
-    minilm: string | null;
-  };
-  reindex_count: {
-    gemma3: number;
-    qwen3: number;
-    minilm: number;
-  };
 }
 
 export interface CollectionMetadata {
@@ -40,14 +28,13 @@ export interface CollectionMetadata {
 
 export interface HealthStatus {
   status: 'healthy' | 'degraded' | 'unhealthy';
-  active_model: string;
-  dimensions: number;
+  default_model: string;
   gpu_available: boolean;
-  collections: Record<string, {
-    exists: boolean;
-    vectors: number;
-    compatible: boolean;
-    last_indexed: string | null;
+  available_models: Array<{
+    name: string;
+    dimensions: number;
+    collection_exists: boolean;
+    vector_count: number;
   }>;
   warnings: string[];
   last_validation: string;
@@ -74,7 +61,7 @@ export class EmbeddingClient {
   private config: EmbeddingConfig;
   private mcptoolsDir: string;
 
-  // Model specifications
+  // Model specifications - both available simultaneously on GPU service
   private readonly MODEL_SPECS: Record<string, ModelInfo> = {
     qwen3: {
       name: 'Qwen3-Embedding-4B',
@@ -89,31 +76,12 @@ export class EmbeddingClient {
       requires_gpu: true,
       api_model_name: 'gemma_embed',
       collection_suffix: 'gemma3'
-    },
-    minilm: {
-      name: 'MiniLM-L6-v2',
-      dimensions: 384,
-      requires_gpu: false,
-      api_model_name: 'minilm',
-      collection_suffix: 'minilm'
     }
   };
 
   private readonly DEFAULT_CONFIG: EmbeddingConfig = {
-    active_model: 'qwen3',
-    gpu_endpoint: 'http://localhost:8765',
-    auto_fallback: false,
-    reindex_cooldown_hours: 24,
-    last_indexed: {
-      gemma3: null,
-      qwen3: null,
-      minilm: null
-    },
-    reindex_count: {
-      gemma3: 0,
-      qwen3: 0,
-      minilm: 0
-    }
+    default_model: 'qwen3',
+    gpu_endpoint: 'http://localhost:8765'
   };
 
   constructor() {
@@ -140,18 +108,12 @@ export class EmbeddingClient {
         const configData = fs.readFileSync(this.configPath, 'utf8');
         const parsedConfig = JSON.parse(configData);
 
-        // Merge with defaults to handle new config fields
+        // Merge with defaults to handle config migration
         return {
           ...this.DEFAULT_CONFIG,
           ...parsedConfig,
-          last_indexed: {
-            ...this.DEFAULT_CONFIG.last_indexed,
-            ...parsedConfig.last_indexed
-          },
-          reindex_count: {
-            ...this.DEFAULT_CONFIG.reindex_count,
-            ...parsedConfig.reindex_count
-          }
+          // Migrate old active_model to default_model
+          default_model: parsedConfig.default_model || parsedConfig.active_model || 'qwen3'
         };
       } else {
         // Create default config file
@@ -228,31 +190,31 @@ export class EmbeddingClient {
   }
 
   /**
-   * Validate collection compatibility with current model
+   * Validate collection compatibility with specified model
    */
-  async validateCollection(collectionName: string): Promise<CollectionMetadata> {
+  async validateCollection(collectionName: string, model: 'gemma3' | 'qwen3'): Promise<CollectionMetadata> {
     const metadata = this.loadCollectionMetadata(collectionName);
 
     if (!metadata) {
       throw new Error(`Collection '${collectionName}' does not exist`);
     }
 
-    const currentModel = this.getActiveModelInfo();
+    const modelInfo = this.MODEL_SPECS[model];
 
     // Check dimension compatibility
-    if (metadata.dimensions !== currentModel.dimensions) {
+    if (metadata.dimensions !== modelInfo.dimensions) {
       throw new Error(
         `Dimension mismatch! Collection '${collectionName}' uses ${metadata.dimensions} dimensions ` +
-        `but active model '${this.config.active_model}' uses ${currentModel.dimensions} dimensions. ` +
+        `but model '${model}' uses ${modelInfo.dimensions} dimensions. ` +
         `These are incompatible vector spaces.`
       );
     }
 
     // Check model compatibility
-    if (metadata.model !== this.config.active_model) {
+    if (metadata.model !== model) {
       throw new Error(
         `Model mismatch! Collection '${collectionName}' was indexed with '${metadata.model}' ` +
-        `but active model is '${this.config.active_model}'. Switch model or collection.`
+        `but you specified model '${model}'. Use the correct collection or model.`
       );
     }
 
@@ -291,100 +253,52 @@ export class EmbeddingClient {
    */
   async getHealthStatus(): Promise<HealthStatus> {
     const warnings: string[] = [];
-    const currentModel = this.getActiveModelInfo();
 
     // Check GPU availability
     const gpuAvailable = await this.checkGPUService();
-    if (currentModel.requires_gpu && !gpuAvailable) {
-      warnings.push(`GPU required for ${currentModel.name} but GPU service unavailable`);
+    if (!gpuAvailable) {
+      warnings.push('GPU service unavailable - both qwen3 and gemma3 require GPU');
     }
 
-    // Check collections
-    const collections: HealthStatus['collections'] = {};
-
-    for (const [mode, modelInfo] of Object.entries(this.MODEL_SPECS)) {
+    // Check all available models and their collections
+    const available_models = Object.entries(this.MODEL_SPECS).map(([mode, modelInfo]) => {
       const collectionName = `knowledge_graph_${modelInfo.collection_suffix}`;
       const metadata = this.loadCollectionMetadata(collectionName);
 
-      collections[collectionName] = {
-        exists: metadata !== null,
-        vectors: metadata?.vector_count || 0,
-        compatible: metadata ? metadata.model === this.config.active_model : false,
-        last_indexed: metadata?.last_indexed || null
+      return {
+        name: mode,
+        dimensions: modelInfo.dimensions,
+        collection_exists: metadata !== null,
+        vector_count: metadata?.vector_count || 0
       };
-    }
+    });
 
     // Determine overall status
     let status: HealthStatus['status'] = 'healthy';
     if (warnings.length > 0) {
       status = 'degraded';
     }
-    if (currentModel.requires_gpu && !gpuAvailable) {
+    if (!gpuAvailable) {
       status = 'unhealthy';
     }
 
     return {
       status,
-      active_model: this.config.active_model,
-      dimensions: currentModel.dimensions,
+      default_model: this.config.default_model,
       gpu_available: gpuAvailable,
-      collections,
+      available_models,
       warnings,
       last_validation: new Date().toISOString()
     };
   }
 
   /**
-   * Switch embedding mode with safety checks
+   * Set default model preference (optional - both models always available)
    */
-  async switchMode(mode: 'gemma3' | 'qwen3' | 'minilm', options: { force?: boolean } = {}): Promise<void> {
-    const modelInfo = this.MODEL_SPECS[mode];
-    const currentCollectionName = this.getCollectionName('knowledge_graph');
-    const currentMetadata = this.loadCollectionMetadata(currentCollectionName);
-
-    this.logger.info('Attempting to switch embedding mode', {
-      from: this.config.active_model,
-      to: mode,
-      dimensions: modelInfo.dimensions,
-      requires_gpu: modelInfo.requires_gpu,
-      force: options.force
-    });
-
-    // Check if we have vectors in current collection
-    if (currentMetadata && currentMetadata.vector_count > 0 && !options.force) {
-      throw new Error(
-        `Cannot switch to ${mode}: Current collection '${currentCollectionName}' has ${currentMetadata.vector_count} vectors. ` +
-        `Switching would make these vectors unsearchable. Use --force to proceed (will require re-indexing).`
-      );
-    }
-
-    // Check cooldown period
-    const lastReindex = this.config.last_indexed[this.config.active_model];
-    if (lastReindex && !options.force) {
-      const hoursSinceReindex = (Date.now() - new Date(lastReindex).getTime()) / (1000 * 60 * 60);
-      if (hoursSinceReindex < this.config.reindex_cooldown_hours) {
-        throw new Error(
-          `Cannot switch: Last re-index was ${hoursSinceReindex.toFixed(1)} hours ago. ` +
-          `Cooldown period: ${this.config.reindex_cooldown_hours} hours. Use --force to override.`
-        );
-      }
-    }
-
-    // Validate GPU availability for GPU-required models
-    if (modelInfo.requires_gpu && !(await this.checkGPUService())) {
-      throw new Error(`GPU service unavailable - cannot switch to ${mode} (requires GPU)`);
-    }
-
-    // Update configuration
-    this.config.active_model = mode;
+  setDefaultModel(model: 'gemma3' | 'qwen3'): void {
+    this.config.default_model = model;
     this.saveConfig(this.config);
-
-    this.logger.info('Embedding mode switched successfully', {
-      active_model: mode,
-      collection_suffix: modelInfo.collection_suffix,
-      dimensions: modelInfo.dimensions,
-      requires_reindex: currentMetadata?.vector_count > 0
-    });
+    this.logger.info('Default model updated', { default_model: model });
   }
 
   /**
@@ -395,53 +309,60 @@ export class EmbeddingClient {
   }
 
   /**
-   * Get current active model information
+   * Get model information by name
    */
-  getActiveModelInfo(): ModelInfo {
-    return this.MODEL_SPECS[this.config.active_model];
+  getModelInfo(model: 'gemma3' | 'qwen3'): ModelInfo {
+    return this.MODEL_SPECS[model];
   }
 
   /**
-   * Get collection name for current active model
+   * Get collection name for specified model
    */
-  getCollectionName(baseName: string): string {
-    const modelInfo = this.getActiveModelInfo();
+  getCollectionName(baseName: string, model: 'gemma3' | 'qwen3'): string {
+    const modelInfo = this.MODEL_SPECS[model];
     return `${baseName}_${modelInfo.collection_suffix}`;
   }
 
   /**
-   * Create fingerprint for current model
+   * Create fingerprint for specified model
    */
-  createFingerprint(): string {
-    const modelInfo = this.getActiveModelInfo();
-    return `${this.config.active_model}_${modelInfo.dimensions}_v1`;
+  createFingerprint(model: 'gemma3' | 'qwen3'): string {
+    const modelInfo = this.MODEL_SPECS[model];
+    return `${model}_${modelInfo.dimensions}_v1`;
   }
 
   /**
-   * Generate embeddings using current active model
+   * Generate embeddings with request-time model selection
    * @param texts - Array of texts to embed
-   * @param isQuery - Whether these are query texts (true) or document texts (false)
+   * @param options - Embedding options
+   * @param options.model - Model to use (defaults to config.default_model)
+   * @param options.isQuery - Whether these are query texts (true) or document texts (false)
    */
-  async generateEmbeddings(texts: string[], isQuery: boolean = false): Promise<EmbeddingResult> {
-    const modelInfo = this.getActiveModelInfo();
+  async generateEmbeddings(
+    texts: string[],
+    options: { model?: 'gemma3' | 'qwen3'; isQuery?: boolean } = {}
+  ): Promise<EmbeddingResult> {
+    const model = options.model || this.config.default_model;
+    const isQuery = options.isQuery || false;
+    const modelInfo = this.MODEL_SPECS[model];
 
-    // Validate model availability
-    if (modelInfo.requires_gpu && !(await this.checkGPUService())) {
+    // Validate GPU availability
+    if (!(await this.checkGPUService())) {
       throw new Error(`GPU service unavailable - cannot generate ${modelInfo.name} embeddings`);
     }
 
-    if (modelInfo.requires_gpu) {
-      return this.generateGPUEmbeddings(texts, modelInfo, isQuery);
-    } else {
-      return this.generateCPUEmbeddings(texts, modelInfo);
-    }
+    return this.generateGPUEmbeddings(texts, modelInfo, model, isQuery);
   }
 
   /**
    * Generate embeddings using GPU service (Gemma3 or Qwen3)
-   * @param isQuery - Whether these are query texts (service applies query prompts) or document texts
    */
-  private async generateGPUEmbeddings(texts: string[], modelInfo: ModelInfo, isQuery: boolean = false): Promise<EmbeddingResult> {
+  private async generateGPUEmbeddings(
+    texts: string[],
+    modelInfo: ModelInfo,
+    model: 'gemma3' | 'qwen3',
+    isQuery: boolean = false
+  ): Promise<EmbeddingResult> {
     try {
       const response = await fetch(`${this.config.gpu_endpoint}/embed`, {
         method: 'POST',
@@ -478,7 +399,7 @@ export class EmbeddingClient {
         embeddings: result.embeddings,
         dimensions: result.dimensions,
         model: modelInfo.name,
-        fingerprint: this.createFingerprint()
+        fingerprint: this.createFingerprint(model)
       };
     } catch (error) {
       this.logger.error('Failed to generate GPU embeddings', {
@@ -490,74 +411,80 @@ export class EmbeddingClient {
     }
   }
 
-  /**
-   * Generate embeddings using CPU (MiniLM only)
-   */
-  private async generateCPUEmbeddings(texts: string[], modelInfo: ModelInfo): Promise<EmbeddingResult> {
-    // For now, throw an error - CPU implementation would require additional setup
-    throw new Error('CPU embedding generation not yet implemented - use GPU mode or switch to GPU-capable model');
-  }
 
   /**
-   * Update reindex timestamp and count
+   * Rerank documents using Qwen3-4B reranker for quality boost
+   * Local GPU is superfast - quality is more important than speed
+   * @param query - The search query
+   * @param documents - Array of document texts to rerank
+   * @param topK - Number of top results to return (default: all documents)
+   * @param model - Reranker model to use (default: 'qwen3_reranker')
+   * @returns Array of reranked results with scores
    */
-  updateReindexStats(): void {
-    this.config.last_indexed[this.config.active_model] = new Date().toISOString();
-    this.config.reindex_count[this.config.active_model]++;
-    this.saveConfig(this.config);
-  }
+  async rerank(
+    query: string,
+    documents: string[],
+    topK?: number,
+    model: 'qwen3_reranker' | 'reranker' = 'qwen3_reranker'
+  ): Promise<Array<{
+    document: string;
+    score: number;
+    original_index: number;
+    rank: number;
+  }>> {
+    try {
+      // Check GPU service availability
+      if (!(await this.checkGPUService())) {
+        this.logger.warn('GPU service unavailable - reranking skipped, returning original order');
+        // Return documents in original order with placeholder scores
+        return documents.map((doc, index) => ({
+          document: doc,
+          score: 1.0 - (index * 0.01), // Decreasing scores
+          original_index: index,
+          rank: index + 1
+        }));
+      }
 
-  /**
-   * Get embedding statistics for current mode
-   */
-  getEmbeddingStats(): {
-    model: string;
-    dimensions: number;
-    requires_gpu: boolean;
-    last_indexed: string | null;
-    reindex_count: number;
-    cooldown_remaining_hours: number;
-  } {
-    const modelInfo = this.getActiveModelInfo();
-    const lastIndexed = this.config.last_indexed[this.config.active_model];
+      const response = await fetch(`${this.config.gpu_endpoint}/rerank`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          query,
+          documents,
+          top_k: topK || documents.length,
+          model
+        })
+      });
 
-    let cooldownRemaining = 0;
-    if (lastIndexed) {
-      const hoursSinceReindex = (Date.now() - new Date(lastIndexed).getTime()) / (1000 * 60 * 60);
-      cooldownRemaining = Math.max(0, this.config.reindex_cooldown_hours - hoursSinceReindex);
+      if (!response.ok) {
+        throw new Error(`Reranking service error: ${response.status} ${response.statusText}`);
+      }
+
+      const result = await response.json();
+
+      this.logger.debug('Documents reranked successfully', {
+        query: query.substring(0, 50),
+        input_count: documents.length,
+        output_count: result.results.length,
+        model: result.model
+      });
+
+      return result.results;
+    } catch (error) {
+      this.logger.error('Failed to rerank documents', {
+        query: query.substring(0, 50),
+        document_count: documents.length,
+        error: error.message
+      });
+      // Return documents in original order on error
+      return documents.map((doc, index) => ({
+        document: doc,
+        score: 1.0 - (index * 0.01),
+        original_index: index,
+        rank: index + 1
+      }));
     }
-
-    return {
-      model: modelInfo.name,
-      dimensions: modelInfo.dimensions,
-      requires_gpu: modelInfo.requires_gpu,
-      last_indexed: lastIndexed,
-      reindex_count: this.config.reindex_count[this.config.active_model],
-      cooldown_remaining_hours: cooldownRemaining
-    };
-  }
-
-  /**
-   * List all available embedding modes with their status
-   */
-  getAvailableModes(): Array<{
-    mode: string;
-    info: ModelInfo;
-    active: boolean;
-    collection_exists: boolean;
-    vector_count: number;
-  }> {
-    return Object.entries(this.MODEL_SPECS).map(([mode, info]) => {
-      const collectionName = `knowledge_graph_${info.collection_suffix}`;
-      const metadata = this.loadCollectionMetadata(collectionName);
-
-      return {
-        mode,
-        info,
-        active: mode === this.config.active_model,
-        collection_exists: metadata !== null,
-        vector_count: metadata?.vector_count || 0
-      };
-    });
   }
 }
