@@ -1047,15 +1047,15 @@ export class LanceDBService {
 
       // Map model names to TalentOS service model names
       const talentOSModelMap: { [key: string]: string } = {
-        'qwen3': 'gemma_embed',
-        'talentos': 'gemma_embed',
+        'qwen3': 'qwen3_4b',  // Default to Qwen3-Embedding-4B (2560D)
+        'talentos': 'qwen3_4b',  // Default to Qwen3-Embedding-4B (2560D)
         'gemma_embed': 'gemma_embed',
         'qwen3_4b': 'qwen3_4b',
         'qwen3_8b': 'qwen3_8b',
         'minilm': 'minilm'
       };
 
-      const talentOSModel = talentOSModelMap[modelName] || 'gemma_embed';
+      const talentOSModel = talentOSModelMap[modelName] || 'qwen3_4b';  // Default to Qwen3-Embedding-4B
 
       // Use TalentOS embedding function
       this.embeddingFunction = new TalentOSEmbeddingFunction({
@@ -1094,7 +1094,7 @@ export class LanceDBService {
         return 'Xenova/all-MiniLM-L6-v2';
       case 'local':
       default:
-        return 'Xenova/all-MiniLM-L6-v2';
+        return 'qwen3_4b';  // Default to Qwen3-Embedding-4B (2560D) for TalentOS GPU
     }
   }
 
