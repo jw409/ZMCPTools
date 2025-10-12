@@ -75,7 +75,8 @@ Returns enhanced results with detailed performance analytics and routing explana
 
       // Check TalentOS integration status
       const gpuAvailable = await embeddingClient.checkGPUService();
-      const modelInfo = embeddingClient.getActiveModelInfo();
+      const config = embeddingClient.getConfig();
+      const modelInfo = embeddingClient.getModelInfo(config.default_model);
 
       if (force_gpu_mode && !gpuAvailable) {
         return {

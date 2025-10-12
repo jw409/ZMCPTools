@@ -302,7 +302,7 @@ export class RealFileIndexingService {
       const embeddingPromises = Array.from(this.indexedFiles.values()).map(async file => {
         try {
           const searchableText = this.createSearchableText(file);
-          const result = await this.embeddingClient.generateEmbeddings([searchableText]);
+          const result = await this.embeddingClient.generateEmbeddings([searchableText], { model: 'qwen3' });
           file.embedding = result.embeddings[0];
         } catch (error: any) {
           logger.warn(`Failed to generate embedding for ${file.filePath}: "${error?.message || error}"`);
@@ -367,7 +367,7 @@ export class RealFileIndexingService {
     }
 
     try {
-      const result = await this.embeddingClient.generateEmbeddings([query]);
+      const result = await this.embeddingClient.generateEmbeddings([query], { model: 'qwen3', isQuery: true });
       const queryEmbedding = result.embeddings[0];
       const similarities: Array<{filePath: string, score: number}> = [];
 

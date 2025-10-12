@@ -83,13 +83,14 @@ Returns ranked results with combined scores and detailed statistics.`,
 
       // Check GPU availability
       const gpuAvailable = await embeddingClient.checkGPUService();
-      const modelInfo = embeddingClient.getActiveModelInfo();
+      const config = embeddingClient.getConfig();
+      const modelInfo = embeddingClient.getModelInfo(config.default_model);
 
       logger.info('Starting hybrid search', {
         query: query.substring(0, 50),
         alpha,
         gpu_available: gpuAvailable,
-        model: gpuAvailable ? modelInfo.name : 'MiniLM-L6-v2'
+        model: gpuAvailable ? modelInfo.name : 'CPU fallback'
       });
 
       // Get entities from knowledge graph for hybrid indexing
@@ -173,7 +174,7 @@ Returns ranked results with combined scores and detailed statistics.`,
           query,
           total_results: hybridResults.length,
           gpu_accelerated: gpuAvailable,
-          model_used: gpuAvailable ? modelInfo.name : 'MiniLM-L6-v2',
+          model_used: gpuAvailable ? modelInfo.name : 'CPU fallback',
           search_type: 'hybrid',
           alpha_weight: alpha,
           fusion_algorithm: 'Reciprocal Rank Fusion'
@@ -230,7 +231,8 @@ export const reindexKnowledgeBase: Tool = {
       const knowledgeGraph = new KnowledgeGraphService(repository_path);
 
       // Check current status
-      const currentModel = embeddingClient.getActiveModelInfo();
+      const config = embeddingClient.getConfig();
+      const currentModel = embeddingClient.getModelInfo(config.default_model);
       const gpuAvailable = await embeddingClient.checkGPUService();
 
       logger.info('Starting knowledge base re-indexing', {
@@ -317,7 +319,7 @@ export const reindexKnowledgeBase: Tool = {
           bm25_indexed: bm25Count,
           embeddings_generated: embeddingCount,
           time_ms: endTime - startTime,
-          model_used: gpuAvailable ? currentModel.name : 'MiniLM-L6-v2',
+          model_used: gpuAvailable ? currentModel.name : 'CPU fallback',
           gpu_accelerated: gpuAvailable
         },
         recommendations: [

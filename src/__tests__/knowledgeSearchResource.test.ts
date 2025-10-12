@@ -213,7 +213,10 @@ describe('knowledge://search MCP Resource', () => {
       });
 
       expect(mockCheckGPU).toHaveBeenCalled();
-      expect(mockGenerateEmbeddings).toHaveBeenCalledWith(['user login']);
+      expect(mockGenerateEmbeddings).toHaveBeenCalledWith(['user login'], {
+        model: 'qwen3',
+        isQuery: true
+      });
 
       if (results.length > 0) {
         expect(results[0].matchType).toBe('semantic');

@@ -110,7 +110,10 @@ Add to your Claude Code MCP settings:
 
 **Key Documentation Files:**
 
-- **[TOOL_LIST.md](./TOOL_LIST.md)** - Complete tool reference (53 tools)
+- **[TOOL_LIST.md](./etc/TOOL_LIST.md)** - Complete tool reference (auto-generated)
+- **[RESOURCE_REGISTRY.md](./etc/RESOURCE_REGISTRY.md)** - MCP resources reference (auto-generated)
+- **[COMPATIBILITY_MODES.md](./COMPATIBILITY_MODES.md)** - Tool availability by mode (Standard, OpenRouter, Gemini, Agent)
+- **[SECURITY_IMPLEMENTATION.md](./SECURITY_IMPLEMENTATION.md)** - Role-based access control (RBAC)
 - **Resources vs Tools** - See [GitHub Issue #35](https://github.com/jw409/ZMCPTools/issues/35) for migration details
 - **Agent SDK Integration** - See [GitHub Issue #TBD] for roadmap
 

@@ -3,7 +3,7 @@ import type { McpTool } from '../schemas/tools/index.js';
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { DatabaseManager } from '../database/index.js';
-import { AgentService, CommunicationService, KnowledgeGraphService } from '../services/index.js';
+import { CommunicationService, KnowledgeGraphService } from '../services/index.js';
 import type { MessageType } from '../schemas/index.js';
 
 // Import centralized request schemas
@@ -52,12 +52,10 @@ import {
 } from '../schemas/tools/communication.js';
 
 export class CommunicationTools {
-  private agentService: AgentService;
   private communicationService: CommunicationService;
   private knowledgeGraphService: KnowledgeGraphService;
 
   constructor(private db: DatabaseManager, repositoryPath: string) {
-    this.agentService = new AgentService(db);
     this.communicationService = new CommunicationService(db);
     // Initialize KnowledgeGraphService with VectorSearchService
     this.initializeKnowledgeGraphService(db);
@@ -332,28 +330,11 @@ export class CommunicationTools {
       }
 
       let terminatedAgents: string[] = [];
-      
+
+      // NOTE: Agent termination removed - managed by claude-agent-sdk now
+      // The terminateAgents parameter is kept for API compatibility but ignored
       if (terminateAgents) {
-        // Find agents in this room and terminate them
-        const agents = await this.agentService.listAgents(room.repositoryPath);
-        const roomAgents = agents.filter(agent => 
-          agent.agentMetadata?.roomId === room.id || 
-          agent.agentMetadata?.roomName === roomName || 
-          agent.status === 'active' // Terminate active agents as safety measure
-        );
-        
-        if (roomAgents.length > 0) {
-          const agentIds = roomAgents.map(a => a.id);
-          // Use a simpler termination approach for the CommunicationTools
-          for (const agentId of agentIds) {
-            try {
-              await this.agentService.terminateAgent(agentId);
-              terminatedAgents.push(agentId);
-            } catch (error: any) {
-              console.warn(`Failed to terminate agent ${agentId}:`, error);
-            }
-          }
-        }
+        // TODO: Integrate with claude-agent-sdk for agent lifecycle management
       }
 
       // Mark room as closed by updating metadata
@@ -421,22 +402,9 @@ export class CommunicationTools {
         ) as DeleteRoomResponse;
       }
 
-      // Terminate any remaining agents
-      const agents = await this.agentService.listAgents(room.repositoryPath);
-      const roomAgents = agents.filter(agent => 
-        agent.agentMetadata?.roomId === room.id || 
-        agent.agentMetadata?.roomName === roomName
-      );
-      
-      if (roomAgents.length > 0) {
-        for (const agent of roomAgents) {
-          try {
-            await this.agentService.terminateAgent(agent.id);
-          } catch (error: any) {
-            console.warn(`Failed to terminate agent ${agent.id}:`, error);
-          }
-        }
-      }
+      // NOTE: Agent termination removed - managed by claude-agent-sdk now
+      const roomAgents: any[] = [];
+      // TODO: Integrate with claude-agent-sdk for agent lifecycle management
 
       // Delete the room
       await this.communicationService.deleteRoom(roomName);
@@ -740,29 +708,24 @@ export class CommunicationTools {
     const startTime = performance.now();
     
     try {
-      // Use AgentService to broadcast the message
-      const results = await this.agentService.broadcastMessageToAgents(
-        validatedArgs.repositoryPath,
-        validatedArgs.agentIds,
-        validatedArgs.message,
-        validatedArgs.autoResume,
-        validatedArgs.priority,
-        validatedArgs.messageType
-      );
+      // NOTE: Agent broadcasting removed - managed by claude-agent-sdk now
+      // This is a placeholder implementation that returns a stub response
+      // TODO: Integrate with claude-agent-sdk for agent messaging
 
       const executionTime = performance.now() - startTime;
-      
+
       return createSuccessResponse(
-        `Broadcast completed: ${results.deliveredCount}/${results.totalAgents} agents reached`,
+        `Broadcast functionality pending claude-agent-sdk integration`,
         {
-          total_agents: results.totalAgents,
-          delivered_count: results.deliveredCount,
-          resumed_count: results.resumedCount,
-          failed_count: results.failedCount,
-          delivery_results: results.deliveryResults,
+          total_agents: validatedArgs.agentIds.length,
+          delivered_count: 0,
+          resumed_count: 0,
+          failed_count: 0,
+          delivery_results: [],
           message_content: validatedArgs.message,
           priority: validatedArgs.priority || 'normal',
-          message_type: validatedArgs.messageType || 'coordination'
+          message_type: validatedArgs.messageType || 'coordination',
+          note: 'Agent broadcasting will be available after claude-agent-sdk integration'
         },
         executionTime
       ) as BroadcastMessageToAgentsResponse;

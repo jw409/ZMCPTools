@@ -212,7 +212,8 @@ Returns real file paths, content snippets, and extracted code symbols (functions
 
       // Check GPU availability
       const gpuAvailable = await embeddingClient.checkGPUService();
-      const modelInfo = embeddingClient.getActiveModelInfo();
+      const config = embeddingClient.getConfig();
+      const modelInfo = embeddingClient.getModelInfo(config.default_model);
 
       logger.info('Starting unified search', {
         query: query.substring(0, 50),
@@ -221,7 +222,7 @@ Returns real file paths, content snippets, and extracted code symbols (functions
       });
 
       metrics.gpu_available = gpuAvailable;
-      metrics.model_used = gpuAvailable ? modelInfo.name : 'MiniLM-L6-v2';
+      metrics.model_used = gpuAvailable ? modelInfo.name : 'CPU fallback';
       metrics.indexing_stats = {
         total_files: indexingStats.totalFiles,
         indexed_files: indexingStats.indexedFiles,

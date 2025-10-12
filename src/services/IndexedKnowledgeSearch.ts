@@ -158,8 +158,11 @@ export class IndexedKnowledgeSearch {
       return [];
     }
 
-    // Get query embedding
-    const queryEmbeddingResult = await this.embeddingClient.generateEmbeddings([query]);
+    // Get query embedding using default model (qwen3) with query-specific prompting
+    const queryEmbeddingResult = await this.embeddingClient.generateEmbeddings([query], {
+      model: 'qwen3',
+      isQuery: true
+    });
     if (!queryEmbeddingResult.embeddings || queryEmbeddingResult.embeddings.length === 0) {
       logger.error('Failed to generate query embedding');
       return [];

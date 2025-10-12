@@ -28,18 +28,34 @@ export class EmbeddingStatusTool {
   async getStatus(options: EmbeddingStatusOptions = {}): Promise<string> {
     try {
       const healthStatus = await this.embeddingClient.getHealthStatus();
-      const embeddingStats = this.embeddingClient.getEmbeddingStats();
-      const availableModes = this.embeddingClient.getAvailableModes();
+      const config = this.embeddingClient.getConfig();
+      const modelInfo = this.embeddingClient.getModelInfo(config.default_model);
+
+      // Build available modes info from MODEL_SPECS (both qwen3 and gemma3)
+      const availableModes = ['qwen3', 'gemma3'].map(mode => {
+        const info = this.embeddingClient.getModelInfo(mode as 'qwen3' | 'gemma3');
+        const collectionName = this.embeddingClient.getCollectionName('knowledge_graph', mode as 'qwen3' | 'gemma3');
+        const collection = healthStatus.collections[collectionName];
+
+        return {
+          mode,
+          active: mode === config.default_model,
+          info,
+          collection_exists: collection?.exists || false,
+          vector_count: collection?.vectors || 0
+        };
+      });
 
       if (options.format === 'json') {
         return JSON.stringify({
           health: healthStatus,
-          stats: embeddingStats,
+          default_model: config.default_model,
+          model_info: modelInfo,
           modes: availableModes
         }, null, 2);
       }
 
-      return this.formatTextStatus(healthStatus, embeddingStats, availableModes, options.verbose || false);
+      return this.formatTextStatus(healthStatus, config.default_model, modelInfo, availableModes, options.verbose || false);
     } catch (error) {
       this.logger.error('Failed to get embedding status', { error });
       throw error;
@@ -51,7 +67,8 @@ export class EmbeddingStatusTool {
    */
   private formatTextStatus(
     health: HealthStatus,
-    stats: any,
+    defaultModel: string,
+    modelInfo: any,
     modes: any[],
     verbose: boolean
   ): string {
@@ -66,24 +83,21 @@ export class EmbeddingStatusTool {
     const statusEmoji = health.status === 'healthy' ? '✅' :
                        health.status === 'degraded' ? '⚠️' : '❌';
     lines.push(`Overall Status: ${statusEmoji} ${health.status.toUpperCase()}`);
-    lines.push(`Active Model: ${health.active_model} (${health.dimensions} dimensions)`);
+    lines.push(`Default Model: ${defaultModel} (${modelInfo.dimensions} dimensions)`);
     lines.push(`GPU Service: ${health.gpu_available ? '✅ Available' : '❌ Unavailable'} (${this.embeddingClient.getConfig().gpu_endpoint})`);
     lines.push('');
 
-    // Current model stats
-    lines.push('CURRENT MODEL STATISTICS');
-    lines.push('========================');
-    lines.push(`Model: ${stats.model}`);
-    lines.push(`Dimensions: ${stats.dimensions}`);
-    lines.push(`Requires GPU: ${stats.requires_gpu ? 'Yes' : 'No'}`);
-    lines.push(`Last Indexed: ${stats.last_indexed || 'Never'}`);
-    lines.push(`Reindex Count: ${stats.reindex_count}`);
+    // Current model info
+    lines.push('DEFAULT MODEL');
+    lines.push('=============');
+    lines.push(`Model: ${modelInfo.name}`);
+    lines.push(`Dimensions: ${modelInfo.dimensions}`);
+    lines.push(`Requires GPU: ${modelInfo.requires_gpu ? 'Yes' : 'No'}`);
+    lines.push(`API Name: ${modelInfo.api_model_name}`);
+    lines.push('');
 
-    if (stats.cooldown_remaining_hours > 0) {
-      lines.push(`⏳ Cooldown Remaining: ${stats.cooldown_remaining_hours.toFixed(1)} hours`);
-    } else {
-      lines.push('✅ Ready for re-index');
-    }
+    lines.push('Note: Both qwen3 and gemma3 are loaded simultaneously in GPU service.');
+    lines.push('Default model is used when no explicit model is specified in requests.');
     lines.push('');
 
     // Collections status
@@ -102,24 +116,6 @@ export class EmbeddingStatusTool {
         lines.push(`  - Vectors: ${collectionInfo.vectors.toLocaleString()}`);
         lines.push(`  - Last indexed: ${collectionInfo.last_indexed || 'Never'}`);
         lines.push(`  - Status: ${statusIcon} ${this.getCollectionStatusDescription(collectionInfo)}`);
-        lines.push('');
-      }
-    }
-
-    // Available modes
-    if (verbose) {
-      lines.push('AVAILABLE MODES');
-      lines.push('===============');
-
-      for (const mode of modes) {
-        const activeIndicator = mode.active ? '🎯 ' : '   ';
-        const gpuIndicator = mode.info.requires_gpu ? '🔥' : '💻';
-
-        lines.push(`${activeIndicator}${mode.mode}:`);
-        lines.push(`  - Model: ${mode.info.name} ${gpuIndicator}`);
-        lines.push(`  - Dimensions: ${mode.info.dimensions}`);
-        lines.push(`  - Collection exists: ${mode.collection_exists ? 'Yes' : 'No'}`);
-        lines.push(`  - Vectors: ${mode.vector_count.toLocaleString()}`);
         lines.push('');
       }
     }
@@ -166,7 +162,7 @@ export class EmbeddingStatusTool {
 
     lines.push('');
     lines.push('Commands:');
-    lines.push('  - Switch model: zmcp-tools switch-embeddings --mode <gemma3|qwen3|minilm>');
+    lines.push('  - Switch default model: zmcp-tools switch-embeddings --mode <gemma3|qwen3>');
     lines.push('  - Force re-index: zmcp-tools reindex --force');
     lines.push('  - Detailed status: zmcp-tools embedding-status --verbose');
 
@@ -201,17 +197,17 @@ export class EmbeddingStatusTool {
 
     try {
       const health = await this.embeddingClient.getHealthStatus();
-      const stats = this.embeddingClient.getEmbeddingStats();
+      const config = this.embeddingClient.getConfig();
 
       // Check for critical issues
       if (health.status === 'unhealthy') {
         issues.push('Embedding system is unhealthy');
       }
 
-      // Check GPU dependency
-      if (!health.gpu_available && health.active_model !== 'minilm') {
-        issues.push(`Active model '${health.active_model}' requires GPU but GPU service is unavailable`);
-        recommendations.push('Either fix GPU service or switch to MiniLM mode');
+      // Check GPU dependency (both qwen3 and gemma3 require GPU)
+      if (!health.gpu_available) {
+        issues.push('GPU service unavailable but both qwen3 and gemma3 require GPU');
+        recommendations.push('Start GPU service on port 8765 for embedding functionality');
       }
 
       // Check for unused collections
@@ -225,16 +221,13 @@ export class EmbeddingStatusTool {
         recommendations.push(`${inactiveCollections.length} inactive collection(s) with vectors - consider cleanup`);
       }
 
-      // Check reindex frequency
-      if (stats.reindex_count > 5) {
-        recommendations.push('High reindex count detected - consider stabilizing on one model');
-      }
-
-      // Check for stale indexes
-      if (stats.last_indexed) {
-        const daysSinceIndex = (Date.now() - new Date(stats.last_indexed).getTime()) / (1000 * 60 * 60 * 24);
-        if (daysSinceIndex > 30) {
-          recommendations.push('Index is over 30 days old - consider refreshing');
+      // Check for stale indexes by looking at collection timestamps
+      for (const [collectionName, collectionInfo] of Object.entries(health.collections)) {
+        if (collectionInfo.exists && collectionInfo.last_indexed) {
+          const daysSinceIndex = (Date.now() - new Date(collectionInfo.last_indexed).getTime()) / (1000 * 60 * 60 * 24);
+          if (daysSinceIndex > 30) {
+            recommendations.push(`Collection ${collectionName} is over 30 days old - consider refreshing`);
+          }
         }
       }
 
@@ -250,36 +243,30 @@ export class EmbeddingStatusTool {
   }
 
   /**
-   * Switch embedding mode with safety checks
+   * Switch default embedding model (does not re-index, just changes preference)
    */
-  async switchMode(mode: 'gemma3' | 'qwen3' | 'minilm', force: boolean = false): Promise<string> {
+  async switchMode(mode: 'gemma3' | 'qwen3', force: boolean = false): Promise<string> {
     try {
-      await this.embeddingClient.switchMode(mode, { force });
+      // Validate GPU availability
+      const health = await this.embeddingClient.getHealthStatus();
+      if (!health.gpu_available) {
+        return `❌ Cannot switch to ${mode}: GPU service unavailable\\n\\n` +
+               `Both qwen3 and gemma3 require GPU. Solutions:\\n` +
+               `  1. Start GPU service: systemctl --user start inference-service\\n` +
+               `  2. Check GPU health: curl http://localhost:8765/health\\n`;
+      }
 
-      return `✅ Successfully switched to ${mode} mode.\\n` +
-             `Note: You may need to re-index your collections to use the new model.`;
+      // Update default model preference
+      this.embeddingClient.setDefaultModel(mode);
+
+      return `✅ Successfully updated default model preference to ${mode}.\\n\\n` +
+             `Note: Both models remain available simultaneously.\\n` +
+             `This only changes which model is used by default when not specified explicitly.\\n` +
+             `Existing collections are not affected - they maintain their original embeddings.`;
 
     } catch (error) {
       this.logger.error('Failed to switch embedding mode', { mode, force, error });
-
-      // Provide helpful error context
-      let errorMessage = `❌ Failed to switch to ${mode}: ${error.message}\\n\\n`;
-
-      if (error.message.includes('vectors')) {
-        errorMessage += 'Solutions:\\n';
-        errorMessage += `  1. Use --force to switch anyway: zmcp-tools switch-embeddings --mode ${mode} --force\\n`;
-        errorMessage += '  2. Clear current collection first\\n';
-        errorMessage += '  3. Create parallel collection\\n';
-      }
-
-      if (error.message.includes('GPU')) {
-        errorMessage += 'Solutions:\\n';
-        errorMessage += '  1. Start GPU service: systemctl --user start inference-service\\n';
-        errorMessage += '  2. Check GPU health: curl http://localhost:8765/health\\n';
-        errorMessage += '  3. Switch to CPU mode: zmcp-tools switch-embeddings --mode minilm\\n';
-      }
-
-      return errorMessage;
+      return `❌ Failed to switch to ${mode}: ${error.message}`;
     }
   }
 }
@@ -292,7 +279,7 @@ export async function getEmbeddingStatus(options: EmbeddingStatusOptions = {}): 
   return tool.getStatus(options);
 }
 
-export async function switchEmbeddingMode(mode: 'gemma3' | 'qwen3' | 'minilm', force: boolean = false): Promise<string> {
+export async function switchEmbeddingMode(mode: 'gemma3' | 'qwen3', force: boolean = false): Promise<string> {
   const tool = new EmbeddingStatusTool();
   return tool.switchMode(mode, force);
 }

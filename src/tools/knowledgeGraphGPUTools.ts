@@ -46,12 +46,13 @@ export const searchKnowledgeGraphGPU: Tool = {
 
       // Check GPU availability and log status
       const gpuAvailable = await embeddingClient.checkGPUService();
-      const modelInfo = embeddingClient.getActiveModelInfo();
+      const config = embeddingClient.getConfig();
+      const modelInfo = embeddingClient.getModelInfo(config.default_model);
 
       if (gpuAvailable) {
         logger.info(`🚀 Using GPU embedding: ${modelInfo.name} (${modelInfo.dimensions}D)`);
       } else {
-        logger.warn('⚠️ GPU service unavailable, falling back to local embeddings');
+        logger.warn('⚠️ GPU service unavailable, semantic search will be disabled');
       }
 
       // Perform the search using the updated knowledge graph service
@@ -101,7 +102,8 @@ export const getEmbeddingStatus: Tool = {
 
       // Get comprehensive health status
       const healthStatus = await embeddingClient.getHealthStatus();
-      const modelInfo = embeddingClient.getActiveModelInfo();
+      const config = embeddingClient.getConfig();
+      const modelInfo = embeddingClient.getModelInfo(config.default_model);
 
       // Check GPU service details
       let gpuServiceDetails = null;
@@ -186,15 +188,18 @@ export const switchEmbeddingMode: Tool = {
       const embeddingClient = new EmbeddingClient();
 
       // Validate model choice against GPU availability
-      const currentModel = embeddingClient.getActiveModelInfo();
+      const config = embeddingClient.getConfig();
+      const currentModel = embeddingClient.getModelInfo(config.default_model);
       const gpuAvailable = await embeddingClient.checkGPUService();
 
-      // Check if GPU required but not available
-      const targetSpecs = embeddingClient.MODEL_SPECS?.[model];
-      if (!targetSpecs) {
+      // Get target model specs
+      let targetSpecs;
+      try {
+        targetSpecs = embeddingClient.getModelInfo(model);
+      } catch (error) {
         return {
           success: false,
-          error: `Unknown model: ${model}. Available: qwen3, gemma3, minilm`
+          error: `Unknown model: ${model}. Available: qwen3, gemma3`
         };
       }
 
@@ -206,14 +211,15 @@ export const switchEmbeddingMode: Tool = {
         };
       }
 
-      // Save new configuration (this would require extending EmbeddingClient)
-      // For now, return the change information
+      // Update default model preference
+      embeddingClient.setDefaultModel(model);
+
       return {
         success: true,
-        message: `Would switch from ${currentModel.name} to ${targetSpecs.name}`,
+        message: `Successfully updated default model preference from ${currentModel.name} to ${targetSpecs.name}`,
         changes: {
           from: {
-            model: embeddingClient.config?.active_model || 'unknown',
+            model: config.default_model,
             dimensions: currentModel.dimensions,
             name: currentModel.name
           },
@@ -223,12 +229,7 @@ export const switchEmbeddingMode: Tool = {
             name: targetSpecs.name
           }
         },
-        warnings: [
-          "Model switching requires configuration update",
-          "Existing collections may need re-indexing for consistency",
-          "Performance will change based on model selection"
-        ],
-        note: "Configuration change would take effect on next service restart"
+        note: "Both models remain available simultaneously. This only changes which model is used by default when not specified explicitly."
       };
 
     } catch (error) {

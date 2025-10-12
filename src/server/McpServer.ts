@@ -67,6 +67,7 @@ import { getMetaMcpTools } from '../tools/MetaMcpTools.js';
 import { getResourceWrapperTools } from '../tools/ResourceWrapperTools.js';
 import { FileSystemTools } from '../tools/FileSystemTools.js';
 import { SharedStateTools } from '../tools/SharedStateTools.js';
+import { CommunicationTools } from '../tools/CommunicationTools.js';
 import { Logger } from "../utils/logger.js";
 import type { McpTool, McpProgressContext } from "../schemas/tools/index.js";
 import { AgentCapabilityManager } from '../security/AgentCapabilities.js';
@@ -101,6 +102,7 @@ export class McpToolsServer {
   private lanceDBManager: LanceDBService;
   private fileSystemTools: FileSystemTools;
   private sharedStateTools: SharedStateTools;
+  private communicationTools: CommunicationTools;
   private repositoryPath: string;
   private httpServer?: http.Server;
   private transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
@@ -316,6 +318,7 @@ export class McpToolsServer {
     // Initialize tools
     this.knowledgeGraphMcpTools = new KnowledgeGraphMcpTools(this.db);
     this.sharedStateTools = new SharedStateTools(this.db);
+    this.communicationTools = new CommunicationTools(this.db, this.repositoryPath);
 
     // REMOVED deprecated tool initialization:
     // - fileOperationsService, treeSummaryService (deprecated - use MCP resources)
@@ -692,10 +695,10 @@ export class McpToolsServer {
       tools.push(...getResourceWrapperTools(this.resourceManager));
     }
 
-    // Conditionally add agent-specific tools (Issue #6 fix)
-    if (this.options.includeAgentTools) {
-      // TODO: Implement the loading of agent tools from AGENT_TOOL_LIST.md
-      // For now, this is a placeholder.
+    // Conditionally add agent-specific tools (CommunicationTools for inter-agent coordination)
+    // Agent mode and OpenRouter mode both need communication capabilities for collaborative agents
+    if (this.options.includeAgentTools || this.options.openrouterCompat) {
+      tools.push(...this.communicationTools.getTools());
     }
 
     // Filter tools by role if capability manager is initialized

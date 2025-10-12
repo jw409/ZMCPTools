@@ -29,16 +29,25 @@ async function extractTools(): Promise<Tool[]> {
   for (const file of toolFiles) {
     const content = readFileSync(file, 'utf-8');
 
-    // Extract tool definitions (looking for name: 'mcp__zmcp-tools__*')
-    const toolMatches = content.matchAll(/name:\s*['"](mcp__zmcp-tools__[^'"]+)['"]/g);
+    // Extract tool definitions - support both formats:
+    // 1. MCP tools with prefix: name: 'mcp__zmcp-tools__*'
+    // 2. Regular tools: name: 'tool_name'
+    const mcpMatches = content.matchAll(/name:\s*['"](mcp__zmcp-tools__[^'"]+)['"]/g);
+    const regularMatches = content.matchAll(/name:\s*['"]([a-z_]+)['"]/g);
     const descMatches = content.matchAll(/description:\s*['"]([^'"]+)['"]/g);
 
-    const names = Array.from(toolMatches).map(m => m[1].replace('mcp__zmcp-tools__', ''));
+    const mcpNames = Array.from(mcpMatches).map(m => m[1].replace('mcp__zmcp-tools__', ''));
+    const regularNames = Array.from(regularMatches)
+      .map(m => m[1])
+      .filter(n => !n.startsWith('mcp__') && n !== 'name' && n.length > 2); // Filter out false positives
+
+    const names = [...mcpNames, ...regularNames];
     const descs = Array.from(descMatches).map(m => m[1]);
 
     // Infer category from filename
     const category = file.includes('Browser') ? 'Browser Automation' :
                     file.includes('Knowledge') ? 'Knowledge Graph' :
+                    file.includes('Communication') ? 'Agent Communication' :
                     file.includes('TreeSummary') ? 'Tree Summary' :
                     file.includes('Analysis') ? 'Project Analysis' :
                     file.includes('AIDOM') ? 'Browser AI DOM' :
@@ -46,12 +55,15 @@ async function extractTools(): Promise<Tool[]> {
                     'Other';
 
     names.forEach((name, i) => {
-      tools.push({
-        name,
-        category,
-        description: descs[i] || 'No description',
-        deprecated: content.includes('@deprecated')
-      });
+      // Avoid duplicates
+      if (!tools.find(t => t.name === name)) {
+        tools.push({
+          name,
+          category,
+          description: descs[i] || 'No description',
+          deprecated: content.includes('@deprecated')
+        });
+      }
     });
   }
 

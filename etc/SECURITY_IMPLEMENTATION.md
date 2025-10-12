@@ -170,11 +170,13 @@ const server = new McpToolsServer({
   name: 'remote-agent',
   version: '1.0.0',
   role: 'testing',  // Filter tools by role
-  openrouterCompat: true,
+  openrouterCompat: true,  // See COMPATIBILITY_MODES.md for mode details
 });
 
 await server.start();
 ```
+
+**Note:** For details on which tools are available in each compatibility mode (Standard, OpenRouter, Gemini, Agent), see **[COMPATIBILITY_MODES.md](./COMPATIBILITY_MODES.md)**.
 
 ### Output
 

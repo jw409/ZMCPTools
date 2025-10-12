@@ -31,11 +31,12 @@ export class EmbeddingStatusCommand {
     try {
       // Get comprehensive status
       const healthStatus = await this.embeddingClient.getHealthStatus();
-      const modelInfo = this.embeddingClient.getActiveModelInfo();
-      const collectionName = this.embeddingClient.getCollectionName('knowledge_graph');
+      const config = this.embeddingClient.getConfig();
+      const modelInfo = this.embeddingClient.getModelInfo(config.default_model);
+      const collectionName = this.embeddingClient.getCollectionName('knowledge_graph', config.default_model);
 
       const status = {
-        current_mode: healthStatus.active_model,
+        current_mode: config.default_model,
         model_info: modelInfo,
         health: {
           status: healthStatus.status,
@@ -51,7 +52,7 @@ export class EmbeddingStatusCommand {
       // Perform validation if requested
       if (options.validate) {
         try {
-          await this.embeddingClient.validateCollection(collectionName);
+          await this.embeddingClient.validateCollection(collectionName, config.default_model);
           console.log('✅ Validation: Collection is compatible');
         } catch (error) {
           console.log(`❌ Validation: ${error.message}`);
@@ -117,14 +118,14 @@ export class EmbeddingStatusCommand {
     // Available modes
     if (verbose) {
       console.log('\nAvailable Modes:');
-      const modes = this.embeddingClient.getAvailableModes();
-      modes.forEach((mode: any, index: number) => {
-        const isLast = index === modes.length - 1;
-        const prefix = isLast ? '└──' : '├──';
-        const isCurrent = mode.mode === status.current_mode;
+      const modes = ['qwen3', 'gemma3'].map((mode, index) => {
+        const info = this.embeddingClient.getModelInfo(mode as 'qwen3' | 'gemma3');
+        const isCurrent = mode === status.current_mode;
         const indicator = isCurrent ? '🎯 ACTIVE' : '';
+        const isLast = index === 1;
+        const prefix = isLast ? '└──' : '├──';
 
-        console.log(`${prefix} ${mode.mode}: ${mode.info.name} (${mode.info.dimensions}d) ${indicator}`);
+        console.log(`${prefix} ${mode}: ${info.name} (${info.dimensions}d) ${indicator}`);
       });
     }
 
@@ -226,7 +227,7 @@ export class EmbeddingStatusCommand {
       console.log('\n🔧 Helpful Commands:');
       console.log('   • Check GPU service: curl http://localhost:8765/health');
       console.log('   • Validate system: zmcp-tools embedding-status --validate');
-      console.log('   • Switch mode: zmcp-tools switch-embeddings --mode [gemma3|qwen3|minilm]');
+      console.log('   • Switch default model: zmcp-tools switch-embeddings --mode [gemma3|qwen3]');
     }
   }
 }

@@ -289,7 +289,8 @@ async function generateEmbeddings(documents: IndexedDocument[]): Promise<number>
     });
 
     try {
-      const result = await embeddingClient.generateEmbeddings(texts);
+      // Use default model (qwen3) for embeddings
+      const result = await embeddingClient.generateEmbeddings(texts, { model: 'qwen3' });
 
       if (result.embeddings) {
         for (let j = 0; j < batch.length; j++) {
