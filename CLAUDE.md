@@ -14,6 +14,7 @@ authoritative:
   agent_tools: etc/AGENT_TOOL_LIST.md
   resources: etc/RESOURCE_REGISTRY.md
   repositories: REPOSITORY_HOOKPOINTS.json
+  infrastructure: etc/INFRASTRUCTURE.md
 rules:
   prefer_resources: MCP resources over tools (97% token reduction)
   gpu_search: Port 8765 required for semantic search

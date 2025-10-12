@@ -78,8 +78,8 @@ export class VectorSearchService {
     this.embeddingClient = new EmbeddingClient();
 
     this.config = {
-      // TalentOS embedding model selection - use gemma_embed (768D) for compatibility
-      embeddingModel: 'gemma_embed',
+      // TalentOS embedding model selection - use qwen3_4b (2560D) for quality
+      embeddingModel: 'qwen3_4b',
       chunkSize: 512,
       chunkOverlap: 50,
       temperature: 0.1,
@@ -123,8 +123,8 @@ export class VectorSearchService {
     const gpuAvailable = await this.checkGPUService();
 
     if (gpuAvailable) {
-      this.logger.info('Using TalentOS Qwen3 0.6B for LanceDB vector store (1024D)');
-      return 'qwen3'; // Will trigger TalentOS embedding function
+      this.logger.info('Using TalentOS Qwen3-Embedding-4B for LanceDB vector store (2560D)');
+      return 'qwen3'; // Will trigger TalentOS embedding function → qwen3_4b
     } else {
       this.logger.info('TalentOS unavailable, using Xenova/all-MiniLM-L6-v2 for LanceDB vector store (384D)');
       return 'Xenova/all-MiniLM-L6-v2'; // Fallback to HuggingFace

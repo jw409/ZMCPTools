@@ -3,7 +3,7 @@
 This document provides a comprehensive reference for all MCP tools and resources available in ZMCPTools.
 
 ⚠️  **AUTO-GENERATED** from source code by `npm run generate:docs`
-Last generated: 2025-10-11T21:40:18.301Z
+Last generated: 2025-10-12T03:17:05.972Z
 
 ## ⚡ Token Optimization Notice
 
@@ -17,9 +17,9 @@ See [GitHub Issue #35](https://github.com/jw409/ZMCPTools/issues/35) for migrati
 ## Table of Contents
 
 - [🔍 MCP Resources (Token-Optimized)](#mcp-resources-token-optimized)
-- [Other (5 tools)](#other)
+- [Other (4 tools)](#other)
 
-**Total Active Tools**: 5
+**Total Active Tools**: 4
 
 ---
 
@@ -88,10 +88,6 @@ See [GitHub Issue #35](https://github.com/jw409/ZMCPTools/issues/35) for migrati
 ### `broadcast_progress`
 
 Broadcast task progress to all agents in the repository
-
-### `index_symbol_graph`
-
-No description
 
 ### `register_artifact`
 
