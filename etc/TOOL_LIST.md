@@ -3,7 +3,7 @@
 This document provides a comprehensive reference for all MCP tools and resources available in ZMCPTools.
 
 ⚠️  **AUTO-GENERATED** from source code by `npm run generate:docs`
-Last generated: 2025-10-12T08:25:12.124Z
+Last generated: 2025-10-15T04:31:41.259Z
 
 ## ⚡ Token Optimization Notice
 
@@ -17,13 +17,13 @@ See [GitHub Issue #35](https://github.com/jw409/ZMCPTools/issues/35) for migrati
 ## Table of Contents
 
 - [🔍 MCP Resources (Token-Optimized)](#mcp-resources-token-optimized)
-- [Other (77 tools)](#other)
+- [Other (78 tools)](#other)
 - [Progress Reporting (1 tools)](#progress-reporting)
 - [Knowledge Graph (1 tools)](#knowledge-graph)
 - [Agent Communication (11 tools)](#agent-communication)
 - [Browser Automation (10 tools)](#browser-automation)
 
-**Total Active Tools**: 100
+**Total Active Tools**: 101
 
 ---
 
@@ -148,6 +148,10 @@ Create a high-level execution plan that generates coordinated Tasks for implemen
 ### `create_knowledge_relationship`
 
 Create relationship between entities. See TOOL_LIST.md
+
+### `debug_index_subset`
+
+Indexes a small subset of files for debugging purposes.
 
 ### `delete_all_website_pages`
 

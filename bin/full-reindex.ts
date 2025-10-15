@@ -14,6 +14,9 @@ async function main() {
   // Initialize indexer
   await indexer.initialize(projectPath);
 
+  console.log('Clearing existing index...\n');
+  await indexer.clearIndex();
+
   console.log('Indexing repository (this will take a few minutes)...\n');
   await indexer.indexRepository(projectPath);
 

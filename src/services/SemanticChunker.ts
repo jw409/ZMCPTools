@@ -242,9 +242,31 @@ export class SemanticChunker {
     });
 
     // Check if document fits in single chunk
+    // Phase 1: Estimate locally first (1 token ≈ 4 chars, conservative estimate)
+    const estimatedTokens = Math.ceil(text.length / 4);
+    if (estimatedTokens < this.config.targetTokens * 0.8) {
+      // File is definitely small enough, skip GPU call
+      logger.info('Document fits in single chunk (local estimate)', { estimatedTokens });
+      return [{
+        text,
+        metadata: {
+          documentId,
+          chunkId: `${documentId}-0`,
+          chunkIndex: 0,
+          level: 1,
+          title,
+          startOffset: 0,
+          endOffset: text.length,
+          tokenCount: estimatedTokens,
+          contentHash: this.hashContent(text)
+        }
+      }];
+    }
+
+    // Only call GPU when near threshold (large files)
     const totalTokens = await this.countTokens(text);
     if (totalTokens <= this.config.targetTokens) {
-      logger.info('Document fits in single chunk', { totalTokens });
+      logger.info('Document fits in single chunk (verified)', { totalTokens });
       return [{
         text,
         metadata: {

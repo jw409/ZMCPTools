@@ -11,7 +11,7 @@ import { homedir } from 'os';
 import { StoragePathResolver } from './StoragePathResolver.js';
 
 export interface EmbeddingConfig {
-  default_model: 'gemma3' | 'qwen3';
+  default_model: 'qwen3';
   gpu_endpoint: string;
 }
 
@@ -61,7 +61,7 @@ export class EmbeddingClient {
   private config: EmbeddingConfig;
   private mcptoolsDir: string;
 
-  // Model specifications - both available simultaneously on GPU service
+  // Model specifications - qwen3_4b only (gemma3 deprecated)
   private readonly MODEL_SPECS: Record<string, ModelInfo> = {
     qwen3: {
       name: 'Qwen3-Embedding-4B',
@@ -69,13 +69,6 @@ export class EmbeddingClient {
       requires_gpu: true,
       api_model_name: 'qwen3_4b',
       collection_suffix: 'qwen3'
-    },
-    gemma3: {
-      name: 'EmbeddingGemma-300M',
-      dimensions: 768,
-      requires_gpu: true,
-      api_model_name: 'gemma_embed',
-      collection_suffix: 'gemma3'
     }
   };
 
@@ -192,7 +185,7 @@ export class EmbeddingClient {
   /**
    * Validate collection compatibility with specified model
    */
-  async validateCollection(collectionName: string, model: 'gemma3' | 'qwen3'): Promise<CollectionMetadata> {
+  async validateCollection(collectionName: string, model: 'qwen3'): Promise<CollectionMetadata> {
     const metadata = this.loadCollectionMetadata(collectionName);
 
     if (!metadata) {
@@ -293,9 +286,9 @@ export class EmbeddingClient {
   }
 
   /**
-   * Set default model preference (optional - both models always available)
+   * Set default model preference (only qwen3 supported)
    */
-  setDefaultModel(model: 'gemma3' | 'qwen3'): void {
+  setDefaultModel(model: 'qwen3'): void {
     this.config.default_model = model;
     this.saveConfig(this.config);
     this.logger.info('Default model updated', { default_model: model });
@@ -311,14 +304,14 @@ export class EmbeddingClient {
   /**
    * Get model information by name
    */
-  getModelInfo(model: 'gemma3' | 'qwen3'): ModelInfo {
+  getModelInfo(model: 'qwen3'): ModelInfo {
     return this.MODEL_SPECS[model];
   }
 
   /**
    * Get collection name for specified model
    */
-  getCollectionName(baseName: string, model: 'gemma3' | 'qwen3'): string {
+  getCollectionName(baseName: string, model: 'qwen3'): string {
     const modelInfo = this.MODEL_SPECS[model];
     return `${baseName}_${modelInfo.collection_suffix}`;
   }
@@ -326,7 +319,7 @@ export class EmbeddingClient {
   /**
    * Create fingerprint for specified model
    */
-  createFingerprint(model: 'gemma3' | 'qwen3'): string {
+  createFingerprint(model: 'qwen3'): string {
     const modelInfo = this.MODEL_SPECS[model];
     return `${model}_${modelInfo.dimensions}_v1`;
   }
@@ -340,7 +333,7 @@ export class EmbeddingClient {
    */
   async generateEmbeddings(
     texts: string[],
-    options: { model?: 'gemma3' | 'qwen3'; isQuery?: boolean } = {}
+    options: { model?: 'qwen3'; isQuery?: boolean } = {}
   ): Promise<EmbeddingResult> {
     const model = options.model || this.config.default_model;
     const isQuery = options.isQuery || false;
@@ -355,12 +348,12 @@ export class EmbeddingClient {
   }
 
   /**
-   * Generate embeddings using GPU service (Gemma3 or Qwen3)
+   * Generate embeddings using GPU service (Qwen3 only)
    */
   private async generateGPUEmbeddings(
     texts: string[],
     modelInfo: ModelInfo,
-    model: 'gemma3' | 'qwen3',
+    model: 'qwen3',
     isQuery: boolean = false
   ): Promise<EmbeddingResult> {
     try {

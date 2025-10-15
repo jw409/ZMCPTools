@@ -1,0 +1,7 @@
+{
+  "name": "search_knowledge_graph_unified",
+  "tldr": "Hybrid BM25 + semantic search with optional reranker",
+  "quick_params": "repository_path, query, [use_bm25, use_gpu_embeddings, use_reranker]",
+  "docs_ref": "ZMCPTools/TOOL_LIST.md#L142-189",
+  "description": "Load on demand from ZMCPTools/TOOL_LIST.md#L142-189"
+}

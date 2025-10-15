@@ -1041,18 +1041,16 @@ export class LanceDBService {
   private initializeEmbeddingFunction(): void {
     const modelName = this.getModelName();
 
-    // Check if this is a TalentOS model request
-    if (modelName === 'qwen3' || modelName === 'talentos' || modelName.startsWith('qwen3_') || modelName === 'gemma_embed' || modelName === 'minilm') {
+    // Check if this is a TalentOS model request (qwen3 only, gemma3 deprecated)
+    if (modelName === 'qwen3' || modelName === 'talentos' || modelName.startsWith('qwen3_')) {
       this.logger.info('Initializing TalentOS embedding function', { model: modelName });
 
       // Map model names to TalentOS service model names
       const talentOSModelMap: { [key: string]: string } = {
         'qwen3': 'qwen3_4b',  // Default to Qwen3-Embedding-4B (2560D)
         'talentos': 'qwen3_4b',  // Default to Qwen3-Embedding-4B (2560D)
-        'gemma_embed': 'gemma_embed',
         'qwen3_4b': 'qwen3_4b',
-        'qwen3_8b': 'qwen3_8b',
-        'minilm': 'minilm'
+        'qwen3_8b': 'qwen3_8b'
       };
 
       const talentOSModel = talentOSModelMap[modelName] || 'qwen3_4b';  // Default to Qwen3-Embedding-4B

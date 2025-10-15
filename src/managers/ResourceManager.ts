@@ -92,7 +92,7 @@ export class ResourceManager {
     const vectorSearchConfig = {
       projectPath: this.repositoryPath,
       preferLocal: true,
-      embeddingModel: 'gemma_embed'  // TalentOS GPU embeddings
+      embeddingModel: 'qwen3_4b'  // TalentOS GPU embeddings (Qwen3-4B 2560D)
     };
     const vectorService = new VectorSearchService(this.db, vectorSearchConfig);
     this.vectorSearchService = vectorService;
@@ -1073,9 +1073,9 @@ export class ResourceManager {
             },
             talentos_integration: talentosStatus,
             embedding_info: {
-              active_model: talentosStatus?.available ? 'gemma_embed' : 'Xenova/all-MiniLM-L6-v2',
-              dimensions: talentosStatus?.available ? 768 : 384,
-              acceleration: talentosStatus?.available ? 'GPU (16x faster)' : 'CPU baseline',
+              active_model: talentosStatus?.available ? 'qwen3_4b' : 'Xenova/all-MiniLM-L6-v2',
+              dimensions: talentosStatus?.available ? 2560 : 384,
+              acceleration: talentosStatus?.available ? 'GPU (Qwen3-4B 2560D)' : 'CPU baseline',
               endpoint: talentosStatus?.available ? 'http://localhost:8765' : 'local'
             },
             timestamp: new Date().toISOString(),

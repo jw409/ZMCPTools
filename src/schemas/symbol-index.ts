@@ -113,3 +113,41 @@ export const symbolIndexStats = sqliteTable('symbol_index_stats', {
 
 export type SymbolIndexStats = typeof symbolIndexStats.$inferSelect;
 export type NewSymbolIndexStats = typeof symbolIndexStats.$inferInsert;
+
+/**
+ * Semantic embeddings metadata
+ * One row per file, storing the text used for embedding and status
+ */
+export const semanticMetadata = sqliteTable('semantic_metadata', {
+  file_path: text('file_path').primaryKey().references(() => symbolIndex.file_path, { onDelete: 'cascade' }),
+  embedding_text: text('embedding_text').notNull(),
+  embedding_stored: integer('embedding_stored', { mode: 'boolean' }).default(false),
+  lancedb_id: text('lancedb_id'),
+  total_chunks: integer('total_chunks').default(1),
+});
+
+export type SemanticMetadata = typeof semanticMetadata.$inferSelect;
+export type NewSemanticMetadata = typeof semanticMetadata.$inferInsert;
+
+
+/**
+ * Semantic chunks for large files
+ * Stores split content that exceeds the embedding model's token limit
+ */
+export const semanticChunks = sqliteTable('semantic_chunks', {
+    chunk_id: text('chunk_id').primaryKey(),
+    file_path: text('file_path').notNull().references(() => symbolIndex.file_path, { onDelete: 'cascade' }),
+    chunk_index: integer('chunk_index').notNull(),
+    chunk_text: text('chunk_text').notNull(),
+    start_offset: integer('start_offset').notNull(),
+    end_offset: integer('end_offset').notNull(),
+    token_count: integer('token_count').notNull(),
+    embedding_stored: integer('embedding_stored', { mode: 'boolean' }).default(false),
+    lancedb_id: text('lancedb_id'),
+}, (table) => ({
+    filePathIdx: index('semantic_chunks_file_path_idx').on(table.file_path),
+    storedIdx: index('semantic_chunks_stored_idx').on(table.embedding_stored),
+}));
+
+export type SemanticChunk = typeof semanticChunks.$inferSelect;
+export type NewSemanticChunk = typeof semanticChunks.$inferInsert;

@@ -1,13 +1,13 @@
 # Agent Tool List
 
 **AUTO-GENERATED** from source code by `npm run generate:docs`
-Last generated: 2025-10-12T08:25:12.129Z
+Last generated: 2025-10-15T04:31:41.263Z
 
 Simplified tool reference for agent contexts (removes verbose descriptions).
 
 ## Available Tools by Category
 
-### Other (77)
+### Other (78)
 
 - `acquire_repository`
 - `ast_analyze`
@@ -24,6 +24,7 @@ Simplified tool reference for agent contexts (removes verbose descriptions).
 - `compare_search_modes`
 - `create_execution_plan`
 - `create_knowledge_relationship`
+- `debug_index_subset`
 - `delete_all_website_pages`
 - `delete_execution_plan`
 - `delete_pages_by_ids`
@@ -124,4 +125,4 @@ Simplified tool reference for agent contexts (removes verbose descriptions).
 
 ---
 
-**Total Tools**: 100
+**Total Tools**: 101

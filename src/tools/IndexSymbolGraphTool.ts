@@ -56,6 +56,8 @@ async function indexSymbolGraphHandler(input: IndexSymbolGraphInput): Promise<an
     openapi_spec
   } = input;
 
+  console.error('🚨 TOOL START - indexSymbolGraphHandler');
+  logger.error('🚨 TOOL START - indexSymbolGraphHandler');
   logger.info('Starting symbol graph indexing', {
     repository_path,
     mode: files ? 'explicit-files' : 'glob-patterns',
@@ -65,6 +67,11 @@ async function indexSymbolGraphHandler(input: IndexSymbolGraphInput): Promise<an
   });
 
   // API Conformance Linking Logic
+  // TODO: This entire block is commented out because it is broken and causes crashes.
+  // It calls non-existent functions like `store_knowledge_memory`, `create_knowledge_relationship`,
+  // and `indexer.getAllSymbols`. This needs to be completely rewritten to use valid tool calls
+  // and the correct methods available on the SymbolGraphIndexer.
+  /*
   if (openapi_spec) {
     logger.info('OpenAPI spec provided, starting API conformance linking process.', { spec_path: openapi_spec });
     try {
@@ -145,6 +152,7 @@ async function indexSymbolGraphHandler(input: IndexSymbolGraphInput): Promise<an
       }
     }
   }
+  */
 
   try {
     // Get storage paths
@@ -194,8 +202,11 @@ async function indexSymbolGraphHandler(input: IndexSymbolGraphInput): Promise<an
 
     // Index repository
     const stats = await indexer.indexRepository(repository_path);
+    console.error('🚨 RETURNED FROM indexRepository()');
+    logger.error('🚨 RETURNED FROM indexRepository()');
 
     const duration_ms = Date.now() - startTime;
+    console.error('🚨 COMPUTED DURATION');
 
     // Get storage sizes
     const fs = await import('fs/promises');

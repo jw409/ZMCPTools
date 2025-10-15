@@ -40,3 +40,15 @@ export function standaloneFunction(): void {
 }
 
 // Comment
+
+// Comment
+
+// Comment
+
+// Comment
+
+// Comment
+
+// Comment
+
+// Comment
