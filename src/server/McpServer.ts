@@ -72,6 +72,7 @@ import { CommunicationTools } from '../tools/CommunicationTools.js';
 import { Logger } from "../utils/logger.js";
 import type { McpTool, McpProgressContext } from "../schemas/tools/index.js";
 import { AgentCapabilityManager } from '../security/AgentCapabilities.js';
+import { debugIndexSubsetTool } from '../tools/DebugIndexSubsetTool.js';
 
 // REMOVED unused imports (deprecated/undocumented tools):
 // - WebScrapingMcpTools, AnalysisMcpTools, TreeSummaryTools (deprecated)
@@ -680,6 +681,7 @@ export class McpToolsServer {
       // Unified codebase search (1 tool)
       // - search_knowledge_graph_unified: Search files using BM25/semantic/hybrid methods
       ...unifiedSearchTools,
+      debugIndexSubsetTool,
     ];
 
     // Conditionally add shared state tools (NOT in compat modes)
@@ -970,7 +972,7 @@ export class McpToolsServer {
     try {
       // Stop inactivity timer
       this.stopInactivityTimer();
-      
+
       // Close HTTP server if running
       if (this.httpServer) {
         await new Promise<void>((resolve, reject) => {
@@ -995,6 +997,259 @@ export class McpToolsServer {
   }
 
   /**
+   * HTTP Request Handler Helper Methods
+   * Extracted from startHttpTransport() for modularity and testability
+   */
+
+  /**
+   * Set CORS headers on response
+   */
+  private setCorsHeaders(res: http.ServerResponse): void {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Expose-Headers', 'Mcp-Session-Id');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, mcp-session-id');
+    res.setHeader('Vary', 'Origin');
+  }
+
+  /**
+   * Handle OPTIONS preflight requests
+   */
+  private handleOptionsRequest(res: http.ServerResponse, requestId: string, timestamp: string): void {
+    process.stderr.write(`[${timestamp}] [${requestId}] <-- 200 OPTIONS response\n`);
+    res.writeHead(200);
+    res.end();
+  }
+
+  /**
+   * Handle /health endpoint
+   */
+  private handleHealthCheck(res: http.ServerResponse, req: http.IncomingMessage, requestId: string, timestamp: string): void {
+    const healthResponse = { status: "ok", transport: "http", protocol: "mcp" };
+    process.stderr.write(`[${timestamp}] [${requestId}] <-- 200 Health check: ${JSON.stringify(healthResponse)}\n`);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(healthResponse));
+  }
+
+  /**
+   * Handle /.well-known/oauth-protected-resource endpoint
+   */
+  private handleOAuthProtectedResource(res: http.ServerResponse, req: http.IncomingMessage, requestId: string, timestamp: string): void {
+    const oauthResponse = {
+      resource_registration_endpoint: `http://${req.headers.host}/register`,
+      introspection_endpoint: `http://${req.headers.host}/introspect`,
+      revocation_endpoint: `http://${req.headers.host}/revoke`
+    };
+    process.stderr.write(`[${timestamp}] [${requestId}] <-- 200 OAuth protected resource discovery: ${JSON.stringify(oauthResponse)}\n`);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(oauthResponse));
+  }
+
+  /**
+   * Handle /.well-known/oauth-authorization-server endpoint
+   */
+  private handleOAuthAuthorizationServer(res: http.ServerResponse, req: http.IncomingMessage, requestId: string, timestamp: string): void {
+    const authServerResponse = {
+      issuer: `http://${req.headers.host}`,
+      authorization_endpoint: `http://${req.headers.host}/authorize`,
+      token_endpoint: `http://${req.headers.host}/token`,
+      userinfo_endpoint: `http://${req.headers.host}/userinfo`,
+      registration_endpoint: `http://${req.headers.host}/register`,
+      response_types_supported: ["code"],
+      grant_types_supported: ["authorization_code"],
+      token_endpoint_auth_methods_supported: ["client_secret_basic", "none"],
+      scopes_supported: ["mcp"]
+    };
+    process.stderr.write(`[${timestamp}] [${requestId}] <-- 200 OAuth authorization server discovery: ${JSON.stringify(authServerResponse)}\n`);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(authServerResponse));
+  }
+
+  /**
+   * Handle /register OAuth endpoint
+   */
+  private async handleOAuthRegistration(res: http.ServerResponse, req: http.IncomingMessage, requestId: string, timestamp: string): Promise<void> {
+    if (req.method === 'POST') {
+      // Claude Code OAuth client registration
+      const registrationResponse = {
+        client_id: "claude-code-" + randomUUID().slice(0, 8),
+        client_secret: randomUUID(),
+        registration_access_token: randomUUID(),
+        registration_client_uri: `http://${req.headers.host}/register`,
+        client_id_issued_at: Math.floor(Date.now() / 1000),
+        token_endpoint_auth_method: "none",
+        grant_types: ["authorization_code"],
+        response_types: ["code"],
+        redirect_uris: [`http://${req.headers.host}/callback`],
+        scope: "mcp"
+      };
+      process.stderr.write(`[${timestamp}] [${requestId}] <-- 200 OAuth client registration: ${JSON.stringify(registrationResponse)}\n`);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(registrationResponse));
+    } else if (req.method === 'GET') {
+      // Return client info or registration form
+      const clientInfoResponse = {
+        message: "OAuth client registration endpoint",
+        supported_methods: ["POST"],
+        registration_endpoint: `http://${req.headers.host}/register`
+      };
+      process.stderr.write(`[${timestamp}] [${requestId}] <-- 200 Registration info: ${JSON.stringify(clientInfoResponse)}\n`);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(clientInfoResponse));
+    }
+  }
+
+  /**
+   * Read request body as string (converts callback to promise)
+   */
+  private async readRequestBody(req: http.IncomingMessage): Promise<string> {
+    return new Promise((resolve, reject) => {
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', () => resolve(body));
+      req.on('error', reject);
+    });
+  }
+
+  /**
+   * Handle /mcp and / MCP protocol endpoints
+   */
+  private async handleMcpEndpoint(res: http.ServerResponse, req: http.IncomingMessage, requestId: string, timestamp: string): Promise<void> {
+    if (req.method === 'POST') {
+      try {
+        const body = await this.readRequestBody(req);
+        process.stderr.write(`[${timestamp}] [${requestId}] Body: ${body}\n`);
+        const requestData = JSON.parse(body);
+        process.stderr.write(`[${timestamp}] [${requestId}] Parsed request: ${JSON.stringify(requestData)}\n`);
+        const sessionId = (req.headers["mcp-session-id"] || requestData.id) as string | undefined;
+        process.stderr.write(`[${timestamp}] [${requestId}] Session ID: ${sessionId || 'none'}\n`);
+        let transport: StreamableHTTPServerTransport;
+
+        if (sessionId && this.transports[sessionId]) {
+          // Reuse existing transport
+          transport = this.transports[sessionId];
+        } else if (!sessionId && isInitializeRequest(requestData)) {
+          // New initialization request - create transport with session management
+          transport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID(),
+            onsessioninitialized: (sessionId) => {
+              // Store the transport by session ID
+              this.transports[sessionId] = transport;
+            },
+            enableDnsRebindingProtection: false,
+            allowedHosts: ["127.0.0.1", "localhost", "127.0.0.1:4269", "localhost:4269"],
+          });
+
+          // Clean up transport when closed
+          transport.onclose = () => {
+            if (transport.sessionId) {
+              delete this.transports[transport.sessionId];
+            }
+          };
+
+          // Connect the MCP server to this transport
+          await this.mcpServer.connect(transport);
+        } else {
+          // Invalid request
+          const errorResponse = {
+            jsonrpc: "2.0",
+            error: {
+              code: -32000,
+              message: "Bad Request: No valid session ID provided",
+            },
+            id: requestData.id || null,
+          };
+          process.stderr.write(`[${timestamp}] [${requestId}] <-- 400 Invalid request: ${JSON.stringify(errorResponse)}\n`);
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(errorResponse));
+          return;
+        }
+
+        // Handle the request using StreamableHTTPServerTransport
+        process.stderr.write(`[${timestamp}] [${requestId}] Calling transport.handleRequest...\n`);
+        await transport.handleRequest(req, res, requestData);
+        process.stderr.write(`[${timestamp}] [${requestId}] <-- Transport handled request successfully\n`);
+      } catch (error) {
+        process.stderr.write(`[${timestamp}] [${requestId}] ERROR: ${error}\n`);
+        const errorResponse = {
+          jsonrpc: "2.0",
+          error: {
+            code: -32603,
+            message: "Internal server error",
+            data: String(error)
+          },
+          id: null
+        };
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(errorResponse));
+      }
+    } else if (req.method === 'GET' || req.method === 'DELETE') {
+      // Handle GET/DELETE requests for session management
+      const sessionId = req.headers["mcp-session-id"] as string | undefined;
+      process.stderr.write(`[${timestamp}] [${requestId}] ${req.method} request with session: ${sessionId || 'none'}\n`);
+
+      if (!sessionId || !this.transports[sessionId]) {
+        const errorResponse = {
+          jsonrpc: "2.0",
+          error: {
+            code: -32000,
+            message: "Invalid or missing session ID"
+          },
+          id: null
+        };
+        process.stderr.write(`[${timestamp}] [${requestId}] <-- 400 Invalid session: ${JSON.stringify(errorResponse)}\n`);
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(errorResponse));
+        return;
+      }
+
+      const transport = this.transports[sessionId];
+      process.stderr.write(`[${timestamp}] [${requestId}] Calling transport.handleRequest for ${req.method}...\n`);
+      await transport.handleRequest(req, res);
+      process.stderr.write(`[${timestamp}] [${requestId}] <-- ${req.method} handled successfully\n`);
+    }
+  }
+
+  /**
+   * Handle 404 Not Found
+   */
+  private handle404(res: http.ServerResponse, requestId: string, timestamp: string): void {
+    const notFoundResponse = {
+      jsonrpc: "2.0",
+      error: {
+        code: -32601,
+        message: "Method not found"
+      },
+      id: null
+    };
+    process.stderr.write(`[${timestamp}] [${requestId}] <-- 404 Not found: ${JSON.stringify(notFoundResponse)}\n`);
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(notFoundResponse));
+  }
+
+  /**
+   * Handle fatal server errors
+   */
+  private handleServerError(res: http.ServerResponse, error: any, requestId: string, timestamp: string): void {
+    process.stderr.write(`[${timestamp}] [${requestId}] OUTER ERROR: ${error}\n`);
+    const fatalErrorResponse = {
+      jsonrpc: "2.0",
+      error: {
+        code: -32603,
+        message: "Fatal server error",
+        data: String(error)
+      },
+      id: null
+    };
+    try {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(fatalErrorResponse));
+    } catch (writeError) {
+      process.stderr.write(`[${timestamp}] [${requestId}] WRITE ERROR: ${writeError}\n`);
+    }
+  }
+
+  /**
    * Start MCP server with HTTP transport using StreamableHTTPServerTransport
    */
   private async startHttpTransport(): Promise<void> {
@@ -1007,243 +1262,57 @@ export class McpToolsServer {
     // Set up signal handlers for graceful shutdown
     this.setupSignalHandlers();
 
-    // Create raw HTTP server
+    // Create raw HTTP server with clean routing
     this.httpServer = http.createServer(async (req, res) => {
       const requestId = randomUUID().slice(0, 8);
       const timestamp = new Date().toISOString();
-      
+
       // Update client activity timestamp
       this.updateClientActivity();
-      
+
       // Log incoming request
       process.stderr.write(`[${timestamp}] [${requestId}] --> ${req.method} ${req.url}\n`);
       process.stderr.write(`[${timestamp}] [${requestId}] Headers: ${JSON.stringify(req.headers)}\n`);
-      
+
       try {
         // Set CORS headers
-        res.setHeader('Access-Control-Allow-Origin', '*');
-        res.setHeader('Access-Control-Allow-Credentials', 'true');
-        res.setHeader('Access-Control-Expose-Headers', 'Mcp-Session-Id');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, mcp-session-id');
-        res.setHeader('Vary', 'Origin');
+        this.setCorsHeaders(res);
 
-        // Handle OPTIONS requests
+        // Handle OPTIONS preflight
         if (req.method === 'OPTIONS') {
-          process.stderr.write(`[${timestamp}] [${requestId}] <-- 200 OPTIONS response\n`);
-          res.writeHead(200);
-          res.end();
-          return;
+          return this.handleOptionsRequest(res, requestId, timestamp);
         }
 
-        // Parse URL and method
+        // Parse URL
         const url = new URL(req.url!, `http://${req.headers.host}`);
-        
+
+        // Route dispatch
         if (url.pathname === '/health') {
-          const healthResponse = { status: "ok", transport: "http", protocol: "mcp" };
-          process.stderr.write(`[${timestamp}] [${requestId}] <-- 200 Health check: ${JSON.stringify(healthResponse)}\n`);
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify(healthResponse));
-          return;
+          return this.handleHealthCheck(res, req, requestId, timestamp);
         }
 
-        // Handle OAuth discovery endpoints (Claude Code expects these)
         if (url.pathname === '/.well-known/oauth-protected-resource') {
-          const oauthResponse = {
-            resource_registration_endpoint: `http://${req.headers.host}/register`,
-            introspection_endpoint: `http://${req.headers.host}/introspect`,
-            revocation_endpoint: `http://${req.headers.host}/revoke`
-          };
-          process.stderr.write(`[${timestamp}] [${requestId}] <-- 200 OAuth protected resource discovery: ${JSON.stringify(oauthResponse)}\n`);
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify(oauthResponse));
-          return;
+          return this.handleOAuthProtectedResource(res, req, requestId, timestamp);
         }
 
         if (url.pathname === '/.well-known/oauth-authorization-server') {
-          const authServerResponse = {
-            issuer: `http://${req.headers.host}`,
-            authorization_endpoint: `http://${req.headers.host}/authorize`,
-            token_endpoint: `http://${req.headers.host}/token`,
-            userinfo_endpoint: `http://${req.headers.host}/userinfo`,
-            registration_endpoint: `http://${req.headers.host}/register`,
-            response_types_supported: ["code"],
-            grant_types_supported: ["authorization_code"],
-            token_endpoint_auth_methods_supported: ["client_secret_basic", "none"],
-            scopes_supported: ["mcp"]
-          };
-          process.stderr.write(`[${timestamp}] [${requestId}] <-- 200 OAuth authorization server discovery: ${JSON.stringify(authServerResponse)}\n`);
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify(authServerResponse));
-          return;
+          return this.handleOAuthAuthorizationServer(res, req, requestId, timestamp);
         }
 
-        // Handle OAuth registration endpoint
         if (url.pathname === '/register') {
-          if (req.method === 'POST') {
-            // Claude Code OAuth client registration
-            const registrationResponse = {
-              client_id: "claude-code-" + randomUUID().slice(0, 8),
-              client_secret: randomUUID(),
-              registration_access_token: randomUUID(),
-              registration_client_uri: `http://${req.headers.host}/register`,
-              client_id_issued_at: Math.floor(Date.now() / 1000),
-              token_endpoint_auth_method: "none",
-              grant_types: ["authorization_code"],
-              response_types: ["code"],
-              redirect_uris: [`http://${req.headers.host}/callback`],
-              scope: "mcp"
-            };
-            process.stderr.write(`[${timestamp}] [${requestId}] <-- 200 OAuth client registration: ${JSON.stringify(registrationResponse)}\n`);
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(registrationResponse));
-            return;
-          } else if (req.method === 'GET') {
-            // Return client info or registration form
-            const clientInfoResponse = {
-              message: "OAuth client registration endpoint",
-              supported_methods: ["POST"],
-              registration_endpoint: `http://${req.headers.host}/register`
-            };
-            process.stderr.write(`[${timestamp}] [${requestId}] <-- 200 Registration info: ${JSON.stringify(clientInfoResponse)}\n`);
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(clientInfoResponse));
-            return;
-          }
+          return await this.handleOAuthRegistration(res, req, requestId, timestamp);
         }
 
-      if (url.pathname === '/mcp' || url.pathname === '/') {
-        if (req.method === 'POST') {
-          // Parse request body
-          let body = '';
-          req.on('data', chunk => body += chunk);
-          req.on('end', async () => {
-            try {
-              process.stderr.write(`[${timestamp}] [${requestId}] Body: ${body}\n`);
-              const requestData = JSON.parse(body);
-              process.stderr.write(`[${timestamp}] [${requestId}] Parsed request: ${JSON.stringify(requestData)}\n`);
-              const sessionId = (req.headers["mcp-session-id"] || requestData.id) as string | undefined;
-              process.stderr.write(`[${timestamp}] [${requestId}] Session ID: ${sessionId || 'none'}\n`);
-              let transport: StreamableHTTPServerTransport;
-
-              if (sessionId && this.transports[sessionId]) {
-                // Reuse existing transport
-                transport = this.transports[sessionId];
-              } else if (!sessionId && isInitializeRequest(requestData)) {
-                // New initialization request - create transport with session management
-                transport = new StreamableHTTPServerTransport({
-                  sessionIdGenerator: () => randomUUID(),
-                  onsessioninitialized: (sessionId) => {
-                    // Store the transport by session ID/compac
-                    this.transports[sessionId] = transport;
-                  },
-                  enableDnsRebindingProtection: false,
-                  allowedHosts: ["127.0.0.1", "localhost", "127.0.0.1:4269", "localhost:4269"],
-                });
-
-                // Clean up transport when closed
-                transport.onclose = () => {
-                  if (transport.sessionId) {
-                    delete this.transports[transport.sessionId];
-                  }
-                };
-
-                // Connect the MCP server to this transport
-                await this.mcpServer.connect(transport);
-              } else {
-                // Invalid request
-                const errorResponse = {
-                  jsonrpc: "2.0",
-                  error: {
-                    code: -32000,
-                    message: "Bad Request: No valid session ID provided",
-                  },
-                  id: requestData.id || null,
-                };
-                process.stderr.write(`[${timestamp}] [${requestId}] <-- 400 Invalid request: ${JSON.stringify(errorResponse)}\n`);
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify(errorResponse));
-                return;
-              }
-
-              // Handle the request using StreamableHTTPServerTransport
-              process.stderr.write(`[${timestamp}] [${requestId}] Calling transport.handleRequest...\n`);
-              await transport.handleRequest(req, res, requestData);
-              process.stderr.write(`[${timestamp}] [${requestId}] <-- Transport handled request successfully\n`);
-            } catch (error) {
-              process.stderr.write(`[${timestamp}] [${requestId}] ERROR: ${error}\n`);
-              const errorResponse = {
-                jsonrpc: "2.0",
-                error: {
-                  code: -32603,
-                  message: "Internal server error",
-                  data: String(error)
-                },
-                id: null
-              };
-              res.writeHead(500, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify(errorResponse));
-            }
-          });
-          return;
-        } else if (req.method === 'GET' || req.method === 'DELETE') {
-          // Handle GET/DELETE requests for session management
-          const sessionId = req.headers["mcp-session-id"] as string | undefined;
-          process.stderr.write(`[${timestamp}] [${requestId}] ${req.method} request with session: ${sessionId || 'none'}\n`);
-          
-          if (!sessionId || !this.transports[sessionId]) {
-            const errorResponse = {
-              jsonrpc: "2.0",
-              error: {
-                code: -32000,
-                message: "Invalid or missing session ID"
-              },
-              id: null
-            };
-            process.stderr.write(`[${timestamp}] [${requestId}] <-- 400 Invalid session: ${JSON.stringify(errorResponse)}\n`);
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(errorResponse));
-            return;
-          }
-
-          const transport = this.transports[sessionId];
-          process.stderr.write(`[${timestamp}] [${requestId}] Calling transport.handleRequest for ${req.method}...\n`);
-          await transport.handleRequest(req, res);
-          process.stderr.write(`[${timestamp}] [${requestId}] <-- ${req.method} handled successfully\n`);
-          return;
+        if (url.pathname === '/mcp' || url.pathname === '/') {
+          return await this.handleMcpEndpoint(res, req, requestId, timestamp);
         }
-      }
 
-      // 404 for all other requests
-      const notFoundResponse = {
-        jsonrpc: "2.0",
-        error: {
-          code: -32601,
-          message: "Method not found"
-        },
-        id: null
-      };
-      process.stderr.write(`[${timestamp}] [${requestId}] <-- 404 Not found: ${JSON.stringify(notFoundResponse)}\n`);
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(notFoundResponse));
-      
+        // 404 for all other requests
+        return this.handle404(res, requestId, timestamp);
+
       } catch (outerError) {
         // Catch any errors in the outer request handling
-        process.stderr.write(`[${timestamp}] [${requestId}] OUTER ERROR: ${outerError}\n`);
-        const fatalErrorResponse = {
-          jsonrpc: "2.0",
-          error: {
-            code: -32603,
-            message: "Fatal server error",
-            data: String(outerError)
-          },
-          id: null
-        };
-        try {
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify(fatalErrorResponse));
-        } catch (writeError) {
-          process.stderr.write(`[${timestamp}] [${requestId}] WRITE ERROR: ${writeError}\n`);
-        }
+        this.handleServerError(res, outerError, requestId, timestamp);
       }
     });
 
