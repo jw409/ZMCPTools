@@ -1,7 +1,7 @@
 # MCP Resource Registry
 
 **AUTO-GENERATED** from source code by `npm run generate:docs`
-Last generated: 2025-10-15T06:22:39.630Z
+Last generated: 2025-10-15T08:26:08.659Z
 
 ## Available MCP Resources
 
@@ -36,6 +36,11 @@ MCP Resources provide 97% token reduction compared to tools for read-only operat
 | `symbols://search` | 🔍 FIND SYMBOLS BY NAME/TYPE (PAGINATED): Search cached symbols by name and type (function, class, method, interface). Use `?name=foo&type=function&limit=50&cursor=<token>` to find specific symbols. Returns symbol definitions with file locations. Fast SQLite lookup. **Pagination**: Default limit 50, use nextCursor for more results. |
 | `symbols://file/*` | 📄 GET SYMBOLS FROM CACHE: Get all symbols for a specific file from cache (use symbols://file/{path}). Returns cached symbol definitions without reparsing. Instant SQLite lookup. Compare with file://{path}/symbols (live parse) to verify freshness. |
 | `symbols://stats` | 📊 INDEX HEALTH CHECK: Get symbol graph cache statistics - total files indexed, symbols extracted, cache hit rate, embedding coverage, last update times. Use to verify indexing completed and check what |
+| `rooms://list` | 📋 LIST ACTIVE ROOMS (PAGINATED): Get all agent coordination rooms for parallel multi-agent tasks. Returns room metadata (session_id, task, agents, message counts). Use for discovering active coordination contexts. **Params**: `?limit=50&cursor=<token>`. Returns: rooms array with nextCursor for pagination. **Use case**: Coordinator discovery, crash recovery, multi-agent debugging. |
+| `rooms://*/messages` | 💬 READ ROOM MESSAGES (PAGINATED): Get all messages from a coordination room by room ID. Returns message history with agent_id, type (orientation/task_assignment/result/etc), content, timestamp. Use for: reading task assignments, checking worker status, crash recovery context reconstruction. **Params**: `?limit=100&cursor=<token>&since_timestamp=ISO8601&type=result&agent_id=worker-123`. **Use case**: Worker reads tasks, coordinator monitors progress. |
+| `rooms://*/agents` | 👥 LIST ROOM AGENTS: Get all agents registered in a coordination room. Returns agent metadata (agent_id, model, role, joined_at). Use for: verifying agent participation, checking who |
+| `rooms://*/state` | 🔧 READ ROOM STATE: Get shared state object for a room (JSON key-value store). Use for: reading coordination state, checkpoint data, shared counters, flags. **Use case**: Workers read task progress, coordinator tracks completion status. |
+| `rooms://*/summary` | 📊 ROOM OVERVIEW (CRASH RECOVERY): Get complete room context - room metadata, agents, recent messages (last N), current state. Use for: crash recovery (full context reconstruction), debugging multi-agent coordination, understanding room activity at a glance. **Params**: `?max_messages=10`. **Use case**: Coordinator crash recovery, debugging failed coordination. |
 
 ### Knowledge Graph
 
@@ -63,7 +68,7 @@ MCP Resources provide 97% token reduction compared to tools for read-only operat
 
 ---
 
-**Total Resources**: 24
+**Total Resources**: 29
 
 ### Log Rotation
 

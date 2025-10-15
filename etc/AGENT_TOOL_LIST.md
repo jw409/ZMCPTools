@@ -1,13 +1,13 @@
 # Agent Tool List
 
 **AUTO-GENERATED** from source code by `npm run generate:docs`
-Last generated: 2025-10-15T06:22:39.630Z
+Last generated: 2025-10-15T08:26:08.659Z
 
 Simplified tool reference for agent contexts (removes verbose descriptions).
 
 ## Available Tools by Category
 
-### Other (78)
+### Other (77)
 
 - `acquire_repository`
 - `ast_analyze`
@@ -20,10 +20,8 @@ Simplified tool reference for agent contexts (removes verbose descriptions).
 - `broadcast_progress`
 - `cancel_scrape_job`
 - `check_inbox`
-- `compact_knowledge_memory`
 - `compare_search_modes`
 - `create_execution_plan`
-- `create_knowledge_relationship`
 - `debug_index_subset`
 - `delete_all_website_pages`
 - `delete_execution_plan`
@@ -49,6 +47,11 @@ Simplified tool reference for agent contexts (removes verbose descriptions).
 - `get_project_dependencies`
 - `get_project_dependents`
 - `get_project_structure`
+- `get_room_agents`
+- `get_room_messages`
+- `get_room_state`
+- `get_room_summary`
+- `get_rooms_list`
 - `get_scraping_status`
 - `get_search_stats`
 - `get_symbols_list`
@@ -66,7 +69,6 @@ Simplified tool reference for agent contexts (removes verbose descriptions).
 - `list_execution_plans`
 - `orchestrate_collaborative_team`
 - `process_email`
-- `prune_knowledge_memory`
 - `read_file`
 - `read_mcp_resource`
 - `register_artifact`
@@ -78,14 +80,11 @@ Simplified tool reference for agent contexts (removes verbose descriptions).
 - `search_knowledge_graph_unified`
 - `send_email`
 - `speak_in_meeting`
-- `store_knowledge_memory`
 - `switch_embedding_mode`
 - `talentos_semantic_search`
 - `todo_read`
 - `todo_write`
 - `update_execution_plan`
-- `update_knowledge_entity`
-- `wipe_knowledge_graph`
 - `write_file`
 
 ### Progress Reporting (1)
@@ -125,4 +124,4 @@ Simplified tool reference for agent contexts (removes verbose descriptions).
 
 ---
 
-**Total Tools**: 101
+**Total Tools**: 100

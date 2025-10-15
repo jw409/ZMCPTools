@@ -90,6 +90,7 @@ export {
   type FileSymbolMetadata,
   type SymbolLookupResult
 } from './SymbolIndexRepository.js';
+export { RoomRepository } from './RoomRepository.js';
 
 /**
  * Helper function to create a type-safe repository with full TypeScript support

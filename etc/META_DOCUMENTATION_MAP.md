@@ -29,6 +29,7 @@
 
 | Document | Location | Purpose | Last Updated |
 |----------|----------|---------|--------------|
+| **Pure Reindex Pattern** | `etc/decisions/PURE_REINDEX_PATTERN.md` | Knowledge graph data flow (reindex from source vs mutations) | 2025-10-14 |
 | **Embedding Model Selection** | `etc/decisions/EMBEDDING_MODEL_SELECTION.md` | Why Gemma3-300M for embeddings | Check file |
 | **Resources vs Tools** | `etc/decisions/RESOURCES_VS_TOOLS_DECISION.md` | When to use MCP resources vs tools | Check file |
 | **Browser Tools Archive** | `etc/decisions/WHY_ARCHIVED_LEGACY_BROWSER_TOOLS.md` | Why we migrated to Playwright MCP | Check file |
@@ -94,6 +95,7 @@
 
 **Purpose**: Long-term strategy, model selection, system design
 
+- `etc/decisions/PURE_REINDEX_PATTERN.md` - **Knowledge graph data flow** (reindex from source vs mutations)
 - `etc/EMBEDDING_STRATEGY.md` - GPU model choice (Gemma3), LanceDB patterns
 - `COMPATIBILITY_MODES.md` - Tool availability by mode (Standard/OpenRouter/Gemini/Agent)
 - `SECURITY_IMPLEMENTATION.md` - Role-based access control (RBAC), defense-in-depth
@@ -190,6 +192,8 @@
 
 | Question | Answer |
 |----------|--------|
+| Knowledge graph data flow? | `etc/decisions/PURE_REINDEX_PATTERN.md` → Reindex vs mutation pattern |
+| How to update knowledge graph? | `etc/decisions/PURE_REINDEX_PATTERN.md` → Update source, then reindex |
 | Available GitHub labels? | `etc/GITHUB_ISSUES.md` → "Available Labels" section |
 | Which embedding model to use? | `etc/EMBEDDING_STRATEGY.md` → "Model Selection" section |
 | How to verify agent work? | `etc/AGENT_VERIFICATION_CHECKLIST.md` → "Verification Checklist" |
@@ -207,6 +211,8 @@
 
 | Task | Documentation |
 |------|---------------|
+| Update knowledge graph data | `etc/decisions/PURE_REINDEX_PATTERN.md` → "Migration Path" (update source + reindex) |
+| Rebuild knowledge index | `etc/decisions/PURE_REINDEX_PATTERN.md` → "Data Flow" (index_knowledge, index_symbol_graph) |
 | Create a GitHub issue | `etc/GITHUB_ISSUES.md` → "Issue Creation Protocol" |
 | Verify agent completed work | `etc/AGENT_VERIFICATION_CHECKLIST.md` → "Post-Agent Verification Protocol" |
 | Choose embedding model | `etc/EMBEDDING_STRATEGY.md` → "Model Selection: Gemma3-300M" |
@@ -319,7 +325,7 @@ gh issue create --label "enhancement"
 
 ---
 
-**Last Updated**: 2025-10-11 (Added COMPATIBILITY_MODES.md and SECURITY_IMPLEMENTATION.md, noted EMBEDDING_MODEL_SELECTION.md may be outdated)
+**Last Updated**: 2025-10-14 (Added PURE_REINDEX_PATTERN.md for knowledge graph architecture)
 
 **Status**: Living document - update whenever new docs added
 

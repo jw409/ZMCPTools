@@ -52,13 +52,7 @@ import { PromptManager } from "../managers/PromptManager.js";
 import { PathUtils } from "../utils/pathUtils.js";
 import { LanceDBService } from "../services/LanceDBService.js";
 import { toCleanJsonSchema } from "../utils/jsonSchemaUtils.js";
-import {
-  KnowledgeGraphMcpTools,
-  StoreKnowledgeMemorySchema,
-  CreateRelationshipSchema,
-  SearchKnowledgeGraphSchema,
-  FindRelatedEntitiesSchema,
-} from "../tools/knowledgeGraphTools.js";
+import { KnowledgeGraphMcpTools } from "../tools/knowledgeGraphTools.js";
 import { gpuKnowledgeTools } from "../tools/knowledgeGraphGPUTools.js";
 import { indexSymbolGraphTool } from "../tools/IndexSymbolGraphTool.js";
 import { indexKnowledgeTool } from "../tools/IndexKnowledgeTool.js";

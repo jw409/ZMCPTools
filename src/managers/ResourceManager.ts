@@ -12,6 +12,7 @@ import { VectorSearchService } from "../services/VectorSearchService.js";
 import { MemoryService } from "../services/MemoryService.js";
 import { WebsiteRepository } from "../repositories/WebsiteRepository.js";
 import { WebsitePagesRepository } from "../repositories/WebsitePagesRepository.js";
+import { RoomRepository } from "../repositories/RoomRepository.js";
 import { PathUtils } from "../utils/pathUtils.js";
 import { TreeSitterASTTool } from "../tools/TreeSitterASTTool.js";
 import { TreeSummaryService } from "../services/TreeSummaryService.js";
@@ -75,6 +76,7 @@ export class ResourceManager {
   private memoryService: MemoryService;
   private websiteRepository: WebsiteRepository;
   private websitePagesRepository: WebsitePagesRepository;
+  private roomRepository: RoomRepository;
   private treeSitterASTTool: TreeSitterASTTool;
   private treeSummaryService: TreeSummaryService;
   private logger: Logger;
@@ -106,6 +108,7 @@ export class ResourceManager {
     this.documentationService = new DocumentationService(this.db);
     this.websiteRepository = new WebsiteRepository(this.db);
     this.websitePagesRepository = new WebsitePagesRepository(this.db);
+    this.roomRepository = new RoomRepository(this.db);
     this.treeSitterASTTool = new TreeSitterASTTool();
     this.treeSummaryService = new TreeSummaryService();
     this.logger = new Logger('resource-manager');
@@ -449,6 +452,74 @@ export class ResourceManager {
           }
         }
       },
+      // Room Coordination Resources (SQLite3-backed agent coordination)
+      {
+        uriTemplate: "rooms://list",
+        name: "Coordination Rooms",
+        description:
+          "📋 LIST ACTIVE ROOMS (PAGINATED): Get all agent coordination rooms for parallel multi-agent tasks. Returns room metadata (session_id, task, agents, message counts). Use for discovering active coordination contexts. **Params**: `?limit=50&cursor=<token>`. Returns: rooms array with nextCursor for pagination. **Use case**: Coordinator discovery, crash recovery, multi-agent debugging.",
+        mimeType: "application/json",
+        _meta: {
+          "params": {
+            "limit": "max rooms to return (default: 50)",
+            "cursor": "optional cursor token from previous response for pagination"
+          }
+        }
+      },
+      {
+        uriTemplate: "rooms://*/messages",
+        name: "Room Messages",
+        description:
+          "💬 READ ROOM MESSAGES (PAGINATED): Get all messages from a coordination room by room ID. Returns message history with agent_id, type (orientation/task_assignment/result/etc), content, timestamp. Use for: reading task assignments, checking worker status, crash recovery context reconstruction. **Params**: `?limit=100&cursor=<token>&since_timestamp=ISO8601&type=result&agent_id=worker-123`. **Use case**: Worker reads tasks, coordinator monitors progress.",
+        mimeType: "application/json",
+        _meta: {
+          "params": {
+            "room_id": "room ID in URI path (e.g., rooms://coord-abc123/messages)",
+            "limit": "max messages to return (default: 100)",
+            "cursor": "optional cursor token from previous response",
+            "since_timestamp": "ISO 8601 timestamp - only return messages after this time",
+            "type": "filter by message type (orientation, task_assignment, result, status, etc)",
+            "agent_id": "filter by specific agent"
+          }
+        }
+      },
+      {
+        uriTemplate: "rooms://*/agents",
+        name: "Room Agents",
+        description:
+          "👥 LIST ROOM AGENTS: Get all agents registered in a coordination room. Returns agent metadata (agent_id, model, role, joined_at). Use for: verifying agent participation, checking who's active, debugging coordination issues. **Use case**: Coordinator verifies workers joined, crash recovery identifies orphaned agents.",
+        mimeType: "application/json",
+        _meta: {
+          "params": {
+            "room_id": "room ID in URI path (e.g., rooms://coord-abc123/agents)"
+          }
+        }
+      },
+      {
+        uriTemplate: "rooms://*/state",
+        name: "Room State",
+        description:
+          "🔧 READ ROOM STATE: Get shared state object for a room (JSON key-value store). Use for: reading coordination state, checkpoint data, shared counters, flags. **Use case**: Workers read task progress, coordinator tracks completion status.",
+        mimeType: "application/json",
+        _meta: {
+          "params": {
+            "room_id": "room ID in URI path (e.g., rooms://coord-abc123/state)"
+          }
+        }
+      },
+      {
+        uriTemplate: "rooms://*/summary",
+        name: "Room Context Summary",
+        description:
+          "📊 ROOM OVERVIEW (CRASH RECOVERY): Get complete room context - room metadata, agents, recent messages (last N), current state. Use for: crash recovery (full context reconstruction), debugging multi-agent coordination, understanding room activity at a glance. **Params**: `?max_messages=10`. **Use case**: Coordinator crash recovery, debugging failed coordination.",
+        mimeType: "application/json",
+        _meta: {
+          "params": {
+            "room_id": "room ID in URI path (e.g., rooms://coord-abc123/summary)",
+            "max_messages": "max recent messages to include (default: 10)"
+          }
+        }
+      },
     ];
 
     return resources;
@@ -499,6 +570,9 @@ export class ResourceManager {
       case "logs://list":
         return await this.getLogsList();
 
+      case "rooms://list":
+        return await this.getRoomsList(searchParams);
+
       default:
         // Handle logs://{dirname}/files pattern
         if (scheme === "logs" && path.endsWith("/files")) {
@@ -521,6 +595,38 @@ export class ResourceManager {
           const entityId = path.replace("/entity/", "").replace("/related", "");
           if (entityId) {
             return await this.getRelatedEntities(entityId, searchParams);
+          }
+        }
+
+        // Handle rooms://{roomId}/messages pattern
+        if (scheme === "rooms" && path.endsWith("/messages")) {
+          const roomId = path.replace("/messages", "");
+          if (roomId) {
+            return await this.getRoomMessagesById(roomId, searchParams);
+          }
+        }
+
+        // Handle rooms://{roomId}/agents pattern
+        if (scheme === "rooms" && path.endsWith("/agents")) {
+          const roomId = path.replace("/agents", "");
+          if (roomId) {
+            return await this.getRoomAgents(roomId);
+          }
+        }
+
+        // Handle rooms://{roomId}/state pattern
+        if (scheme === "rooms" && path.endsWith("/state")) {
+          const roomId = path.replace("/state", "");
+          if (roomId) {
+            return await this.getRoomState(roomId);
+          }
+        }
+
+        // Handle rooms://{roomId}/summary pattern
+        if (scheme === "rooms" && path.endsWith("/summary")) {
+          const roomId = path.replace("/summary", "");
+          if (roomId) {
+            return await this.getRoomSummary(roomId, searchParams);
           }
         }
 
@@ -2460,6 +2566,390 @@ export class ResourceManager {
           null,
           2
         )
+      };
+    }
+  }
+
+  /**
+   * List all coordination rooms with cursor pagination
+   */
+  private async getRoomsList(
+    searchParams: URLSearchParams
+  ): Promise<TextResourceContents> {
+    try {
+      const limit = parseInt(searchParams.get("limit") || "50");
+      const cursor = searchParams.get("cursor");
+      const repositoryPathFilter = searchParams.get("repository_path");
+
+      // Parse cursor for position information
+      let startPosition = 0;
+      if (cursor) {
+        try {
+          const cursorData = CursorManager.decode(cursor);
+          startPosition = cursorData.position || 0;
+        } catch (error) {
+          throw new Error('Invalid cursor parameter');
+        }
+      }
+
+      // Build filter for RoomRepository
+      const filter: any = {
+        limit: startPosition + limit * 2, // Fetch extra for pagination check
+        offset: 0,
+      };
+
+      if (repositoryPathFilter) {
+        filter.repositoryPath = repositoryPathFilter;
+      }
+
+      const result = await this.roomRepository.listRooms(filter);
+      const allRooms = result.rooms;
+
+      // Apply cursor-based pagination
+      const endPosition = startPosition + limit;
+      const paginatedRooms = allRooms.slice(startPosition, endPosition);
+
+      // Generate next cursor if more results exist
+      let nextCursor: string | undefined;
+      if (allRooms.length > endPosition) {
+        nextCursor = CursorManager.createPositionCursor(endPosition);
+      }
+
+      return {
+        uri: "rooms://list",
+        mimeType: "application/json",
+        text: JSON.stringify(
+          {
+            rooms: paginatedRooms.map((room) => ({
+              id: room.id,
+              sessionId: room.sessionId,
+              task: room.task,
+              repositoryPath: room.repositoryPath,
+              state: room.state,
+              createdAt: room.createdAt,
+              updatedAt: room.updatedAt,
+            })),
+            nextCursor,
+            limit,
+            total: result.total,
+            timestamp: new Date().toISOString(),
+          },
+          null,
+          2
+        ),
+      };
+    } catch (error) {
+      return {
+        uri: "rooms://list",
+        mimeType: "application/json",
+        text: JSON.stringify(
+          {
+            error:
+              error instanceof Error
+                ? error.message
+                : "Failed to list coordination rooms",
+            rooms: [],
+            total: 0,
+            timestamp: new Date().toISOString(),
+          },
+          null,
+          2
+        ),
+      };
+    }
+  }
+
+  /**
+   * Get messages from a specific room with filtering and pagination
+   */
+  private async getRoomMessagesById(
+    roomId: string,
+    searchParams: URLSearchParams
+  ): Promise<TextResourceContents> {
+    try {
+      const limit = parseInt(searchParams.get("limit") || "100");
+      const cursor = searchParams.get("cursor");
+      const sinceTimestamp = searchParams.get("since_timestamp") || undefined;
+      const type = searchParams.get("type") as any;
+      const agentId = searchParams.get("agent_id") || undefined;
+
+      // Parse cursor for position information
+      let offset = 0;
+      if (cursor) {
+        try {
+          const cursorData = CursorManager.decode(cursor);
+          offset = cursorData.position || 0;
+        } catch (error) {
+          throw new Error('Invalid cursor parameter');
+        }
+      }
+
+      // Build filter for message query
+      const filter: any = {
+        roomId,
+        limit,
+        offset,
+      };
+
+      if (sinceTimestamp) {
+        filter.sinceTimestamp = sinceTimestamp;
+      }
+
+      if (type) {
+        filter.type = type;
+      }
+
+      if (agentId) {
+        filter.agentId = agentId;
+      }
+
+      const messages = await this.roomRepository.getMessages(filter);
+
+      // Generate next cursor if we got a full page (might be more)
+      let nextCursor: string | undefined;
+      if (messages.length === limit) {
+        nextCursor = CursorManager.createPositionCursor(offset + limit);
+      }
+
+      return {
+        uri: `rooms://${roomId}/messages`,
+        mimeType: "application/json",
+        text: JSON.stringify(
+          {
+            roomId,
+            messages: messages.map((msg) => ({
+              id: msg.id,
+              agentId: msg.agentId,
+              type: msg.type,
+              content: msg.content,
+              turn: msg.turn,
+              metrics: msg.metrics,
+              timestamp: msg.timestamp,
+            })),
+            nextCursor,
+            limit,
+            filters: {
+              sinceTimestamp,
+              type,
+              agentId,
+            },
+            timestamp: new Date().toISOString(),
+          },
+          null,
+          2
+        ),
+      };
+    } catch (error) {
+      return {
+        uri: `rooms://${roomId}/messages`,
+        mimeType: "application/json",
+        text: JSON.stringify(
+          {
+            error:
+              error instanceof Error
+                ? error.message
+                : "Failed to get room messages",
+            roomId,
+            messages: [],
+            timestamp: new Date().toISOString(),
+          },
+          null,
+          2
+        ),
+      };
+    }
+  }
+
+  /**
+   * Get all agents registered in a room
+   */
+  private async getRoomAgents(roomId: string): Promise<TextResourceContents> {
+    try {
+      const agents = await this.roomRepository.getAgents(roomId);
+
+      return {
+        uri: `rooms://${roomId}/agents`,
+        mimeType: "application/json",
+        text: JSON.stringify(
+          {
+            roomId,
+            agents: agents.map((agent) => ({
+              agentId: agent.agentId,
+              model: agent.model,
+              role: agent.role,
+              joinedAt: agent.joinedAt,
+            })),
+            total: agents.length,
+            timestamp: new Date().toISOString(),
+          },
+          null,
+          2
+        ),
+      };
+    } catch (error) {
+      return {
+        uri: `rooms://${roomId}/agents`,
+        mimeType: "application/json",
+        text: JSON.stringify(
+          {
+            error:
+              error instanceof Error
+                ? error.message
+                : "Failed to get room agents",
+            roomId,
+            agents: [],
+            total: 0,
+            timestamp: new Date().toISOString(),
+          },
+          null,
+          2
+        ),
+      };
+    }
+  }
+
+  /**
+   * Get shared state for a room
+   */
+  private async getRoomState(roomId: string): Promise<TextResourceContents> {
+    try {
+      const state = await this.roomRepository.getState(roomId);
+
+      if (state === null) {
+        return {
+          uri: `rooms://${roomId}/state`,
+          mimeType: "application/json",
+          text: JSON.stringify(
+            {
+              error: "Room not found",
+              roomId,
+              state: null,
+              timestamp: new Date().toISOString(),
+            },
+            null,
+            2
+          ),
+        };
+      }
+
+      return {
+        uri: `rooms://${roomId}/state`,
+        mimeType: "application/json",
+        text: JSON.stringify(
+          {
+            roomId,
+            state,
+            timestamp: new Date().toISOString(),
+          },
+          null,
+          2
+        ),
+      };
+    } catch (error) {
+      return {
+        uri: `rooms://${roomId}/state`,
+        mimeType: "application/json",
+        text: JSON.stringify(
+          {
+            error:
+              error instanceof Error ? error.message : "Failed to get room state",
+            roomId,
+            state: null,
+            timestamp: new Date().toISOString(),
+          },
+          null,
+          2
+        ),
+      };
+    }
+  }
+
+  /**
+   * Get complete room context summary for crash recovery
+   */
+  private async getRoomSummary(
+    roomId: string,
+    searchParams: URLSearchParams
+  ): Promise<TextResourceContents> {
+    try {
+      const maxMessages = parseInt(searchParams.get("max_messages") || "10");
+
+      const summary = await this.roomRepository.getContextSummary(
+        roomId,
+        maxMessages
+      );
+
+      if (!summary.room) {
+        return {
+          uri: `rooms://${roomId}/summary`,
+          mimeType: "application/json",
+          text: JSON.stringify(
+            {
+              error: "Room not found",
+              roomId,
+              summary: null,
+              timestamp: new Date().toISOString(),
+            },
+            null,
+            2
+          ),
+        };
+      }
+
+      return {
+        uri: `rooms://${roomId}/summary`,
+        mimeType: "application/json",
+        text: JSON.stringify(
+          {
+            roomId,
+            room: {
+              id: summary.room.id,
+              sessionId: summary.room.sessionId,
+              task: summary.room.task,
+              repositoryPath: summary.room.repositoryPath,
+              state: summary.room.state,
+              createdAt: summary.room.createdAt,
+              updatedAt: summary.room.updatedAt,
+            },
+            agents: summary.agents.map((agent) => ({
+              agentId: agent.agentId,
+              model: agent.model,
+              role: agent.role,
+              joinedAt: agent.joinedAt,
+            })),
+            recentMessages: summary.messages.map((msg) => ({
+              id: msg.id,
+              agentId: msg.agentId,
+              type: msg.type,
+              content: msg.content,
+              turn: msg.turn,
+              metrics: msg.metrics,
+              timestamp: msg.timestamp,
+            })),
+            maxMessages,
+            timestamp: new Date().toISOString(),
+          },
+          null,
+          2
+        ),
+      };
+    } catch (error) {
+      return {
+        uri: `rooms://${roomId}/summary`,
+        mimeType: "application/json",
+        text: JSON.stringify(
+          {
+            error:
+              error instanceof Error
+                ? error.message
+                : "Failed to get room summary",
+            roomId,
+            summary: null,
+            timestamp: new Date().toISOString(),
+          },
+          null,
+          2
+        ),
       };
     }
   }

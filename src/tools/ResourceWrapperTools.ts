@@ -258,6 +258,93 @@ export function getResourceWrapperTools(resourceManager: ResourceManager): McpTo
         const uri = 'vector://status';
         return await resourceManager.readResource(uri);
       }
+    },
+
+    // Room Coordination Resources
+    {
+      name: 'get_rooms_list',
+      description: 'List all agent coordination rooms for parallel multi-agent tasks. Use for discovering active coordination contexts and crash recovery.',
+      inputSchema: zodToJsonSchema(z.object({
+        limit: z.number().optional().default(50).describe('Max rooms to return'),
+        cursor: z.string().optional().describe('Pagination cursor from previous response'),
+        repository_path: z.string().optional().describe('Filter by repository path')
+      })),
+      handler: async (args) => {
+        const { limit = 50, cursor, repository_path } = args;
+        const params = new URLSearchParams();
+        params.set('limit', String(limit));
+        if (cursor) params.set('cursor', cursor);
+        if (repository_path) params.set('repository_path', repository_path);
+
+        const uri = `rooms://list?${params}`;
+        return await resourceManager.readResource(uri);
+      }
+    },
+
+    {
+      name: 'get_room_messages',
+      description: 'Get messages from a coordination room. Use for reading task assignments, checking worker status, or crash recovery context reconstruction.',
+      inputSchema: zodToJsonSchema(z.object({
+        room_id: z.string().describe('Room ID (e.g., "coord-abc123")'),
+        limit: z.number().optional().default(100).describe('Max messages to return'),
+        cursor: z.string().optional().describe('Pagination cursor'),
+        since_timestamp: z.string().optional().describe('ISO 8601 timestamp - only messages after this time'),
+        type: z.enum(['orientation', 'task_assignment', 'acknowledgment', 'status', 'result', 'coordination', 'error', 'completion', 'request', 'response', 'final']).optional().describe('Filter by message type'),
+        agent_id: z.string().optional().describe('Filter by specific agent')
+      })),
+      handler: async (args) => {
+        const { room_id, limit = 100, cursor, since_timestamp, type, agent_id } = args;
+        const params = new URLSearchParams();
+        params.set('limit', String(limit));
+        if (cursor) params.set('cursor', cursor);
+        if (since_timestamp) params.set('since_timestamp', since_timestamp);
+        if (type) params.set('type', type);
+        if (agent_id) params.set('agent_id', agent_id);
+
+        const uri = `rooms://${room_id}/messages?${params}`;
+        return await resourceManager.readResource(uri);
+      }
+    },
+
+    {
+      name: 'get_room_agents',
+      description: 'Get all agents registered in a coordination room. Use for verifying agent participation, checking who\'s active, or debugging coordination issues.',
+      inputSchema: zodToJsonSchema(z.object({
+        room_id: z.string().describe('Room ID (e.g., "coord-abc123")')
+      })),
+      handler: async (args) => {
+        const uri = `rooms://${args.room_id}/agents`;
+        return await resourceManager.readResource(uri);
+      }
+    },
+
+    {
+      name: 'get_room_state',
+      description: 'Get shared state object for a room (JSON key-value store). Use for reading coordination state, checkpoint data, shared counters, or flags.',
+      inputSchema: zodToJsonSchema(z.object({
+        room_id: z.string().describe('Room ID (e.g., "coord-abc123")')
+      })),
+      handler: async (args) => {
+        const uri = `rooms://${args.room_id}/state`;
+        return await resourceManager.readResource(uri);
+      }
+    },
+
+    {
+      name: 'get_room_summary',
+      description: 'Get complete room context - room metadata, agents, recent messages, current state. Use for crash recovery (full context reconstruction) or debugging multi-agent coordination.',
+      inputSchema: zodToJsonSchema(z.object({
+        room_id: z.string().describe('Room ID (e.g., "coord-abc123")'),
+        max_messages: z.number().optional().default(10).describe('Max recent messages to include')
+      })),
+      handler: async (args) => {
+        const { room_id, max_messages = 10 } = args;
+        const params = new URLSearchParams();
+        params.set('max_messages', String(max_messages));
+
+        const uri = `rooms://${room_id}/summary?${params}`;
+        return await resourceManager.readResource(uri);
+      }
     }
   ];
 }

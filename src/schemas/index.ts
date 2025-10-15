@@ -9,6 +9,7 @@ export * from './knowledge-graph';
 export * from './shared-state';
 export * from './contracts';
 export * from './symbol-index';
+export * from './rooms';
 
 // Re-export commonly used types for convenience
 export type {
@@ -148,6 +149,20 @@ export type {
   ArtifactRegistry,
   InsertArtifactRegistry,
 } from './shared-state';
+
+export type {
+  // Room coordination types
+  Room,
+  NewRoom,
+  RoomUpdate,
+  RoomMessage,
+  NewRoomMessage,
+  RoomAgent,
+  NewRoomAgent,
+  MessageType,
+  RoomFilter,
+  MessageFilter,
+} from './rooms';
 
 
 // Re-export schemas for validation
@@ -303,6 +318,20 @@ export {
   selectArtifactRegistrySchema,
 } from './shared-state';
 
+export {
+  // Room coordination schemas
+  messageTypeSchema as roomMessageTypeSchema,
+  insertRoomSchema,
+  selectRoomSchema,
+  updateRoomSchema,
+  insertRoomMessageSchema,
+  selectRoomMessageSchema,
+  insertRoomAgentSchema,
+  selectRoomAgentSchema,
+  roomFilterSchema,
+  messageFilterSchema as roomMessageFilterSchema,
+} from './rooms';
+
 
 // Re-export Drizzle table definitions
 export { memories } from './memories';
@@ -313,6 +342,7 @@ export { documentationSources, scrapeJobs, websites, websitePages } from './scra
 export { errorLogs, toolCallLogs } from './logs';
 export { knowledgeEntities, knowledgeRelationships, knowledgeInsights } from './knowledge-graph';
 export { sharedTodos, agentProgress, artifactRegistry } from './shared-state';
+export { rooms, roomMessages, roomAgents } from './rooms';
 
 // Import tables and schemas for collections
 import { 
@@ -401,6 +431,18 @@ import {
   insertArtifactRegistrySchema,
   selectArtifactRegistrySchema
 } from './shared-state';
+import {
+  rooms,
+  roomMessages,
+  roomAgents,
+  insertRoomSchema,
+  selectRoomSchema,
+  updateRoomSchema,
+  insertRoomMessageSchema,
+  selectRoomMessageSchema,
+  insertRoomAgentSchema,
+  selectRoomAgentSchema
+} from './rooms';
 
 // Database schema collections for easier management
 export const allTables = {
@@ -435,6 +477,11 @@ export const allTables = {
   sharedTodos,
   agentProgress,
   artifactRegistry,
+
+  // Room coordination tables
+  rooms,
+  roomMessages,
+  roomAgents,
 } as const;
 
 // Schema validation collections
@@ -458,6 +505,9 @@ export const insertSchemas = {
   sharedTodos: insertSharedTodoSchema,
   agentProgress: insertAgentProgressSchema,
   artifactRegistry: insertArtifactRegistrySchema,
+  rooms: insertRoomSchema,
+  roomMessages: insertRoomMessageSchema,
+  roomAgents: insertRoomAgentSchema,
 } as const;
 
 export const selectSchemas = {
@@ -480,6 +530,9 @@ export const selectSchemas = {
   sharedTodos: selectSharedTodoSchema,
   agentProgress: selectAgentProgressSchema,
   artifactRegistry: selectArtifactRegistrySchema,
+  rooms: selectRoomSchema,
+  roomMessages: selectRoomMessageSchema,
+  roomAgents: selectRoomAgentSchema,
 } as const;
 
 export const updateSchemas = {
@@ -496,6 +549,7 @@ export const updateSchemas = {
   knowledgeEntities: updateKnowledgeEntitySchema,
   knowledgeRelationships: updateKnowledgeRelationshipSchema,
   knowledgeInsights: updateKnowledgeInsightSchema,
+  rooms: updateRoomSchema,
 } as const;
 
 // Database constants
