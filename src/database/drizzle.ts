@@ -348,7 +348,9 @@ export class DatabaseManager {
           if (pkg.packageManager.startsWith('yarn')) return 'yarn';
         }
       }
-    } catch {}
+    } catch (error) {
+      this.logger.debug('Failed to detect package manager from package.json', error);
+    }
     
     // Check environment variables
     if (process.env.npm_config_user_agent) {

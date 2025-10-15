@@ -32,7 +32,10 @@ export class PathResolver {
             return current;
           }
         }
-      } catch {}
+      } catch (error) {
+        // Continue searching parent directories if JSON parse fails
+        console.warn(`Failed to parse package.json at ${join(current, 'package.json')}:`, error);
+      }
       current = dirname(current);
     }
     
