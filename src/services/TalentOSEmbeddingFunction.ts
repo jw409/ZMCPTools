@@ -6,6 +6,7 @@
 
 import { Logger } from '../utils/logger.js';
 import { EmbeddingClient } from './EmbeddingClient.js';
+import { getEmbeddingQueue } from './EmbeddingQueue.js';
 
 export interface TalentOSEmbeddingConfig {
   modelName?: string;
@@ -23,6 +24,7 @@ export class TalentOSEmbeddingFunction {
   private logger: Logger;
   private config: Required<TalentOSEmbeddingConfig>;
   private embeddingClient: EmbeddingClient;
+  private embeddingQueue: ReturnType<typeof getEmbeddingQueue>;
   private isAvailable: boolean = false;
   private lastHealthCheck: number = 0;
   private healthCheckInterval: number = 30000; // 30 seconds
@@ -41,10 +43,26 @@ export class TalentOSEmbeddingFunction {
       fallbackModel: config.fallbackModel || 'Xenova/all-MiniLM-L6-v2'
     };
 
-    this.logger.info('TalentOS embedding function initialized', {
+    // Initialize smart embedding queue with adaptive batching
+    this.embeddingQueue = getEmbeddingQueue({
+      serviceUrl: `${this.config.endpoint}/embed`,
+      model: this.config.modelName,
+      initialBatchSize: this.config.batchSize,
+      maxBatchSize: 150,
+      minBatchSize: 30,
+      flushInterval: 500,
+      maxConcurrent: 3,
+      targetLatency: 3000
+    });
+
+    this.logger.info('TalentOS embedding function initialized with smart queue', {
       model: this.config.modelName,
       endpoint: this.config.endpoint,
-      dimensions: this.getDimension()
+      dimensions: this.getDimension(),
+      queueConfig: {
+        initialBatchSize: this.config.batchSize,
+        maxConcurrent: 3
+      }
     });
   }
 
@@ -126,75 +144,84 @@ export class TalentOSEmbeddingFunction {
 
   /**
    * Process a batch of texts for embedding
+   * OPTIMIZED: Send all uncached texts in ONE batch request to keep GPU saturated
    */
   private async embedBatch(texts: string[]): Promise<number[][]> {
-    const embeddings: number[][] = [];
+    // Separate cached vs uncached texts
+    const uncachedTexts: string[] = [];
+    const uncachedIndices: number[] = [];
+    const results: (number[] | null)[] = new Array(texts.length).fill(null);
 
-    for (const text of texts) {
-      // Check cache first
+    // Extract cached embeddings and identify uncached texts
+    texts.forEach((text, idx) => {
       if (this.cache.has(text)) {
-        embeddings.push(this.cache.get(text)!);
-        continue;
+        results[idx] = this.cache.get(text)!;
+      } else {
+        uncachedTexts.push(text);
+        uncachedIndices.push(idx);
       }
+    });
 
-      try {
-        const embedding = await this.generateSingleEmbedding(text);
+    // If all texts were cached, return immediately
+    if (uncachedTexts.length === 0) {
+      return results as number[][];
+    }
 
-        // Cache the result
+    try {
+      // Generate embeddings for ALL uncached texts in ONE batch request
+      const newEmbeddings = await this.generateBatchEmbeddings(uncachedTexts);
+
+      // Merge new embeddings into results and update cache
+      newEmbeddings.forEach((embedding, i) => {
+        const originalIdx = uncachedIndices[i];
+        const text = uncachedTexts[i];
+
+        results[originalIdx] = embedding;
+
+        // Update cache (evict oldest if full)
         if (this.cache.size >= this.maxCacheSize) {
           const oldestKey = this.cache.keys().next().value;
           this.cache.delete(oldestKey);
         }
         this.cache.set(text, embedding);
+      });
 
-        embeddings.push(embedding);
+      return results as number[][];
 
-      } catch (error) {
-        this.logger.error('Failed to generate embedding for text - CRITICAL ERROR', {
-          text: text.substring(0, 100),
-          error: error.message,
-          stack: error.stack
-        });
+    } catch (error) {
+      this.logger.error('Failed to generate batch embeddings - CRITICAL ERROR', {
+        batchSize: uncachedTexts.length,
+        error: error.message,
+        stack: error.stack
+      });
 
-        // DO NOT use fallback - fail loudly so we can debug
-        throw new Error(`TalentOS embedding generation failed: ${error.message}`);
-      }
+      // DO NOT use fallback - fail loudly so we can debug
+      throw new Error(`TalentOS batch embedding generation failed: ${error.message}`);
     }
-
-    return embeddings;
   }
 
   /**
-   * Generate embedding for a single text using TalentOS API
+   * Generate embeddings for multiple texts using smart embedding queue
+   * Queue handles batching, backpressure, retry logic, and adaptive sizing
    */
-  private async generateSingleEmbedding(text: string): Promise<number[]> {
-    const requestBody = {
-      text: text,
-      model: this.config.modelName
-    };
-
-    const response = await fetch(`${this.config.endpoint}/embed`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(requestBody),
-      signal: AbortSignal.timeout(this.config.timeout)
+  private async generateBatchEmbeddings(texts: string[]): Promise<number[][]> {
+    this.logger.debug(`Queueing ${texts.length} texts for embedding`, {
+      queueStats: this.embeddingQueue.getStats()
     });
 
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => 'Unknown error');
-      throw new Error(`TalentOS embedding request failed: ${response.status} - ${errorText}`);
-    }
+    // Send all texts to the queue - it will handle batching and backpressure
+    const embeddings = await this.embeddingQueue.addBatch(texts);
 
-    const result = await response.json();
+    // Filter out nulls (failed embeddings) and use fallback
+    const results = embeddings.map((embedding, i) => {
+      if (embedding === null) {
+        this.logger.warn(`Embedding failed for text ${i}, using fallback`);
+        return this.createFallbackEmbedding(texts[i]);
+      }
+      return embedding;
+    });
 
-    // API returns embeddings (plural) as array - extract first embedding
-    if (!result.embeddings || !Array.isArray(result.embeddings) || result.embeddings.length === 0) {
-      throw new Error('Invalid embedding response from TalentOS service');
-    }
-
-    return result.embeddings[0];
+    return results;
   }
 
   /**

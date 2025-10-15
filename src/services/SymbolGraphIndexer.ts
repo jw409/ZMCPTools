@@ -291,100 +291,10 @@ export class SymbolGraphIndexer {
     // Check if we need to migrate from old schema
     await this.migrateSchemaIfNeeded();
 
-    const schema = `
-      -- File index with mtime tracking (incremental indexing)
-      -- Phase 1: Added partition_id and authority_score for knowledge graph hierarchy
-      CREATE TABLE IF NOT EXISTS indexed_files (
-        file_path TEXT PRIMARY KEY,
-        mtime INTEGER NOT NULL,
-        file_hash TEXT NOT NULL,
-        language TEXT NOT NULL,
-        size INTEGER NOT NULL,
-        symbol_count INTEGER DEFAULT 0,
-        last_indexed_at INTEGER NOT NULL,
-        index_version INTEGER DEFAULT 1,
-        partition_id TEXT,              -- Knowledge partition (dom0, project, talent_*, etc.)
-        authority_score REAL DEFAULT 0.35  -- Authority level 0.0-1.0 (higher = more authoritative)
-      );
+    // The schema is now managed by Drizzle in `src/schemas`.
+    // The `pnpm db:push` command handles schema creation and migration.
+    // This method is kept for potential future manual migration logic.
 
-      -- Symbol table (extracted via TreeSitterASTTool)
-      -- Updated to support hierarchical symbols from compact AST format
-      CREATE TABLE IF NOT EXISTS symbols (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        file_path TEXT NOT NULL,
-        name TEXT NOT NULL,
-        type TEXT NOT NULL,
-        signature TEXT,
-        location TEXT NOT NULL,           -- Compact format: "startLine:startCol-endLine:endCol"
-        parent_symbol TEXT,                -- Parent class name for methods (NULL for top-level)
-        is_exported BOOLEAN DEFAULT 0,
-        FOREIGN KEY (file_path) REFERENCES indexed_files(file_path) ON DELETE CASCADE
-      );
-
-      -- Import/Export relationships (for import graph)
-      CREATE TABLE IF NOT EXISTS imports (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        source_file TEXT NOT NULL,
-        import_path TEXT NOT NULL,
-        imported_name TEXT,
-        is_default BOOLEAN DEFAULT 0,
-        FOREIGN KEY (source_file) REFERENCES indexed_files(file_path) ON DELETE CASCADE
-      );
-
-      -- BM25 metadata (code-only search domain)
-      CREATE TABLE IF NOT EXISTS bm25_documents (
-        file_path TEXT PRIMARY KEY,
-        searchable_text TEXT NOT NULL,
-        term_count INTEGER DEFAULT 0,
-        FOREIGN KEY (file_path) REFERENCES indexed_files(file_path) ON DELETE CASCADE
-      );
-
-      -- Semantic embeddings metadata (intent-only search domain)
-      CREATE TABLE IF NOT EXISTS semantic_metadata (
-        file_path TEXT PRIMARY KEY,
-        embedding_text TEXT NOT NULL,
-        embedding_stored BOOLEAN DEFAULT 0,
-        lancedb_id TEXT,
-        total_chunks INTEGER DEFAULT 1,  -- Number of chunks for this file (1 = no chunking)
-        FOREIGN KEY (file_path) REFERENCES indexed_files(file_path) ON DELETE CASCADE
-      );
-
-      -- Semantic chunks (for large files that exceed token limits)
-      CREATE TABLE IF NOT EXISTS semantic_chunks (
-        chunk_id TEXT PRIMARY KEY,
-        file_path TEXT NOT NULL,
-        chunk_index INTEGER NOT NULL,
-        chunk_text TEXT NOT NULL,
-        start_offset INTEGER NOT NULL,
-        end_offset INTEGER NOT NULL,
-        token_count INTEGER NOT NULL,
-        embedding_stored BOOLEAN DEFAULT 0,
-        lancedb_id TEXT,
-        FOREIGN KEY (file_path) REFERENCES indexed_files(file_path) ON DELETE CASCADE
-      );
-
-      -- FTS5 full-text search (for markdown/docs - Phase 1)
-      -- Uses SQLite's built-in BM25 ranking via FTS5 extension
-      CREATE VIRTUAL TABLE IF NOT EXISTS fts5_documents
-      USING fts5(
-        file_path UNINDEXED,
-        content,
-        tokenize = 'porter unicode61'
-      );
-
-      -- Indexes for performance
-      CREATE INDEX IF NOT EXISTS idx_indexed_files_mtime ON indexed_files(mtime);
-      CREATE INDEX IF NOT EXISTS idx_indexed_files_partition ON indexed_files(partition_id);
-      CREATE INDEX IF NOT EXISTS idx_indexed_files_authority ON indexed_files(authority_score);
-      CREATE INDEX IF NOT EXISTS idx_symbols_file_path ON symbols(file_path);
-      CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(name);
-      CREATE INDEX IF NOT EXISTS idx_imports_source_file ON imports(source_file);
-      CREATE INDEX IF NOT EXISTS idx_imports_import_path ON imports(import_path);
-      CREATE INDEX IF NOT EXISTS idx_semantic_chunks_file_path ON semantic_chunks(file_path);
-      CREATE INDEX IF NOT EXISTS idx_semantic_chunks_stored ON semantic_chunks(embedding_stored);
-    `;
-
-    this.db.exec(schema);
     logger.info('SymbolGraphIndexer schema initialized');
   }
 
@@ -641,6 +551,7 @@ export class SymbolGraphIndexer {
         this.db!.prepare('DELETE FROM symbols WHERE file_path = ?').run(relativePath);
         this.db!.prepare('DELETE FROM imports WHERE source_file = ?').run(relativePath);
         this.db!.prepare('DELETE FROM fts5_documents WHERE file_path = ?').run(relativePath);
+        this.db!.prepare('DELETE FROM semantic_chunks WHERE file_path = ?').run(relativePath);
 
         // 3. Insert symbols (flatten hierarchical structure)
         const symbolStmt = this.db!.prepare(`
@@ -750,12 +661,17 @@ export class SymbolGraphIndexer {
    */
   private async generatePendingEmbeddings(): Promise<void> {
     if (!this.lanceDBService || !this.db) {
-      logger.warn('LanceDB not initialized, skipping embedding generation');
+      logger.error('LanceDB not initialized, skipping embedding generation.', {
+        hasLanceDB: !!this.lanceDBService,
+        hasDB: !!this.db
+      });
       return;
     }
 
+    const startTime = Date.now();
+    logger.info('Starting pending embedding generation...');
+
     try {
-      // Get files where embedding_stored = 0 and embedding_text not empty
       const pending = this.db.prepare(`
         SELECT
           sm.file_path,
@@ -773,109 +689,162 @@ export class SymbolGraphIndexer {
       }>;
 
       if (pending.length === 0) {
-        logger.info('No pending embeddings to generate');
+        logger.info('No pending embeddings to generate.');
         return;
       }
 
-      logger.info(`Generating embeddings for ${pending.length} files...`);
+      logger.info(`Found ${pending.length} files requiring embedding.`);
 
-      let processedCount = 0;
-      let chunkedCount = 0;
+      let totalProcessedCount = 0;
+      let totalFailedCount = 0;
+      const BATCH_SIZE = 20; // As you suggested
+      const totalBatches = Math.ceil(pending.length / BATCH_SIZE);
 
-      // Process files one at a time (chunking requires token counting via API)
-      for (const row of pending) {
+      for (let i = 0; i < pending.length; i += BATCH_SIZE) {
+        const batch = pending.slice(i, i + BATCH_SIZE);
+        const batchNumber = i / BATCH_SIZE + 1;
+        logger.info(`Processing batch ${batchNumber}/${totalBatches} (${batch.length} files)...`);
+
         try {
-          // Determine language for semantic boundaries
-          const ext = path.extname(row.file_path);
-          const language = this.isDocumentationFile(row.file_path) ? 'markdown' : 'typescript';
-
-          // Chunk the document (returns single chunk if small enough)
-          const chunks = await this.semanticChunker.chunkDocument(
-            row.file_path,
-            row.embedding_text,
-            path.basename(row.file_path),
-            language
-          );
-
-          if (chunks.length > 1) {
-            chunkedCount++;
-            logger.info(`Chunked large file ${path.basename(row.file_path)} into ${chunks.length} chunks`);
-          }
-
-          // Store chunks in database
-          const insertChunkStmt = this.db.prepare(`
-            INSERT INTO semantic_chunks
-            (chunk_id, file_path, chunk_index, chunk_text, start_offset, end_offset, token_count)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-          `);
-
-          for (const chunk of chunks) {
-            insertChunkStmt.run(
-              chunk.metadata.chunkId,
+          // Step 1: Process chunks in parallel for the entire batch
+          logger.debug(`Chunking ${batch.length} files in parallel...`);
+          const chunkPromises = batch.map(row => {
+            const language = this.isDocumentationFile(row.file_path) ? 'markdown' : 'typescript';
+            return this.semanticChunker.chunkDocument(
               row.file_path,
-              chunk.metadata.chunkIndex,
-              chunk.text,
-              chunk.metadata.startOffset,
-              chunk.metadata.endOffset,
-              chunk.metadata.tokenCount
-            );
-          }
+              row.embedding_text,
+              path.basename(row.file_path),
+              language
+            ).then(chunks => ({ row, chunks })); // Keep row and chunks associated
+          });
 
-          // Embed each chunk
-          const chunkDocuments = chunks.map(chunk => ({
-            id: chunk.metadata.chunkId,
-            content: chunk.text,
-            metadata: {
-              file_path: row.file_path,
-              chunk_index: chunk.metadata.chunkIndex,
-              total_chunks: chunks.length,
-              start_offset: chunk.metadata.startOffset,
-              end_offset: chunk.metadata.endOffset,
-              token_count: chunk.metadata.tokenCount,
-              indexed_at: new Date().toISOString(),
-              partition_id: row.partition_id,
-              authority_score: row.authority_score
+          const results = await Promise.all(chunkPromises);
+          logger.debug(`Chunked ${results.length} files`);
+
+          // Step 2: Flatten all chunks from the batch and prepare for DB insertion
+          logger.debug(`Preparing chunks for DB and GPU...`);
+          const allDocuments: any[] = [];
+          const dbTransaction = this.db.transaction(() => {
+            // Clear existing chunks for this batch to prevent UNIQUE constraint errors
+            const filePaths = batch.map(row => row.file_path);
+            if (filePaths.length > 0) {
+              const placeholders = filePaths.map(() => '?').join(',');
+              this.db!.prepare(`DELETE FROM semantic_chunks WHERE file_path IN (${placeholders})`).run(...filePaths);
             }
-          }));
 
-          const result = await this.lanceDBService.addDocuments(this.COLLECTION_NAME, chunkDocuments);
-
-          if (result.success) {
-            // Mark chunks as stored
-            const updateChunkStmt = this.db.prepare(`
-              UPDATE semantic_chunks
-              SET embedding_stored = 1, lancedb_id = ?
-              WHERE chunk_id = ?
+            const insertChunkStmt = this.db!.prepare(`
+              INSERT INTO semantic_chunks
+              (chunk_id, file_path, chunk_index, chunk_text, start_offset, end_offset, token_count)
+              VALUES (?, ?, ?, ?, ?, ?, ?)
             `);
+            
+            for (const { row, chunks } of results) {
+              if (chunks.length > 1) {
+                logger.debug(`File ${path.basename(row.file_path)} was split into ${chunks.length} chunks.`);
+              }
 
-            for (const chunk of chunks) {
-              updateChunkStmt.run(chunk.metadata.chunkId, chunk.metadata.chunkId);
+              for (const chunk of chunks) {
+                // Store chunk metadata in SQLite
+                insertChunkStmt.run(
+                  chunk.metadata.chunkId,
+                  row.file_path,
+                  chunk.metadata.chunkIndex,
+                  chunk.text,
+                  chunk.metadata.startOffset,
+                  chunk.metadata.endOffset,
+                  chunk.metadata.tokenCount
+                );
+
+                // Prepare document for LanceDB batch insertion
+                allDocuments.push({
+                  id: chunk.metadata.chunkId,
+                  content: chunk.text,
+                  metadata: {
+                    file_path: row.file_path,
+                    chunk_index: chunk.metadata.chunkIndex,
+                    total_chunks: chunks.length,
+                    start_offset: chunk.metadata.startOffset,
+                    end_offset: chunk.metadata.endOffset,
+                    token_count: chunk.metadata.tokenCount,
+                    indexed_at: new Date().toISOString(),
+                    partition_id: row.partition_id,
+                    authority_score: row.authority_score
+                  }
+                });
+              }
             }
+          });
 
-            // Update file metadata
-            this.db.prepare(`
-              UPDATE semantic_metadata
-              SET embedding_stored = 1, total_chunks = ?, lancedb_id = ?
-              WHERE file_path = ?
-            `).run(chunks.length, row.file_path, row.file_path);
+          dbTransaction();
+          logger.debug(`Prepared ${allDocuments.length} chunks for embedding`);
 
-            processedCount++;
-            if (processedCount % 10 === 0) {
-              logger.info(`Embedding progress: ${processedCount}/${pending.length} files (${chunkedCount} chunked)`);
-            }
+          // Step 3: Embed all documents in a single GPU call
+          logger.debug(`Sending ${allDocuments.length} documents to GPU service...`);
+          const gpuStartTime = Date.now();
+          const embeddingResult = await this.lanceDBService.addDocuments(this.COLLECTION_NAME, allDocuments);
+          const gpuDuration = Date.now() - gpuStartTime;
+          logger.debug(`GPU processed ${allDocuments.length} docs in ${gpuDuration}ms`);
+
+          // Step 4: Update database with success status
+          if (embeddingResult.success) {
+            logger.debug(`Updating DB with success status...`);
+            const updateDbTransaction = this.db.transaction(() => {
+                const updateMetaStmt = this.db!.prepare(`
+                    UPDATE semantic_metadata SET embedding_stored = 1, total_chunks = (SELECT COUNT(*) FROM semantic_chunks WHERE file_path = ?) WHERE file_path = ?
+                `);
+                const updateChunkStatusStmt = this.db!.prepare(`
+                    UPDATE semantic_chunks SET embedding_stored = 1, lancedb_id = ? WHERE chunk_id = ?
+                `);
+
+                const fileChunkCounts: Record<string, number> = {};
+                for (const doc of allDocuments) {
+                    updateChunkStatusStmt.run(doc.id, doc.id);
+                    const filePath = doc.metadata.file_path;
+                    if (!fileChunkCounts[filePath]) {
+                        fileChunkCounts[filePath] = 0;
+                    }
+                    fileChunkCounts[filePath]++;
+                }
+
+                for (const filePath in fileChunkCounts) {
+                    updateMetaStmt.run(filePath, filePath);
+                }
+            });
+
+            updateDbTransaction();
+            totalProcessedCount += batch.length;
+            logger.info(`Batch ${batchNumber} completed successfully. Embedded ${allDocuments.length} documents.`);
           } else {
-            logger.error(`Failed to generate embeddings for ${row.file_path}`, { error: result.error });
+            totalFailedCount += batch.length;
+            logger.error(`Failed to generate embeddings for batch ${batchNumber}.`, { error: embeddingResult.error });
+            // Optionally, mark these files as failed to avoid retrying them immediately.
           }
 
-        } catch (error: any) {
-          logger.error(`Failed to process ${row.file_path}`, { error: error.message });
+        } catch (batchError: any) {
+          totalFailedCount += batch.length;
+          const filePaths = batch.map(r => r.file_path).join(', ');
+          logger.error(`An unexpected error occurred processing batch ${batchNumber}.`, {
+            error: batchError.message,
+            files: filePaths,
+            stack: batchError.stack,
+          });
         }
       }
 
-      logger.info(`Successfully generated embeddings for ${processedCount}/${pending.length} files (${chunkedCount} required chunking)`);
+      const duration = (Date.now() - startTime) / 1000;
+      logger.info('Embedding generation finished.', {
+        totalFiles: pending.length,
+        successfullyProcessed: totalProcessedCount,
+        failed: totalFailedCount,
+        durationSeconds: duration.toFixed(2),
+        filesPerSecond: (totalProcessedCount / duration).toFixed(2),
+      });
 
     } catch (error: any) {
-      logger.error('Error generating pending embeddings', { error: error.message });
+      logger.error('A critical error occurred during the embedding generation process.', {
+        error: error.message,
+        stack: error.stack,
+      });
     }
   }
 
@@ -955,7 +924,6 @@ export class SymbolGraphIndexer {
       }
 
       // Generate embeddings for newly indexed files
-      logger.info('Generating embeddings for indexed files...');
       await this.generatePendingEmbeddings();
 
       stats.indexingTimeMs = Date.now() - startTime;
@@ -1537,6 +1505,48 @@ export class SymbolGraphIndexer {
       this.drizzleDb = null;
       logger.info('SymbolGraphIndexer closed');
     }
+  }
+
+  /**
+   * Clear all indexed data from the database
+   */
+  async clearIndex(): Promise<void> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    logger.info('Clearing all indexed data from the database...');
+
+    const tables = [
+      'semantic_chunks',
+      'semantic_metadata',
+      'bm25_documents',
+      'imports',
+      'symbols',
+      'fts5_documents',
+      'indexed_files',
+    ];
+
+    this.db.transaction(() => {
+      for (const table of tables) {
+        try {
+          // fts5_documents is a virtual table and needs a different delete syntax
+          if (table === 'fts5_documents') {
+            this.db!.prepare(`DELETE FROM ${table} WHERE 1=1;`).run();
+          } else {
+            this.db!.prepare(`DELETE FROM ${table};`).run();
+          }
+          logger.debug(`Cleared table: ${table}`);
+        } catch (error: any) {
+          // Ignore errors for tables that might not exist yet
+          if (!error.message.includes('no such table')) {
+            logger.warn(`Could not clear table: ${table}`, { error: error.message });
+          }
+        }
+      }
+    })();
+
+    logger.info('All indexed data has been cleared.');
   }
 }
 
