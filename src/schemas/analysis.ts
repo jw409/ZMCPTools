@@ -22,7 +22,7 @@ export const contextHierarchy = sqliteTable('context_hierarchy', {
 
 // Analysis metadata tracking
 export const analysisMetadata = sqliteTable('analysis_metadata', {
-  id: integer('id').primaryKey(),
+  id: integer('id'),
   projectPath: text('project_path').notNull(),
   analysisType: text('analysis_type').notNull(),
   version: text('version').default('1.0.0').notNull(),

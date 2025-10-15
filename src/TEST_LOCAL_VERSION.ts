@@ -8,8 +8,8 @@ const logger = new Logger('build-info');
 export const BUILD_INFO = {
   version: "0.4.1",
   hostname: "aircooled3",
-  timestamp: "2025-10-15T04:31:41.061Z",
-  humanReadable: "Oct 14, 2025, 09:31 PM PDT"
+  timestamp: "2025-10-15T06:22:39.426Z",
+  humanReadable: "Oct 14, 2025, 11:22 PM PDT"
 } as const;
 
 export const LOCAL_VERSION_MARKER = `LOCAL_BUILD_v${BUILD_INFO.version}_${BUILD_INFO.hostname}_${BUILD_INFO.timestamp}`;
