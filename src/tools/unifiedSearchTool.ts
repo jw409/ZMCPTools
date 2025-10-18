@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { SymbolGraphIndexer } from '../services/SymbolGraphIndexer.js';
 import { EmbeddingClient } from '../services/EmbeddingClient.js';
+import { DatabaseConnectionManager } from '../database/index.js';
 import { Logger } from '../utils/logger.js';
 
 const logger = new Logger('unified-search');
@@ -42,7 +43,7 @@ function analyzeQuery(query: string): {
   // Decision logic
   const shouldUseBM25 = hasCodeSymbols || hasFileExtensions || hasImportStatements || hasCodeKeywords || hasSpecialChars;
   const shouldUseSemantic = hasQuestionWords || hasConceptualTerms || hasNaturalLanguage || (!shouldUseBM25 && query.split(' ').length > 1);
-  const shouldUseReranker = isComplexQuery || hasMultipleConcepts;
+  const shouldUseReranker = shouldUseSemantic;
 
   // Generate reasoning
   let reasoning = "Auto-routing: ";
@@ -79,7 +80,7 @@ const UnifiedSearchSchema = z.object({
   use_reranker: z.boolean().default(false).describe("Enable neural reranker for final ranking precision (two-stage retrieval)"),
 
   // Pipeline configuration
-  candidate_limit: z.number().int().min(10).max(200).default(50).describe("Initial candidates to retrieve before reranking (stage 1)"),
+  candidate_limit: z.number().int().min(10).max(200).default(100).describe("Initial candidates to retrieve before reranking (stage 1)"),
   final_limit: z.number().int().min(1).max(50).default(10).describe("Final results to return after reranking (stage 2)"),
 
   // Search tuning
@@ -203,12 +204,28 @@ Returns real file paths, content snippets, and extracted code symbols (functions
       const symbolGraphIndexer = new SymbolGraphIndexer();
       const embeddingClient = new EmbeddingClient();
 
-      // Initialize symbol graph indexer
-      await symbolGraphIndexer.initialize(repository_path);
+      // Get database manager for this repository
+      const dbManager = await DatabaseConnectionManager.getInstance(repository_path);
 
-      // Index repository first (with incremental caching)
-      logger.info('Indexing repository files for search (incremental)');
-      const indexingStats = await symbolGraphIndexer.indexRepository(repository_path);
+      // Initialize symbol graph indexer
+      await symbolGraphIndexer.initialize(repository_path, dbManager);
+
+      // Check if index exists (fast BM25/FTS5 query - <1ms)
+      logger.info('Checking for existing index');
+      const indexStats = await symbolGraphIndexer.getStats();
+
+      if (indexStats.totalFiles === 0) {
+        return {
+          success: false,
+          error: "No search index found for this repository",
+          suggestion: "Please run index_symbol_graph tool first to create the search index",
+          help: {
+            tool_name: "index_symbol_graph",
+            parameters: { repository_path },
+            why: "search_knowledge_graph_unified requires an existing index. Indexing is a separate operation to keep search fast."
+          }
+        };
+      }
 
       // Check GPU availability
       const gpuAvailable = await embeddingClient.checkGPUService();
@@ -218,16 +235,19 @@ Returns real file paths, content snippets, and extracted code symbols (functions
       logger.info('Starting unified search', {
         query: query.substring(0, 50),
         pipeline: { bm25: use_bm25, semantic: use_gpu_embeddings, reranker: use_reranker },
-        gpu_available: gpuAvailable
+        gpu_available: gpuAvailable,
+        index_stats: {
+          total_files: indexStats.totalFiles,
+          files_with_embeddings: indexStats.filesWithEmbeddings
+        }
       });
 
       metrics.gpu_available = gpuAvailable;
       metrics.model_used = gpuAvailable ? modelInfo.name : 'CPU fallback';
-      metrics.indexing_stats = {
-        total_files: indexingStats.totalFiles,
-        indexed_files: indexingStats.indexedFiles,
-        languages: indexingStats.languages,
-        indexing_time_ms: indexingStats.indexingTimeMs
+      metrics.index_stats = {
+        total_files: indexStats.totalFiles,
+        files_with_embeddings: indexStats.filesWithEmbeddings,
+        total_symbols: indexStats.totalSymbols
       };
 
       // STAGE 1: Candidate Retrieval
@@ -242,18 +262,20 @@ Returns real file paths, content snippets, and extracted code symbols (functions
         // Search files using BM25 (code-only search domain)
         const bm25SearchResults = await symbolGraphIndexer.searchKeyword(query, candidate_limit);
 
-        bm25Results = bm25SearchResults.map(result => ({
-          id: result.filePath,
-          entity_name: result.filePath.split('/').pop() || result.filePath,
-          entity_type: 'file',
-          description: `File: ${result.filePath}`,
-          file_path: result.filePath,
-          content: result.snippet || '',
-          relevant_symbols: result.symbols || [],
-          bm25_score: result.score,
-          search_method: 'bm25',
-          match_type: result.matchType
-        }));
+        bm25Results = bm25SearchResults
+          .filter(result => result.filePath) // Filter out null/undefined filePath
+          .map(result => ({
+            id: result.filePath,
+            entity_name: result.filePath?.split('/').pop() || result.filePath || 'unknown',
+            entity_type: 'file',
+            description: `File: ${result.filePath}`,
+            file_path: result.filePath,
+            content: result.snippet || '',
+            relevant_symbols: result.symbols || [],
+            bm25_score: result.score,
+            search_method: 'bm25',
+            match_type: result.matchType
+          }));
 
         metrics.stage_timings.bm25_ms = Date.now() - bm25Start;
         metrics.component_scores.bm25_results = bm25Results.length;
@@ -266,19 +288,21 @@ Returns real file paths, content snippets, and extracted code symbols (functions
         // Search files using semantic similarity (intent-only search domain)
         const semanticSearchResults = await symbolGraphIndexer.searchSemantic(query, candidate_limit);
 
-        semanticResults = semanticSearchResults.map(result => ({
-          id: result.filePath,
-          entity_name: result.filePath.split('/').pop() || result.filePath,
-          entity_type: 'file',
-          description: `File: ${result.filePath}`,
-          file_path: result.filePath,
-          content: result.snippet || '',
-          relevant_symbols: result.symbols || [],
-          semantic_score: result.score,
-          search_method: 'semantic',
-          match_type: result.matchType,
-          metadata: result.metadata
-        }));
+        semanticResults = semanticSearchResults
+          .filter(result => result.filePath) // Filter out null/undefined filePath
+          .map(result => ({
+            id: result.filePath,
+            entity_name: result.filePath?.split('/').pop() || result.filePath || 'unknown',
+            entity_type: 'file',
+            description: `File: ${result.filePath}`,
+            file_path: result.filePath,
+            content: result.snippet || '',
+            relevant_symbols: result.symbols || [],
+            semantic_score: result.score,
+            search_method: 'semantic',
+            match_type: result.matchType,
+            metadata: result.metadata
+          }));
 
         logger.info('Semantic search completed', {
           results: semanticResults.length,
@@ -291,40 +315,61 @@ Returns real file paths, content snippets, and extracted code symbols (functions
 
       // Combine results based on enabled methods
       if (use_bm25 && use_gpu_embeddings) {
-        // Hybrid fusion with weighted combination
+        // Reciprocal Rank Fusion (RRF) - Cormack & Clarke 2009
+        // Score = Σ(1 / (k + rank_i)) where rank_i is 1-indexed rank in source i
+        // k = 60 is standard default (balances contribution from different sources)
+        const RRF_K = 60;
         const resultMap = new Map();
 
-        // Add BM25 results
-        bm25Results.forEach(result => {
-          resultMap.set(result.id, {
-            ...result,
-            combined_score: (result.bm25_score || 0) * bm25_weight,
-            bm25_score: result.bm25_score || 0,
-            semantic_score: 0
-          });
-        });
+        // Build rank maps (results are already sorted by score)
+        const bm25Ranks = new Map(bm25Results.map((r, idx) => [r.id, idx + 1]));
+        const semanticRanks = new Map(semanticResults.map((r, idx) => [r.id, idx + 1]));
 
-        // Add/merge semantic results
-        semanticResults.forEach(result => {
-          const existing = resultMap.get(result.id);
-          if (existing) {
-            existing.combined_score += (result.semantic_score || 0) * semantic_weight;
-            existing.semantic_score = result.semantic_score || 0;
-            existing.search_method = 'hybrid';
-          } else {
-            resultMap.set(result.id, {
-              ...result,
-              combined_score: (result.semantic_score || 0) * semantic_weight,
-              bm25_score: 0,
-              semantic_score: result.semantic_score || 0,
-              search_method: 'semantic_only'
+        // Collect all unique document IDs
+        const allIds = new Set([...bm25Ranks.keys(), ...semanticRanks.keys()]);
+
+        // Compute RRF score for each document
+        for (const id of allIds) {
+          const bm25Rank = bm25Ranks.get(id);
+          const semanticRank = semanticRanks.get(id);
+
+          // RRF contributions from each source
+          const bm25Contribution = bm25Rank ? 1 / (RRF_K + bm25Rank) : 0;
+          const semanticContribution = semanticRank ? 1 / (RRF_K + semanticRank) : 0;
+
+          // Combined RRF score
+          const rrfScore = bm25Contribution + semanticContribution;
+
+          // Find the original result object (prefer BM25 for metadata)
+          const bm25Result = bm25Results.find(r => r.id === id);
+          const semanticResult = semanticResults.find(r => r.id === id);
+          const baseResult = bm25Result || semanticResult;
+
+          if (baseResult) {
+            resultMap.set(id, {
+              ...baseResult,
+              combined_score: rrfScore,
+              bm25_score: bm25Result?.bm25_score || 0,
+              semantic_score: semanticResult?.semantic_score || 0,
+              bm25_rank: bm25Rank || 0,
+              semantic_rank: semanticRank || 0,
+              rrf_score: rrfScore,
+              search_method: (bm25Rank && semanticRank) ? 'hybrid_rrf' :
+                            (bm25Rank ? 'bm25_only' : 'semantic_only')
             });
           }
-        });
+        }
 
         allCandidates = Array.from(resultMap.values())
-          .sort((a, b) => b.combined_score - a.combined_score)
+          .sort((a, b) => b.rrf_score - a.rrf_score)
           .slice(0, candidate_limit);
+
+        logger.info('RRF fusion completed', {
+          bm25_results: bm25Results.length,
+          semantic_results: semanticResults.length,
+          unique_docs: allIds.size,
+          top_rrf_score: allCandidates[0]?.rrf_score || 0
+        });
 
       } else if (use_bm25) {
         allCandidates = bm25Results.slice(0, candidate_limit);
@@ -439,10 +484,23 @@ Returns real file paths, content snippets, and extracted code symbols (functions
         }
       });
 
+      const cleanedResults = finalResults.map(r => ({
+        file_path: r.file_path,
+        score: r.final_score || r.combined_score || r.bm25_score || r.semantic_score || 0,
+        snippet: r.content,
+        symbols: (r.relevant_symbols || []).map((s: any) => ({
+            name: s.name,
+            type: s.type,
+            line: s.line || (s.location ? parseInt(s.location.split(':')[0], 10) : 0),
+            signature: s.signature
+        })),
+        match_reason: r.search_method
+      }));
+
       // Prepare response
       const response: any = {
         success: true,
-        results: finalResults,
+        results: cleanedResults,
         metadata: {
           query,
           pipeline_used: {

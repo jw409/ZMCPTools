@@ -29,6 +29,16 @@ import { Logger } from '../utils/logger.js';
 import { StoragePathResolver } from './StoragePathResolver.js';
 import { getPartitionClassifier, type PartitionInfo } from './PartitionClassifier.js';
 import { SemanticChunker } from './SemanticChunker.js';
+import { DatabaseManager } from '../database/index.js';
+import {
+  SymbolIndexRepository,
+  SymbolsRepository,
+  ImportsExportsRepository,
+  type FileSymbolMetadata,
+  type SymbolData,
+  type ImportData
+} from '../repositories/index.js';
+import { fileHashes } from '../schemas/analysis.js';
 
 
 const logger = new Logger('symbol-graph-indexer');
@@ -121,15 +131,21 @@ export class SymbolGraphIndexer {
   private drizzleDb: any = null;
   private dbPath: string | null = null;
   private astTool: TreeSitterASTTool;
-  private bm25Service: BM25Service;
+  private bm25Service!: BM25Service; // Initialized in initialize()
   private embeddingClient: EmbeddingClient;
   private lanceDBService: LanceDBService | null = null;
   private semanticChunker: SemanticChunker;
   private projectPath: string = '';
   private readonly COLLECTION_NAME = 'symbol_graph_embeddings';
 
-  // File patterns to ignore (aligned with RealFileIndexingService)
-  private ignorePatterns = [
+  // Drizzle repositories (initialized in initialize())
+  private symbolIndexRepo!: SymbolIndexRepository;
+  private symbolsRepo!: SymbolsRepository;
+  private importsExportsRepo!: ImportsExportsRepository;
+
+  // Default file patterns to ignore - these are suggestions only
+  // The caller (IndexSymbolGraphTool) now owns filtering logic following Unix philosophy
+  static readonly DEFAULT_IGNORE_PATTERNS = [
     '**/node_modules/**',
     '**/dist/**',
     '**/build/**',
@@ -141,7 +157,14 @@ export class SymbolGraphIndexer {
     '**/yarn.lock',
     '**/.env*',
     '**/logs/**',
-    '**/*.log'
+    '**/*.log',
+    // Chrome/browser profile exclusions (prevent minified extension code indexing)
+    '**/chrome_profile*/**',
+    '**/browser_profiles/**',
+    '**/.cache/**',
+    '**/extensions/**',
+    '**/Default/Extensions/**',
+    '**/Profile*/Extensions/**'
   ];
 
   // Indexable extensions (aligned with RealFileIndexingService)
@@ -165,7 +188,6 @@ export class SymbolGraphIndexer {
 
   constructor() {
     this.astTool = new TreeSitterASTTool();
-    this.bm25Service = new BM25Service();
     this.embeddingClient = new EmbeddingClient();
     this.semanticChunker = new SemanticChunker({
       targetTokens: 28800,  // 90% of 32K for qwen3_4b
@@ -188,37 +210,23 @@ export class SymbolGraphIndexer {
    * Initialize database at project root (domU-aware)
    * Follows ASTCacheService pattern for storage location
    */
-  async initialize(projectPath: string = process.cwd()): Promise<void> {
-    // Use StoragePathResolver for consistent project-local storage
-    const storageConfig = StoragePathResolver.getStorageConfig({
-      preferLocal: true,
-      projectPath
-    });
-    StoragePathResolver.ensureStorageDirectories(storageConfig);
-
-    this.dbPath = StoragePathResolver.getSQLitePath(storageConfig, 'symbol_graph');
+  async initialize(projectPath: string = process.cwd(), dbManager: DatabaseManager): Promise<void> {
+    this.dbPath = dbManager.dbPath;
+    this.db = dbManager.db;
+    this.drizzleDb = dbManager.drizzle;
 
     logger.info('Initializing SymbolGraphIndexer', {
       dbPath: this.dbPath,
-      scope: storageConfig.scope,
       projectPath
     });
 
-    // Ensure directory exists
-    await fs.mkdir(path.dirname(this.dbPath), { recursive: true });
+    // Initialize Drizzle repositories
+    this.symbolIndexRepo = new SymbolIndexRepository(this.drizzleDb);
+    this.symbolsRepo = new SymbolsRepository(this.drizzleDb);
+    this.importsExportsRepo = new ImportsExportsRepository(this.drizzleDb);
 
-    // Create database connection
-    this.db = new Database(this.dbPath);
-
-    // Configure for optimal performance (same as ASTCacheService)
-    this.db.pragma('journal_mode = WAL');
-    this.db.pragma('synchronous = NORMAL');
-    this.db.pragma('cache_size = 10000');
-    this.db.pragma('temp_store = memory');
-    this.db.pragma('mmap_size = 268435456'); // 256MB
-
-    // Initialize Drizzle
-    this.drizzleDb = drizzle(this.db);
+    // Initialize BM25 service with the provided manager
+    this.bm25Service = new BM25Service(dbManager, this.drizzleDb, projectPath);
 
     // Create schema
     await this.initializeSchema();
@@ -312,22 +320,19 @@ export class SymbolGraphIndexer {
       const stats = await fs.stat(filePath);
       const currentMtime = stats.mtime.getTime();
 
+      // CRITICAL: Use relative path for database queries (consistent with indexFile())
+      const relativePath = path.relative(this.projectPath, filePath);
+
       // Query cached record
       const cached = this.db.prepare(`
-        SELECT mtime, file_hash FROM indexed_files WHERE file_path = ?
-      `).get(filePath) as { mtime: number; file_hash: string } | undefined;
+        SELECT file_hash FROM symbol_index WHERE file_path = ?
+      `).get(relativePath) as { file_hash: string } | undefined;
 
       if (!cached) {
         return true; // Never indexed
       }
 
-      // Quick check: mtime changed?
-      if (cached.mtime !== currentMtime) {
-        logger.debug('File mtime changed', { filePath: path.basename(filePath) });
-        return true;
-      }
-
-      // Paranoid check: hash changed? (catches mtime edge cases)
+      // Check hash to detect content changes
       const content = await fs.readFile(filePath, 'utf-8');
       const currentHash = this.hashContent(content);
 
@@ -525,117 +530,98 @@ export class SymbolGraphIndexer {
         authority: partitionInfo.authority
       });
 
-      // Store in database (transaction for atomicity)
-      const relativePath = path.relative(process.cwd(), filePath);
+      // Store in database using Drizzle repositories (transaction for atomicity)
+      // CRITICAL: Use this.projectPath (not process.cwd()) for consistent relative paths
+      const relativePath = path.relative(this.projectPath, filePath);
 
-      this.db.transaction(() => {
-        // 1. Update indexed_files (with partition metadata)
-        this.db!.prepare(`
-          INSERT OR REPLACE INTO indexed_files
-          (file_path, mtime, file_hash, language, size, symbol_count, last_indexed_at, index_version, partition_id, authority_score)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-          relativePath,
-          fileStats.mtime.getTime(),
-          fileHash,
-          language,
-          fileStats.size,
-          symbols.length,
-          Date.now(),
-          1,
-          partitionInfo.partition,
-          partitionInfo.authority
-        );
+      // Prepare symbol data for repositories
+      const flattenedSymbols: SymbolData[] = [];
+      const flattenSymbols = (symList: any[], parentName: string | null = null) => {
+        for (const sym of symList) {
+          const isExported = exportedNames.has(sym.name);
+          const location = sym.location ||
+            (sym.startPosition && sym.endPosition
+              ? `${sym.startPosition.row}:${sym.startPosition.column}-${sym.endPosition.row}:${sym.endPosition.column}`
+              : '0:0-0:0');
 
-        // 2. Clear old symbols, imports, and FTS5 entries
-        this.db!.prepare('DELETE FROM symbols WHERE file_path = ?').run(relativePath);
-        this.db!.prepare('DELETE FROM imports WHERE source_file = ?').run(relativePath);
-        this.db!.prepare('DELETE FROM fts5_documents WHERE file_path = ?').run(relativePath);
-        this.db!.prepare('DELETE FROM semantic_chunks WHERE file_path = ?').run(relativePath);
+          const [lineStr, colStr] = location.split(':')[0]?.split('-')[0]?.split(':') || ['0', '0'];
 
-        // 3. Insert symbols (flatten hierarchical structure)
-        const symbolStmt = this.db!.prepare(`
-          INSERT INTO symbols (file_path, name, type, signature, location, parent_symbol, is_exported)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-        `);
+          flattenedSymbols.push({
+            filePath: relativePath,
+            name: sym.name,
+            type: (sym.kind || 'variable') as any,
+            line: parseInt(lineStr) || 0,
+            column: parseInt(colStr) || 0,
+            isExported,
+            signature: sym.text || undefined,
+            location,
+            parentSymbol: parentName || undefined,
+          });
 
-        // Flatten hierarchical symbols while preserving parent-child relationships
-        const flattenSymbols = (symList: any[], parentName: string | null = null) => {
-          for (const sym of symList) {
-            // Check if symbol is exported
-            const isExported = exportedNames.has(sym.name) ? 1 : 0;
-
-            // Use compact location if available, fallback to constructing from positions
-            const location = sym.location ||
-              (sym.startPosition && sym.endPosition
-                ? `${sym.startPosition.row}:${sym.startPosition.column}-${sym.endPosition.row}:${sym.endPosition.column}`
-                : '0:0-0:0');
-
-            symbolStmt.run(
-              relativePath,
-              sym.name,
-              sym.kind || 'unknown',
-              sym.text || null,
-              location,
-              parentName,
-              isExported
-            );
-
-            // Recursively flatten children (methods within classes)
-            if (sym.children && sym.children.length > 0) {
-              flattenSymbols(sym.children, sym.name);
-            }
+          if (sym.children && sym.children.length > 0) {
+            flattenSymbols(sym.children, sym.name);
           }
-        };
-
-        flattenSymbols(symbols);
-
-        // 4. Insert imports
-        const importStmt = this.db!.prepare(`
-          INSERT INTO imports (source_file, import_path, imported_name, is_default)
-          VALUES (?, ?, ?, ?)
-        `);
-
-        for (const imp of imports) {
-          importStmt.run(
-            relativePath,
-            imp.source || '',
-            imp.imported || null,
-            imp.isDefault ? 1 : 0
-          );
         }
+      };
+      flattenSymbols(symbols);
 
-        // 5. Store BM25 document
-        this.db!.prepare(`
-          INSERT OR REPLACE INTO bm25_documents (file_path, searchable_text, term_count)
-          VALUES (?, ?, ?)
-        `).run(
-          relativePath,
-          codeContent,
-          codeContent.split(' ').length
-        );
+      // Prepare import data
+      const importData: ImportData[] = imports.map(imp => ({
+        filePath: relativePath,
+        modulePath: imp.source || '',
+        symbolName: imp.imported || undefined,
+        isDefault: imp.isDefault || false,
+      }));
 
-        // 6. Store semantic metadata
-        this.db!.prepare(`
-          INSERT OR REPLACE INTO semantic_metadata (file_path, embedding_text, embedding_stored)
-          VALUES (?, ?, ?)
-        `).run(
-          relativePath,
-          intentContent,
-          0 // embedding_stored - will be set when embedding generated
-        );
+      // Use repositories to store data
+      // Note: SymbolIndexRepository expects fileHash and fileSize to be set by caller
+      const symbolIndexData = {
+        filePath: relativePath,
+        exportedSymbols: Array.from(exportedNames),
+        definedSymbols: flattenedSymbols.map(s => s.name),
+        importedSymbols: imports.map(i => i.source || ''),
+        classNames: flattenedSymbols.filter(s => s.type === 'class').map(s => s.name),
+        functionNames: flattenedSymbols.filter(s => s.type === 'function').map(s => s.name),
+        language,
+        hasExports: exportedNames.size > 0,
+        fileHash,
+        fileSize: fileStats.size,
+      };
 
-        // 7. Phase 1: Store FTS5 document for markdown/docs
-        if (isDoc && intentContent.length > 0) {
-          this.db!.prepare(`
-            INSERT INTO fts5_documents (file_path, content)
-            VALUES (?, ?)
-          `).run(
-            relativePath,
-            intentContent
-          );
-        }
-      })();
+      await this.symbolIndexRepo.indexFiles([symbolIndexData]);
+
+      // Insert into fileHashes first (required for symbols/imports_exports FK constraints)
+      this.drizzleDb!.insert(fileHashes)
+        .values({
+          filePath: relativePath,
+          hash: fileHash,
+          size: fileStats.size,
+          lastModified: fileStats.mtime.toISOString(),
+          contextId: null,
+        })
+        .onConflictDoUpdate({
+          target: fileHashes.filePath,
+          set: {
+            hash: fileHash,
+            size: fileStats.size,
+            lastModified: fileStats.mtime.toISOString(),
+            analyzedAt: sql`CURRENT_TIMESTAMP`,
+          }
+        })
+        .run();
+
+      await this.symbolsRepo.upsertSymbolsForFile(relativePath, flattenedSymbols);
+      await this.importsExportsRepo.upsertImportsForFile(relativePath, importData);
+
+      // Store semantic metadata (raw SQL until we create SemanticMetadataRepository)
+      this.db!.prepare(`
+        INSERT OR REPLACE INTO semantic_metadata (file_path, embedding_text, embedding_stored)
+        VALUES (?, ?, ?)
+      `).run(
+        relativePath,
+        intentContent,
+        0 // embedding_stored - will be set when embedding generated
+      );
 
       // Index in BM25 service
       await this.bm25Service.indexDocument({
@@ -850,8 +836,9 @@ export class SymbolGraphIndexer {
 
   /**
    * Find all indexable files in repository
+   * Unix philosophy: Accept ignore patterns from caller, don't hardcode
    */
-  private async findIndexableFiles(repoPath: string): Promise<string[]> {
+  private async findIndexableFiles(repoPath: string, ignorePatterns: string[] = []): Promise<string[]> {
     const patterns = Array.from(this.indexableExtensions).map(ext => `**/*${ext}`);
     let allFiles: string[] = [];
 
@@ -859,7 +846,7 @@ export class SymbolGraphIndexer {
       const files = await glob(pattern, {
         cwd: repoPath,
         absolute: true,
-        ignore: this.ignorePatterns,
+        ignore: ignorePatterns,
         nodir: true
       });
       allFiles.push(...files);
@@ -884,7 +871,28 @@ export class SymbolGraphIndexer {
     return validFiles;
   }
 
-  async indexRepository(repoPath: string): Promise<IndexStats> {
+  /**
+   * Index repository following Unix philosophy:
+   * - Explicit files: Honor the list exactly, NO filtering
+   * - Discovery mode: Use caller's ignore patterns
+   * - Debug logging: Configurable via LOG_LEVEL env var
+   *
+   * @param repoPath - Repository root path
+   * @param options - Indexing options
+   * @param options.files - Explicit file list (bypasses discovery and ignore patterns)
+   * @param options.ignorePatterns - Patterns to ignore in discovery mode only
+   * @param options.skipEmbeddings - Skip embedding generation
+   * @param options.debug - Enable debug logging (default: LOG_LEVEL=debug)
+   */
+  async indexRepository(
+    repoPath: string,
+    options: {
+      files?: string[];
+      ignorePatterns?: string[];
+      skipEmbeddings?: boolean;
+      debug?: boolean;
+    } = {}
+  ): Promise<IndexStats> {
     const startTime = Date.now();
     const stats: IndexStats = {
       totalFiles: 0,
@@ -895,7 +903,8 @@ export class SymbolGraphIndexer {
       errors: []
     };
 
-    logger.info('Starting repository indexing', { repoPath });
+    // Enable debug logging if requested or LOG_LEVEL=debug
+    const debugMode = options.debug || process.env.LOG_LEVEL === 'debug';
 
     try {
       // Ensure database initialized
@@ -903,28 +912,66 @@ export class SymbolGraphIndexer {
         await this.initialize(repoPath);
       }
 
-      // Find all indexable files
-      const files = await this.findIndexableFiles(repoPath);
-      stats.totalFiles = files.length;
+      // Two-mode behavior: Explicit files OR discovery with ignore patterns
+      let filesToProcess: string[];
 
-      logger.info(`Found ${files.length} indexable files`);
+      if (options.files && options.files.length > 0) {
+        // EXPLICIT MODE: Honor the list exactly, NO filtering
+        filesToProcess = options.files;
+        logger.info('Indexing mode: explicit files (bypassing ignore patterns)', {
+          fileCount: filesToProcess.length
+        });
+
+        if (debugMode) {
+          logger.debug('Explicit files provided', {
+            files: filesToProcess.map(f => path.basename(f)),
+            fullPaths: filesToProcess
+          });
+        }
+      } else {
+        // DISCOVERY MODE: Use caller's ignore patterns (or defaults)
+        const ignorePatterns = options.ignorePatterns || SymbolGraphIndexer.DEFAULT_IGNORE_PATTERNS;
+        filesToProcess = await this.findIndexableFiles(repoPath, ignorePatterns);
+
+        logger.info('Indexing mode: discovery with ignore patterns', {
+          fileCount: filesToProcess.length,
+          patternCount: ignorePatterns.length
+        });
+
+        if (debugMode) {
+          logger.debug('Discovery mode ignore patterns', {
+            patterns: ignorePatterns,
+            filesFound: filesToProcess.length
+          });
+        }
+      }
+
+      stats.totalFiles = filesToProcess.length;
+      logger.info(`Processing ${filesToProcess.length} files`);
 
       // Process files in batches
       const batchSize = 50;
-      for (let i = 0; i < files.length; i += batchSize) {
-        const batch = files.slice(i, i + batchSize);
+      for (let i = 0; i < filesToProcess.length; i += batchSize) {
+        const batch = filesToProcess.slice(i, i + batchSize);
 
         for (const filePath of batch) {
           await this.indexFile(filePath, stats);
         }
 
         if (i % (batchSize * 4) === 0) {
-          logger.info(`Indexing progress: ${i}/${files.length} files`);
+          logger.info(`Indexing progress: ${i}/${filesToProcess.length} files`);
         }
       }
 
-      // Generate embeddings for newly indexed files
-      await this.generatePendingEmbeddings();
+      // Generate embeddings for newly indexed files (skip if user doesn't want semantic search)
+      if (!options.skipEmbeddings) {
+        if (debugMode) {
+          logger.debug('Starting embedding generation');
+        }
+        await this.generatePendingEmbeddings();
+      } else {
+        logger.info('Skipping embedding generation (semantic search disabled)');
+      }
 
       stats.indexingTimeMs = Date.now() - startTime;
       stats.indexedFiles = stats.alreadyIndexed + stats.needsIndexing; // Total indexed (new + cached)
@@ -940,9 +987,19 @@ export class SymbolGraphIndexer {
         indexedFiles: stats.indexedFiles,
         alreadyIndexed: stats.alreadyIndexed,
         needsIndexing: stats.needsIndexing,
-        cacheHitRate: `${((stats.alreadyIndexed / stats.totalFiles) * 100).toFixed(1)}%`,
+        skipped: stats.skipped,
+        cacheHitRate: stats.totalFiles > 0 ? `${((stats.alreadyIndexed / stats.totalFiles) * 100).toFixed(1)}%` : 'N/A',
         timeMs: stats.indexingTimeMs
       });
+
+      if (debugMode) {
+        logger.debug('Indexing summary', {
+          mode: options.files ? 'explicit' : 'discovery',
+          processedFiles: stats.indexedFiles,
+          skippedFiles: stats.skipped,
+          errors: stats.errors.length
+        });
+      }
 
       return stats;
 
@@ -961,33 +1018,41 @@ export class SymbolGraphIndexer {
     // Get more results initially to allow for authority re-ranking
     const bm25Results = await this.bm25Service.search(query, limit * 3);
 
-    const results = bm25Results.map(doc => {
-      // Get symbols for this file
-      const symbols = this.db!.prepare(`
-        SELECT * FROM symbols WHERE file_path = ?
-      `).all(doc.id) as SymbolRecord[];
+    const results = (await Promise.all(bm25Results.map(async (doc) => {
+      try {
+        // Get symbols for this file
+        const symbols = this.db!.prepare(`
+          SELECT * FROM symbols WHERE file_path = ?
+        `).all(doc.id) as SymbolRecord[];
 
-      // Get partition metadata for authority weighting
-      const fileInfo = this.db!.prepare(`
-        SELECT partition_id, authority_score FROM indexed_files WHERE file_path = ?
-      `).get(doc.id) as { partition_id: string; authority_score: number } | undefined;
+        // Use default authority score (partition metadata not yet in symbol_index)
+        const authorityScore = 0.5; // Default authority score
+        const weightedScore = doc.score * authorityScore;
 
-      const authorityScore = fileInfo?.authority_score || 0.35; // Default to project authority
-      const weightedScore = doc.score * authorityScore;
+        // Read file excerpt for context (skip if file doesn't exist)
+        const filePath = path.join(this.projectPath, doc.id);
+        const fileContent = await fs.readFile(filePath, 'utf-8');
+        const snippet = fileContent.substring(0, 300);
 
-      return {
-        filePath: doc.id,
-        score: weightedScore,
-        matchType: 'keyword' as const,
-        symbols,
-        // Store original score and authority for debugging
-        metadata: {
-          originalScore: doc.score,
-          authorityScore,
-          partition: fileInfo?.partition_id || 'unknown'
-        }
-      };
-    });
+        return {
+          filePath: doc.id,
+          score: weightedScore,
+          matchType: 'keyword' as const,
+          symbols,
+          snippet,
+          // Store original score and authority for debugging
+          metadata: {
+            originalScore: doc.score,
+            authorityScore,
+            partition: 'project' // Default partition
+          }
+        };
+      } catch (error: any) {
+        // File doesn't exist or can't be read - skip this result (stale index entry)
+        logger.debug('Skipping search result for missing file', { filePath: doc.id, error: error.message });
+        return null;
+      }
+    }))).filter((result): result is SearchResult => result !== null);
 
     // Sort by weighted score and return top N
     results.sort((a, b) => b.score - a.score);
@@ -1025,7 +1090,7 @@ export class SymbolGraphIndexer {
         this.COLLECTION_NAME,
         query,
         limit * 3,
-        0.3  // threshold - return results with >30% similarity
+        0.2  // threshold - return results with >20% similarity
       );
 
       // Map to SearchResult format with authority weighting
@@ -1039,9 +1104,10 @@ export class SymbolGraphIndexer {
         });
 
         // Get symbols for this file
+        const relativePath = path.relative(this.projectPath, path.resolve(this.projectPath, result.metadata.file_path));
         const symbols = this.db!.prepare(`
           SELECT * FROM symbols WHERE file_path = ?
-        `).all(result.metadata.file_path) as SymbolRecord[];
+        `).all(relativePath) as SymbolRecord[];
 
         // Authority score from LanceDB metadata (stored during indexing)
         const authorityScore = result.metadata.authority_score || 0.35;
@@ -1355,7 +1421,9 @@ export class SymbolGraphIndexer {
 
     return results.map(row => {
       // Parse location format: "startLine:startCol-endLine:endCol"
-      const [start, end] = row.location.split('-');
+      // Handle null/undefined location with fallback to 0:0-0:0
+      const locationStr = row.location || '0:0-0:0';
+      const [start, end] = locationStr.split('-');
       const [startLine, startCol] = start.split(':').map(Number);
       const [endLine, endCol] = end.split(':').map(Number);
 
@@ -1401,7 +1469,9 @@ export class SymbolGraphIndexer {
 
     return results.map(row => {
       // Parse location format: "startLine:startCol-endLine:endCol"
-      const [start, end] = row.location.split('-');
+      // Handle null/undefined location with fallback to 0:0-0:0
+      const locationStr = row.location || '0:0-0:0';
+      const [start, end] = locationStr.split('-');
       const [startLine, startCol] = start.split(':').map(Number);
       const [endLine, endCol] = end.split(':').map(Number);
 
@@ -1467,16 +1537,16 @@ export class SymbolGraphIndexer {
       throw new Error('Database not initialized');
     }
 
-    const totalFiles = (this.db.prepare('SELECT COUNT(*) as count FROM indexed_files').get() as { count: number }).count;
+    const totalFiles = (this.db.prepare('SELECT COUNT(*) as count FROM symbol_index').get() as { count: number }).count;
     const filesWithEmbeddings = (this.db.prepare('SELECT COUNT(*) as count FROM semantic_metadata WHERE embedding_stored = 1').get() as { count: number }).count;
     const totalSymbols = (this.db.prepare('SELECT COUNT(*) as count FROM symbols').get() as { count: number }).count;
-    const totalImports = (this.db.prepare('SELECT COUNT(*) as count FROM imports').get() as { count: number }).count;
+    const totalImports = (this.db.prepare('SELECT COUNT(*) as count FROM imports_exports WHERE type = \'import\'').get() as { count: number }).count;
 
-    const lastIndexedResult = this.db.prepare('SELECT MAX(last_indexed_at) as max_time FROM indexed_files').get() as { max_time: number | null };
-    const lastIndexed = lastIndexedResult.max_time ? new Date(lastIndexedResult.max_time).toISOString() : null;
+    const lastIndexedResult = this.db.prepare('SELECT MAX(indexed_at) as max_time FROM symbol_index').get() as { max_time: number | null };
+    const lastIndexed = lastIndexedResult.max_time ? new Date(lastIndexedResult.max_time * 1000).toISOString() : null;
 
     const languageStats = this.db.prepare(`
-      SELECT language, COUNT(*) as count FROM indexed_files GROUP BY language
+      SELECT language, COUNT(*) as count FROM symbol_index GROUP BY language
     `).all() as Array<{ language: string; count: number }>;
 
     const languages: Record<string, number> = {};

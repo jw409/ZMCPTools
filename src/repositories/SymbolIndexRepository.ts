@@ -10,7 +10,6 @@
 
 import { eq, desc, and, sql, inArray } from 'drizzle-orm';
 import { Logger } from '../utils/logger.js';
-import { BaseRepository } from './BaseRepository.js';
 import {
   symbolIndex,
   symbolBoostConfig,
@@ -49,10 +48,8 @@ export interface SymbolLookupResult {
   totalOccurrences: number;
 }
 
-export class SymbolIndexRepository extends BaseRepository {
-  constructor(db: any) {
-    super(db, logger);
-  }
+export class SymbolIndexRepository {
+  constructor(private db: any) {}
 
   /**
    * Index a file's symbol metadata
@@ -107,26 +104,26 @@ export class SymbolIndexRepository extends BaseRepository {
 
     const now = Date.now() / 1000;
 
-    return await this.db.transaction(async (tx: any) => {
-      const symbolIndexData = files.map(file => ({
-        file_path: file.filePath,
-        file_hash: file.fileHash,
-        exported_symbols: JSON.stringify(file.exportedSymbols),
-        defined_symbols: JSON.stringify(file.definedSymbols),
-        imported_symbols: JSON.stringify(file.importedSymbols),
-        class_names: JSON.stringify(file.classNames),
-        function_names: JSON.stringify(file.functionNames),
-        language: file.language,
-        symbol_count: file.exportedSymbols.length + file.definedSymbols.length,
-        has_exports: file.hasExports,
-        file_size: file.fileSize,
-        indexed_at: now,
-        updated_at: now,
-        parse_time_ms: file.parseTimeMs
-      }));
+    const symbolIndexData = files.map(file => ({
+      file_path: file.filePath,
+      file_hash: file.fileHash,
+      exported_symbols: JSON.stringify(file.exportedSymbols),
+      defined_symbols: JSON.stringify(file.definedSymbols),
+      imported_symbols: JSON.stringify(file.importedSymbols),
+      class_names: JSON.stringify(file.classNames),
+      function_names: JSON.stringify(file.functionNames),
+      language: file.language,
+      symbol_count: file.exportedSymbols.length + file.definedSymbols.length,
+      has_exports: file.hasExports,
+      file_size: file.fileSize,
+      indexed_at: now,
+      updated_at: now,
+      parse_time_ms: file.parseTimeMs
+    }));
 
+    this.db.transaction((tx: any) => {
       for (const data of symbolIndexData) {
-        await tx.insert(symbolIndex)
+        tx.insert(symbolIndex)
           .values(data)
           .onConflictDoUpdate({
             target: symbolIndex.file_path,
@@ -134,16 +131,17 @@ export class SymbolIndexRepository extends BaseRepository {
               ...data,
               updated_at: now
             }
-          });
+          })
+          .run();
       }
-
-      logger.info('Batch indexing completed', {
-        filesIndexed: files.length,
-        avgParseTime: files.reduce((sum, f) => sum + (f.parseTimeMs || 0), 0) / files.length
-      });
-
-      return files.length;
     });
+
+    logger.info('Batch indexing completed', {
+      filesIndexed: files.length,
+      avgParseTime: files.reduce((sum, f) => sum + (f.parseTimeMs || 0), 0) / files.length
+    });
+
+    return files.length;
   }
 
   /**

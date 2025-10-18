@@ -75,9 +75,9 @@ export { TaskRepository } from './TaskRepository.js';
 export { PlanRepository } from './PlanRepository.js';
 export { CommunicationRepository } from './CommunicationRepository.js';
 export { DocumentationRepository } from './DocumentationRepository.js';
-export { ScrapeJobRepository } from './ScrapeJobRepository.js';
-export { WebsiteRepository } from './WebsiteRepository.js';
-export { WebsitePagesRepository } from './WebsitePagesRepository.js';
+// Deprecated: export { ScrapeJobRepository } from './ScrapeJobRepository.js';
+// Deprecated: export { WebsiteRepository } from './WebsiteRepository.js';
+// Deprecated: export { WebsitePagesRepository } from './WebsitePagesRepository.js';
 export { ToolCallLogRepository } from './ToolCallLogRepository.js';
 export { ErrorLogRepository } from './ErrorLogRepository.js';
 export {
@@ -90,7 +90,16 @@ export {
   type FileSymbolMetadata,
   type SymbolLookupResult
 } from './SymbolIndexRepository.js';
-export { RoomRepository } from './RoomRepository.js';
+export {
+  SymbolsRepository,
+  type SymbolData
+} from './SymbolsRepository.js';
+export {
+  ImportsExportsRepository,
+  type ImportData,
+  type ExportData
+} from './ImportsExportsRepository.js';
+// Deprecated: export { RoomRepository } from './RoomRepository.js';
 
 /**
  * Helper function to create a type-safe repository with full TypeScript support

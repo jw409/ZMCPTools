@@ -16,6 +16,7 @@ import Database from 'better-sqlite3';
 import { StoragePathResolver } from './StoragePathResolver.js';
 import { SymbolIndexRepository } from '../repositories/SymbolIndexRepository.js';
 import type { FileSymbolMetadata } from '../repositories/SymbolIndexRepository.js';
+import { DatabaseManager } from '../database/index.js';
 
 export interface BM25Document {
   id: string;
@@ -53,23 +54,28 @@ export class BM25Service {
     max_terms_per_doc: 1000
   };
 
-  constructor(config?: Partial<BM25Config>, drizzleDb?: any) {
+  constructor(dbManager: DatabaseManager, drizzleDb?: any, projectPath?: string) {
     this.logger = new Logger('bm25-service');
     this.mcptoolsDir = path.join(homedir(), '.mcptools');
 
     // Use StoragePathResolver for project-local isolation
-    const storageConfig = StoragePathResolver.getStorageConfig({ preferLocal: true });
+    const storageConfig = StoragePathResolver.getStorageConfig({ preferLocal: true, projectPath });
     const defaultDbPath = StoragePathResolver.getSQLitePath(storageConfig, 'bm25_index');
 
     this.config = {
       ...this.DEFAULT_CONFIG,
       database_path: defaultDbPath,
-      ...config
     };
 
+    this.logger.info('BM25Service initialized', {
+      databasePath: this.config.database_path,
+      projectPath,
+      preferLocal: true
+    });
+
     // Initialize symbol repository for symbol-aware search
-    if (drizzleDb) {
-      this.symbolRepository = new SymbolIndexRepository(drizzleDb);
+    if (dbManager) {
+      this.symbolRepository = new SymbolIndexRepository(dbManager);
       this.logger.info('Symbol-aware search enabled');
     }
 
@@ -121,9 +127,13 @@ export class BM25Service {
         CREATE INDEX IF NOT EXISTS idx_created_at ON document_metadata(created_at)
       `);
 
+      // Log database stats to verify we're using the right database
+      const docCount = this.db.prepare('SELECT COUNT(*) as count FROM bm25_documents').get() as { count: number };
+
       this.logger.info('BM25 database initialized', {
         path: this.config.database_path,
-        config: this.config
+        config: this.config,
+        documentCount: docCount.count
       });
 
     } catch (error) {
@@ -231,17 +241,26 @@ export class BM25Service {
       }
 
       // Use FTS5 BM25 ranking with custom parameters
+      // Note: No table alias for FTS5 virtual tables
       const searchQuery = `
         SELECT
-          d.id,
-          d.text,
-          d.metadata,
+          id,
+          text,
+          metadata,
           bm25(bm25_documents, ?, ?) as score
-        FROM bm25_documents d
+        FROM bm25_documents
         WHERE bm25_documents MATCH ?
         ORDER BY score
         LIMIT ? OFFSET ?
       `;
+
+      this.logger.debug('BM25 search starting', {
+        query: processedQuery,
+        limit,
+        offset,
+        k1: this.config.k1,
+        b: this.config.b
+      });
 
       const stmt = this.db.prepare(searchQuery);
       const rows = stmt.all(
@@ -256,10 +275,10 @@ export class BM25Service {
         id: row.id,
         text: row.text,
         score: -row.score,  // FTS5 BM25 returns negative scores, flip for intuitive ordering
-        metadata: row.metadata ? JSON.parse(row.metadata) : undefined
+        metadata: row.metadata ? JSON.parse(row.metadata) : {}
       }));
 
-      this.logger.debug('BM25 search completed', {
+      this.logger.info('BM25 search completed', {
         query: processedQuery,
         resultCount: results.length,
         topScore: results[0]?.score || 0
@@ -267,8 +286,13 @@ export class BM25Service {
 
       return results;
 
-    } catch (error) {
-      this.logger.error('BM25 search failed', { query, error });
+    } catch (error: any) {
+      this.logger.error('BM25 search failed', {
+        query,
+        processedQuery: this.preprocessQuery(query),
+        error: error.message,
+        stack: error.stack
+      });
       return [];
     }
   }
