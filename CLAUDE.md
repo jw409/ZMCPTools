@@ -17,7 +17,7 @@ authoritative:
   infrastructure: etc/INFRASTRUCTURE.md
 rules:
   prefer_resources: MCP resources over tools (97% token reduction)
-  gpu_search: Port 8765 required for semantic search
+  gpu_search: Port 8765 dual-pool workers (2 embedding + 1 reranking)
   no_new_databases: Use REPOSITORY_HOOKPOINTS.json repositories (not var/db/*.db)
 habits:
   before_grep: "file://*/symbols (30 tokens vs grep 200 tokens)"
@@ -40,7 +40,7 @@ active_work:
   priority_1: "#55 MTEB leaderboard - benchmark search effectiveness"
   priority_2: "#53 Phase 1 - FTS5 + dual-indexing (code + markdown)"
   priority_3: "#54 Phase 2 - Hybrid search (BM25+FTS5+semantic+reranker)"
-  context: "Search architecture: FTS5=SQLite tokenizer, BM25=pre-parsed ranking, semantic=gemma3, reranker=qwen3-4B port 8765"
+  context: "Search architecture: FTS5=SQLite tokenizer, BM25=pre-parsed ranking, semantic=qwen3-embedding-4B (2 workers), reranker=qwen3-reranker-4B (1 worker) port 8765"
 diagnostics:
   pattern: "diagnostics object in tool response"
   flag: "diagnostics.level (warn, error, info)"
@@ -63,8 +63,8 @@ diagnostics:
 **Architecture context**:
 - FTS5: SQLite extension using BM25 for ranking (full-text docs)
 - BM25 direct: Pre-parsed symbols/imports (skip tokenization)
-- Semantic: gemma3 embeddings 768D (conceptual search)
-- Reranker: qwen3-reranker 4B port 8765 (optional, precision-critical)
+- Semantic: qwen3-embedding 4B (2560D, 28 embed/s, 2 workers port 8765)
+- Reranker: qwen3-reranker 4B (1 worker port 8765, ~700ms/100-pairs)
 
 **Related**: TalentOS #82 (Phase 3 adaptive search)
 
