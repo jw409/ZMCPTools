@@ -56,7 +56,9 @@ export class CommunicationTools {
   private knowledgeGraphService: KnowledgeGraphService;
 
   constructor(private db: DatabaseManager, repositoryPath: string) {
-    this.communicationService = new CommunicationService(db);
+    // Calculate filesystem rooms path: {repositoryPath}/talent-os/var/rooms
+    const fsRoomsPath = `${repositoryPath}/talent-os/var/rooms`;
+    this.communicationService = new CommunicationService(db, fsRoomsPath);
     // Initialize KnowledgeGraphService with VectorSearchService
     this.initializeKnowledgeGraphService(db);
   }
@@ -83,22 +85,39 @@ export class CommunicationTools {
   getTools(): McpTool[] {
     return [
       {
+        name: 'report_critical_failure',
+        description: 'Reports a critical failure that prevents the agent from continuing its task.',
+        inputSchema: z.object({
+          reason: z.string(),
+        }),
+        handler: this.reportCriticalFailure.bind(this),
+      },
+      {
+        name: 'register_and_orient',
+        description: 'Registers the agent and receives its task orientation.',
+        inputSchema: z.object({
+          role: z.string(),
+          room_id: z.string(),
+        }),
+        handler: this.registerAndOrient.bind(this),
+      },
+      {
         name: 'join_room',
-        description: 'Join communication room for coordination',
+        description: 'Joins a coordination room to enable reading and posting messages. Call this before using send_message or wait_for_messages in a room.',
         inputSchema: zodToJsonSchema(JoinRoomSchema) as any,
         outputSchema: zodToJsonSchema(JoinRoomResponseSchema) as any,
         handler: this.joinRoom.bind(this)
       },
       {
         name: 'send_message',
-        description: 'Send message to coordination room',
+        description: 'Posts your message to a coordination room so other agents can read it. Use this to share results, report numbers you calculated, ask questions, or communicate progress in multi-agent tasks.',
         inputSchema: zodToJsonSchema(SendMessageSchema) as any,
         outputSchema: zodToJsonSchema(SendMessageResponseSchema) as any,
         handler: this.sendMessage.bind(this)
       },
       {
         name: 'wait_for_messages',
-        description: 'Wait for messages in a room',
+        description: 'Waits for new messages to arrive in a room (polling with timeout). Use wait_for_messages when you need real-time updates, or get_room_messages to read existing messages.',
         inputSchema: zodToJsonSchema(WaitForMessagesSchema) as any,
         outputSchema: zodToJsonSchema(WaitForMessagesResponseSchema) as any,
         handler: this.waitForMessages.bind(this)
@@ -119,14 +138,14 @@ export class CommunicationTools {
       },
       {
         name: 'list_rooms',
-        description: 'List communication rooms with filtering and pagination',
+        description: 'Lists all available coordination rooms in the repository. Use this only when you need to discover what rooms exist, NOT for reading or posting messages to a specific room you already know about.',
         inputSchema: zodToJsonSchema(ListRoomsSchema) as any,
         outputSchema: zodToJsonSchema(ListRoomsResponseSchema) as any,
         handler: this.listRooms.bind(this)
       },
       {
         name: 'list_room_messages',
-        description: 'List messages from a specific room with pagination',
+        description: 'Reads all messages posted in a coordination room by other agents. Use this to see what other agents have said, find numbers or data they shared, or check progress in multi-agent workflows.',
         inputSchema: zodToJsonSchema(ListRoomMessagesSchema) as any,
         outputSchema: zodToJsonSchema(ListRoomMessagesResponseSchema) as any,
         handler: this.listRoomMessages.bind(this)
@@ -156,6 +175,64 @@ export class CommunicationTools {
   }
 
 
+
+  async reportCriticalFailure(args: { reason: string; room_id: string }): Promise<any> {
+    const { reason, room_id } = args;
+    const room = await this.communicationService.getRoom(room_id);
+    if (!room) {
+      return createErrorResponse('Room not found', `Room '${room_id}' not found`, 'ROOM_NOT_FOUND');
+    }
+
+    await this.communicationService.updateRoomMetadata(room_id, {
+        ...room.roomMetadata,
+        status: 'failed',
+        failure_reason: reason,
+    });
+
+    return createSuccessResponse('Critical failure reported.', {
+        room_id: room_id,
+        status: 'failed',
+        reason: reason,
+    });
+  }
+
+  async getRoomSummary(args: { room_id: string }): Promise<any> {
+    const { room_id } = args;
+    const room = await this.communicationService.getRoom(room_id);
+    if (!room) {
+      return createErrorResponse('Room not found', `Room '${room_id}' not found`, 'ROOM_NOT_FOUND');
+    }
+
+    const state = await this.communicationService.getRoomState(room_id);
+    const agents = await this.communicationService.getRoomParticipants(room_id);
+    const messages = await this.communicationService.getRecentMessages(room_id, 10);
+
+    return createSuccessResponse('Room summary retrieved.', {
+      room: room,
+      state: state,
+      agents: agents,
+      recent_messages: messages,
+    });
+  }
+
+  async registerAndOrient(args: { role: string; room_id: string }): Promise<any> {
+    const { role, room_id } = args;
+    const state = await this.communicationService.getRoomState(room_id);
+    const task = state?.agent_tasks?.[role];
+
+    if (!task) {
+      return createErrorResponse(
+        'Task not found for role',
+        `Task not found for role '${role}' in room '${room_id}'`,
+        'TASK_NOT_FOUND'
+      );
+    }
+
+    return createSuccessResponse('Registration and orientation complete.', {
+      introduction: `Welcome, ${role}. Your task has been confirmed.`,
+      task: task,
+    });
+  }
 
   /**
    * Join communication room for coordination
